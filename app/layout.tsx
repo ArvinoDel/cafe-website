@@ -9,6 +9,7 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
   title: 'Kopi Nako — Siang Makan Nasi, Kalau Malam Minum Kopi',
   description:
     'Scan barcode di meja, pesan kopi favoritmu tanpa antri. Kopi susu, latte aren, dan nasi khas Indonesia dalam satu konsep kedai kekinian.',
