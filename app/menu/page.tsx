@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
@@ -32,7 +33,10 @@ function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
 }
 
+const CART_KEY = 'kopi-nako-cart';
+
 export default function MenuPage() {
+  const router = useRouter();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +96,11 @@ export default function MenuPage() {
 
   const cartCount = cart.reduce((sum, c) => sum + c.quantity, 0);
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+
+  const goToCheckout = useCallback(() => {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    router.push('/checkout');
+  }, [cart, router]);
 
   return (
     <div className="min-h-screen bg-cream">
@@ -388,7 +397,10 @@ export default function MenuPage() {
                     <QrCode className="w-4 h-4 flex-shrink-0" />
                     <span>Pesanan akan dikirim ke Meja A-12</span>
                   </div>
-                  <button className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95">
+                  <button
+                    onClick={goToCheckout}
+                    className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95"
+                  >
                     Pesan Sekarang — {formatPrice(cartTotal)}
                   </button>
                 </div>
