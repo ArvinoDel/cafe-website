@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Menu, X, Download, Coffee } from 'lucide-react';
-import { fadeInUp } from '@/lib/animations';
+import { Menu, X, QrCode, Coffee } from 'lucide-react';
 
 const navLinks = [
   { label: 'Home', href: '#home' },
-  { label: 'Menu', href: '#menu' },
+  { label: 'Menu', href: '/menu' },
   { label: 'Stores', href: '#stores' },
-  { label: 'Sustainability', href: '#sustainability' },
+  { label: 'Our Story', href: '#story' },
 ];
 
 export default function Navbar() {
@@ -31,7 +30,7 @@ export default function Navbar() {
       transition={{ duration: 0.5, ease: [0.25, 0.4, 0.25, 1] }}
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
-          ? 'bg-white/80 backdrop-blur-xl shadow-soft border-b border-forest-100/60'
+          ? 'bg-cream/80 backdrop-blur-xl shadow-soft border-b border-coffee-100/60'
           : 'bg-transparent'
       }`}
     >
@@ -39,23 +38,17 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo */}
           <a href="#home" className="flex items-center gap-2 group">
-            <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-forest-700 text-white transition-transform group-hover:scale-105">
+            <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-coffee-700 text-cream transition-transform group-hover:scale-105">
               <Coffee className="w-5 h-5" />
             </div>
-            <span
-              className={`text-lg sm:text-xl font-extrabold tracking-tight transition-colors ${
-                scrolled ? 'text-forest-800' : 'text-forest-800'
-              }`}
-            >
-              AURA
-            </span>
-            <span
-              className={`text-lg sm:text-xl font-light tracking-wide transition-colors ${
-                scrolled ? 'text-forest-500' : 'text-forest-500'
-              }`}
-            >
-              Coffee
-            </span>
+            <div className="flex flex-col leading-none">
+              <span className="text-lg sm:text-xl font-extrabold tracking-tight text-coffee-900">
+                KOPI
+              </span>
+              <span className="text-[10px] sm:text-xs font-medium tracking-[0.2em] text-coffee-500 uppercase">
+                Nako
+              </span>
+            </div>
           </a>
 
           {/* Desktop nav */}
@@ -64,10 +57,10 @@ export default function Navbar() {
               <a
                 key={link.href}
                 href={link.href}
-                className="text-sm font-medium text-charcoal/70 hover:text-forest-700 transition-colors relative group"
+                className="text-sm font-medium text-charcoal/70 hover:text-coffee-700 transition-colors relative group"
               >
                 {link.label}
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-forest-600 transition-all group-hover:w-full rounded-full" />
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-coffee-600 transition-all group-hover:w-full rounded-full" />
               </a>
             ))}
           </div>
@@ -75,17 +68,17 @@ export default function Navbar() {
           {/* CTA */}
           <div className="hidden md:block">
             <a
-              href="#download"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-forest-700 text-white text-sm font-semibold hover:bg-forest-800 transition-all hover:shadow-soft-lg active:scale-95"
+              href="#how-it-works"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-coffee-700 text-cream text-sm font-semibold hover:bg-coffee-800 transition-all hover:shadow-soft-lg active:scale-95"
             >
-              <Download className="w-4 h-4" />
-              Download App
+              <QrCode className="w-4 h-4" />
+              Scan to Order
             </a>
           </div>
 
           {/* Mobile toggle */}
           <button
-            className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg text-forest-800 hover:bg-forest-50 transition-colors"
+            className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg text-coffee-800 hover:bg-coffee-50 transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
           >
@@ -99,8 +92,7 @@ export default function Navbar() {
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          className="md:hidden bg-white/95 backdrop-blur-xl border-t border-forest-100 overflow-hidden"
+          className="md:hidden bg-cream/95 backdrop-blur-xl border-t border-coffee-100 overflow-hidden"
         >
           <div className="px-4 py-4 space-y-1">
             {navLinks.map((link) => (
@@ -108,18 +100,18 @@ export default function Navbar() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
-                className="block px-4 py-3 rounded-lg text-charcoal/80 hover:bg-forest-50 hover:text-forest-700 font-medium transition-colors"
+                className="block px-4 py-3 rounded-lg text-charcoal/80 hover:bg-coffee-50 hover:text-coffee-700 font-medium transition-colors"
               >
                 {link.label}
               </a>
             ))}
             <a
-              href="#download"
+              href="#how-it-works"
               onClick={() => setMobileOpen(false)}
-              className="flex items-center justify-center gap-2 mt-2 px-4 py-3 rounded-xl bg-forest-700 text-white font-semibold"
+              className="flex items-center justify-center gap-2 mt-2 px-4 py-3 rounded-xl bg-coffee-700 text-cream font-semibold"
             >
-              <Download className="w-4 h-4" />
-              Download App
+              <QrCode className="w-4 h-4" />
+              Scan to Order
             </a>
           </div>
         </motion.div>

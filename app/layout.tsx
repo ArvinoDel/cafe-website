@@ -9,12 +9,12 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'AURA Coffee — Specialty Coffee, One Click Away',
+  title: 'Kopi Nako — Siang Makan Nasi, Kalau Malam Minum Kopi',
   description:
-    'Order ahead on the AURA Coffee app. Grab your specialty coffee without the queue. Sustainable, direct-trade coffee delivered fast.',
+    'Scan barcode di meja, pesan kopi favoritmu tanpa antri. Kopi susu, latte aren, dan nasi khas Indonesia dalam satu konsep kedai kekinian.',
   openGraph: {
-    title: 'AURA Coffee — Specialty Coffee, One Click Away',
-    description: 'Order ahead on our app. Grab your coffee without the queue.',
+    title: 'Kopi Nako — Siang Makan Nasi, Kalau Malam Minum Kopi',
+    description: 'Scan barcode di meja, pesan kopi favoritmu tanpa antri.',
     images: [{ url: 'https://bolt.new/static/og_default.png' }],
   },
   twitter: {

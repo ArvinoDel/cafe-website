@@ -1,30 +1,27 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Clock, Bike, Leaf } from 'lucide-react';
+import { QrCode, Clock, UtensilsCrossed } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 
 const features = [
   {
+    icon: QrCode,
+    title: 'Scan Barcode',
+    description:
+      'Setiap meja punya barcode. Scan dengan HP-mu, lihat menu lengkap, dan pesan langsung tanpa panggil waiter.',
+  },
+  {
     icon: Clock,
-    title: 'Order Ahead',
+    title: 'Tanpa Antri',
     description:
-      'Skip the line. Place your order on the app and pick it up freshly brewed — no waiting, no stress.',
-    color: 'forest',
+      'Pesan dari meja, kopi datang ke meja. Ngopi tanpa antrian, tanpa ribet — #sobatnakogariskeras.',
   },
   {
-    icon: Bike,
-    title: 'Fast Delivery',
+    icon: UtensilsCrossed,
+    title: 'Nasi & Kopi',
     description:
-      'Craving coffee at home or the office? Get your favorite drinks delivered hot in under 30 minutes.',
-    color: 'sage',
-  },
-  {
-    icon: Leaf,
-    title: 'Sustainable',
-    description:
-      'Every cup supports direct-trade farmers and eco-friendly packaging. Great coffee that gives back.',
-    color: 'forest',
+      'Dari nasi campur khas Indonesia sampai es kopi susu creamy. Semua dalam satu konsep kedai kekinian.',
   },
 ];
 
@@ -41,22 +38,22 @@ export default function ValueProposition() {
         >
           <motion.span
             variants={fadeInUp}
-            className="text-sm font-semibold text-forest-600 uppercase tracking-wider"
+            className="text-sm font-semibold text-coffee-600 uppercase tracking-wider"
           >
-            Why AURA
+            Kenapa Nako
           </motion.span>
           <motion.h2
             variants={fadeInUp}
-            className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-forest-900 tracking-tight text-balance"
+            className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight text-balance"
           >
-            Built for the way you coffee
+            Ngopi kekinian, cara kekinian
           </motion.h2>
           <motion.p
             variants={fadeInUp}
             className="mt-4 text-lg text-charcoal/60"
           >
-            We blend technology and craft to bring you a seamless,
-            sustainable coffee experience — every single day.
+            Kami gabungkan kopi specialty, makanan Indonesia, dan teknologi
+            self-service — bikin ngopi jadi lebih gampang dan lebih asyik.
           </motion.p>
         </motion.div>
 
@@ -74,24 +71,18 @@ export default function ValueProposition() {
                 key={feature.title}
                 variants={fadeInUp}
                 whileHover={{ y: -6 }}
-                className="group relative bg-white rounded-2xl p-8 border border-forest-100/80 hover:border-forest-200 hover:shadow-soft-lg transition-all duration-300"
+                className="group relative bg-white rounded-2xl p-8 border border-coffee-100/80 hover:border-coffee-200 hover:shadow-soft-lg transition-all duration-300"
               >
-                <div
-                  className={`flex items-center justify-center w-14 h-14 rounded-2xl mb-6 transition-transform group-hover:scale-110 ${
-                    feature.color === 'forest'
-                      ? 'bg-forest-700 text-white'
-                      : 'bg-sage-100 text-sage-500'
-                  }`}
-                >
+                <div className="flex items-center justify-center w-14 h-14 rounded-2xl mb-6 transition-transform group-hover:scale-110 bg-coffee-700 text-cream">
                   <Icon className="w-7 h-7" />
                 </div>
-                <h3 className="text-xl font-bold text-forest-900 mb-3">
+                <h3 className="text-xl font-bold text-coffee-900 mb-3">
                   {feature.title}
                 </h3>
                 <p className="text-charcoal/60 leading-relaxed">
                   {feature.description}
                 </p>
-                <div className="absolute bottom-0 left-8 right-8 h-0.5 bg-gradient-to-r from-forest-400 to-sage-300 rounded-full scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" />
+                <div className="absolute bottom-0 left-8 right-8 h-0.5 bg-gradient-to-r from-coffee-400 to-sand-300 rounded-full scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left" />
               </motion.div>
             );
           })}

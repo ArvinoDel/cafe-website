@@ -4,56 +4,54 @@
 
 @layer base {
   :root {
-    /* AURA Coffee Brand Colors */
-    --forest-50: #f0f7f1;
-    --forest-100: #dcebe0;
-    --forest-200: #bbd7c2;
-    --forest-300: #8fbc9f;
-    --forest-400: #5e9874;
-    --forest-500: #3d7a56;
-    --forest-600: #2d6144;
-    --forest-700: #1a4d2e;
-    --forest-800: #163d25;
-    --forest-900: #0f2b1a;
-    --forest-950: #08180e;
+    /* Kopi Nako Brand Colors - warm, earthy, coffee-toned */
+    --coffee-50: #faf6f2;
+    --coffee-100: #f1e8de;
+    --coffee-200: #e3d0bf;
+    --coffee-300: #cdaa8b;
+    --coffee-400: #b5845e;
+    --coffee-500: #9c6638;
+    --coffee-600: #855229;
+    --coffee-700: #6b4122;
+    --coffee-800: #52341c;
+    --coffee-900: #3a2415;
+    --coffee-950: #1e120a;
 
-    --sage-50: #f4f8f5;
-    --sage-100: #e6efe8;
-    --sage-200: #cdded1;
-    --sage-300: #a8c8af;
-    --sage-400: #7eab88;
-    --sage-500: #5d8e6b;
+    --cream: #faf6f2;
+    --sand-50: #fdf9f3;
+    --sand-100: #f8eede;
+    --sand-200: #f0dcc0;
+    --sand-300: #e4c298;
 
-    --cream: #f8f9fa;
-    --charcoal: #1f2937;
+    --charcoal: #2a1f17;
 
     /* shadcn compatibility */
-    --background: 0 0% 100%;
-    --foreground: 210 11% 15%;
+    --background: 30 25% 98%;
+    --foreground: 20 30% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 210 11% 15%;
+    --card-foreground: 20 30% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 210 11% 15%;
-    --primary: 143 49% 20%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 143 25% 90%;
-    --secondary-foreground: 143 49% 20%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 143 25% 90%;
-    --accent-foreground: 143 49% 20%;
+    --popover-foreground: 20 30% 12%;
+    --primary: 25 45% 27%;
+    --primary-foreground: 30 25% 98%;
+    --secondary: 30 35% 90%;
+    --secondary-foreground: 25 45% 27%;
+    --muted: 30 20% 95%;
+    --muted-foreground: 20 10% 42%;
+    --accent: 30 40% 88%;
+    --accent-foreground: 25 45% 27%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 143 49% 20%;
+    --border: 30 20% 88%;
+    --input: 30 20% 88%;
+    --ring: 25 45% 27%;
     --radius: 0.75rem;
 
-    --chart-1: 143 49% 20%;
-    --chart-2: 143 25% 60%;
-    --chart-3: 143 25% 40%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --chart-1: 25 45% 27%;
+    --chart-2: 30 40% 55%;
+    --chart-3: 30 30% 70%;
+    --chart-4: 43 60% 65%;
+    --chart-5: 20 60% 50%;
   }
 }
 
@@ -65,7 +63,7 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-white text-foreground;
+    @apply bg-cream text-foreground;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

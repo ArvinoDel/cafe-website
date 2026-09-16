@@ -6,42 +6,42 @@ import { fadeInUp, staggerContainer } from '@/lib/animations';
 
 const menuItems = [
   {
-    name: 'Signature Palm Sugar Latte',
-    description: 'Smooth espresso, fresh milk, and rich palm sugar syrup.',
-    price: '$4.50',
+    name: 'Es Kopi Susu Nako',
+    description: 'Kopi susu creamy dengan gula aren khas Nako.',
+    price: 'Rp 27.000',
     image:
       'https://images.pexels.com/photos/38523136/pexels-photo-38523136.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: 'Bestseller',
   },
   {
-    name: 'Matcha Espresso',
-    description: 'Ceremonial-grade matcha layered over a double espresso shot.',
-    price: '$5.00',
+    name: 'Latte Aren',
+    description: 'Espresso lembut dengan susu dan sirop gula aren asli.',
+    price: 'Rp 29.000',
+    image:
+      'https://images.pexels.com/photos/4913342/pexels-photo-4913342.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
+    badge: null,
+  },
+  {
+    name: 'Nasi Campur Nako',
+    description: 'Nasi dengan lauk pilihan, tempe, telur, dan sayuran.',
+    price: 'Rp 28.000',
+    image:
+      'https://images.pexels.com/photos/37081060/pexels-photo-37081060.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
+    badge: 'Bestseller',
+  },
+  {
+    name: 'Mango Lassi',
+    description: 'Yoghurt dengan mango dan bahan rahasia. Manis dan segar.',
+    price: 'Rp 25.000',
     image:
       'https://images.pexels.com/photos/8330286/pexels-photo-8330286.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: 'New',
-  },
-  {
-    name: 'Classic Cold Brew',
-    description: '18-hour steeped cold brew — smooth, bold, naturally sweet.',
-    price: '$4.00',
-    image:
-      'https://images.pexels.com/photos/36447680/pexels-photo-36447680.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
-    badge: null,
-  },
-  {
-    name: 'Double Espresso',
-    description: 'Single-origin beans pulled into a rich, velvety double shot.',
-    price: '$3.00',
-    image:
-      'https://images.pexels.com/photos/18604200/pexels-photo-18604200.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
-    badge: null,
   },
 ];
 
 export default function FeaturedMenu() {
   return (
-    <section id="menu" className="py-20 sm:py-28 bg-white">
+    <section id="menu-preview" className="py-20 sm:py-28 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           variants={staggerContainer}
@@ -53,23 +53,23 @@ export default function FeaturedMenu() {
           <div>
             <motion.span
               variants={fadeInUp}
-              className="text-sm font-semibold text-forest-600 uppercase tracking-wider"
+              className="text-sm font-semibold text-coffee-600 uppercase tracking-wider"
             >
-              Featured Menu
+              Menu Favorit
             </motion.span>
             <motion.h2
               variants={fadeInUp}
-              className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-forest-900 tracking-tight"
+              className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight"
             >
-              Crowd favorites
+              Yang paling dicari
             </motion.h2>
           </div>
           <motion.a
             variants={fadeInUp}
-            href="#"
-            className="text-forest-700 font-semibold text-sm hover:text-forest-800 transition-colors inline-flex items-center gap-1 group"
+            href="/menu"
+            className="text-coffee-700 font-semibold text-sm hover:text-coffee-800 transition-colors inline-flex items-center gap-1 group"
           >
-            View full menu
+            Lihat menu lengkap
             <span className="transition-transform group-hover:translate-x-1">→</span>
           </motion.a>
         </motion.div>
@@ -86,10 +86,10 @@ export default function FeaturedMenu() {
               key={item.name}
               variants={fadeInUp}
               whileHover={{ y: -8 }}
-              className="group bg-white rounded-2xl overflow-hidden border border-forest-100/80 hover:shadow-soft-lg transition-shadow duration-300 cursor-pointer"
+              className="group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 hover:shadow-soft-lg transition-shadow duration-300 cursor-pointer"
             >
               {/* Image */}
-              <div className="relative aspect-[4/5] overflow-hidden bg-forest-50">
+              <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
                 <img
                   src={item.image}
                   alt={item.name}
@@ -100,8 +100,8 @@ export default function FeaturedMenu() {
                   <span
                     className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold ${
                       item.badge === 'Bestseller'
-                        ? 'bg-forest-700 text-white'
-                        : 'bg-sage-300 text-forest-900'
+                        ? 'bg-coffee-700 text-cream'
+                        : 'bg-sand-300 text-coffee-900'
                     }`}
                   >
                     {item.badge}
@@ -111,17 +111,17 @@ export default function FeaturedMenu() {
 
               {/* Content */}
               <div className="p-5">
-                <h3 className="font-bold text-forest-900 text-base leading-snug mb-1">
+                <h3 className="font-bold text-coffee-900 text-base leading-snug mb-1">
                   {item.name}
                 </h3>
                 <p className="text-sm text-charcoal/50 leading-relaxed mb-4 line-clamp-2">
                   {item.description}
                 </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-extrabold text-forest-700">
+                  <span className="text-lg font-extrabold text-coffee-700">
                     {item.price}
                   </span>
-                  <button className="flex items-center justify-center w-9 h-9 rounded-xl bg-forest-50 text-forest-700 hover:bg-forest-700 hover:text-white transition-all active:scale-90 group-hover:bg-forest-700 group-hover:text-white">
+                  <button className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90 group-hover:bg-coffee-700 group-hover:text-cream">
                     <Plus className="w-5 h-5" />
                   </button>
                 </div>
