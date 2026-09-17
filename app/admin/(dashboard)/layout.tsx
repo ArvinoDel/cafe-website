@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseContext } from '@/lib/supabase-server';
-import { AdminProfileProvider, AdminHeader, type AdminProfile } from '../AdminShell';
+import { AdminProfileProvider, AdminHeader, UnlinkedAdminNotice, type AdminProfile } from '../AdminShell';
 import type { ReactNode } from 'react';
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
@@ -18,8 +18,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     .single();
 
   if (profileError || !profile) {
-    // User is authenticated but has no profile row — likely not an admin.
-    redirect('/admin/login');
+    // User is authenticated but has no profile row — render inline notice with signout instead of redirect loop
+    return <UnlinkedAdminNotice email={ctx.userClaims?.email} />;
   }
 
   type ProfileRow = {

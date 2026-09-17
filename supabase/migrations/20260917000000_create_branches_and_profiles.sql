@@ -1,4 +1,4 @@
-﻿/*
+/*
 # Admin authentication schema for Kopi Nako
 #
 # 1. New Tables

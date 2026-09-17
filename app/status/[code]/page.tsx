@@ -72,12 +72,10 @@ export default function OrderStatusPage() {
   const fetchOrder = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('order_code', code)
+        .rpc('get_order_by_code', { p_code: code })
         .maybeSingle();
 
-      if (data) {
+      if (data && !error) {
         setOrder(data as Order);
         setNotFound(false);
       } else {

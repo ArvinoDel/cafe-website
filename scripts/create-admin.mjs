@@ -38,11 +38,25 @@ const supabase = createClient(supabaseUrl, supabaseSecretKey, {
 });
 
 const args = process.argv.slice(2);
-const email = args[0] || process.env.ADMIN_EMAIL || 'admin@kopinako.id';
-const password = args[1] || process.env.ADMIN_PASSWORD || 'AdminNako2026!';
-const fullName = args[2] || 'Super Admin';
+const email = args[0] || process.env.ADMIN_EMAIL;
+const password = args[1] || process.env.ADMIN_PASSWORD;
+const fullName = args[2] || process.env.ADMIN_FULL_NAME || 'Super Admin';
 const role = args[3] || 'superadmin';
 const branchId = args[4] || null;
+
+if (!email) {
+  console.error('❌ Error: Admin email is required.');
+  console.error('Usage: node scripts/create-admin.mjs <email> <password> [fullName] [role] [branchId]');
+  console.error('Alternatively, set ADMIN_EMAIL in environment or .env.local.');
+  process.exit(1);
+}
+
+if (!password) {
+  console.error('❌ Error: Admin password is required. Never use hardcoded fallback passwords.');
+  console.error('Usage: node scripts/create-admin.mjs <email> <password> [fullName] [role] [branchId]');
+  console.error('Alternatively, set ADMIN_PASSWORD in environment or .env.local.');
+  process.exit(1);
+}
 
 async function main() {
   console.log('========================================');

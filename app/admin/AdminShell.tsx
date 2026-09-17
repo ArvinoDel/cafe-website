@@ -164,3 +164,43 @@ export function AdminHeader() {
     </header>
   );
 }
+
+// ─── Notice for authenticated users without profile row ───────────────────────
+
+export function UnlinkedAdminNotice({ email }: { email?: string }) {
+  const router = useRouter();
+
+  async function handleLogout() {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+        '',
+    );
+    await supabase.auth.signOut();
+    router.push('/admin/login');
+    router.refresh();
+  }
+
+  return (
+    <div className="min-h-screen bg-cream flex items-center justify-center px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl border border-coffee-100 shadow-soft-lg p-8 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
+          <Coffee className="w-8 h-8 text-amber-600" />
+        </div>
+        <h1 className="text-xl font-extrabold text-coffee-900">Akun Belum Terhubung</h1>
+        <p className="mt-2 text-charcoal/70 text-sm leading-relaxed">
+          Akun Anda {email ? <span className="font-semibold text-coffee-800">({email})</span> : ''} belum terhubung ke profil admin. Hubungi superadmin.
+        </p>
+        <button
+          onClick={handleLogout}
+          className="mt-6 w-full py-3 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors flex items-center justify-center gap-2"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Keluar</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
