@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search } from 'lucide-react';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import QrScannerModal from '@/components/ui/QrScannerModal';
 
 type MenuItem = {
   id: string;
@@ -34,9 +35,20 @@ function formatPrice(price: number): string {
 }
 
 const CART_KEY = 'kopi-nako-cart';
+const TABLE_KEY = 'kopi-nako-table';
+const BRANCH_KEY = 'kopi-nako-branch';
 
 export default function MenuPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-cream" />}>
+      <MenuPageInner />
+    </Suspense>
+  );
+}
+
+function MenuPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +56,49 @@ export default function MenuPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [tableNumber, setTableNumber] = useState<string | null>(null);
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [showQrGuide, setShowQrGuide] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  const handleScanSuccess = useCallback(
+    (scanned: string, scannedBranchId: string | null) => {
+      setTableNumber(scanned);
+      localStorage.setItem(TABLE_KEY, scanned);
+      if (scannedBranchId) {
+        setBranchId(scannedBranchId);
+        localStorage.setItem(BRANCH_KEY, scannedBranchId);
+      }
+      const url = scannedBranchId
+        ? `/menu?table=${scanned}&branch=${scannedBranchId}`
+        : `/menu?table=${scanned}`;
+      router.replace(url);
+    },
+    [router],
+  );
+
+  // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and
+  // is remembered; otherwise fall back to whatever table/branch was set last time.
+  // Users cannot manually edit the table code; it must come from QR scanning.
+  useEffect(() => {
+    const fromQr = searchParams.get('table');
+    const fromBranch = searchParams.get('branch');
+    if (fromQr && fromQr.trim()) {
+      const clean = fromQr.trim().toUpperCase();
+      setTableNumber(clean);
+      localStorage.setItem(TABLE_KEY, clean);
+    } else {
+      const stored = localStorage.getItem(TABLE_KEY);
+      if (stored) setTableNumber(stored);
+    }
+    if (fromBranch && fromBranch.trim()) {
+      setBranchId(fromBranch.trim());
+      localStorage.setItem(BRANCH_KEY, fromBranch.trim());
+    } else {
+      const storedBranch = localStorage.getItem(BRANCH_KEY);
+      if (storedBranch) setBranchId(storedBranch);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     async function fetchMenu() {
@@ -98,9 +153,15 @@ export default function MenuPage() {
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
 
   const goToCheckout = useCallback(() => {
+    if (!tableNumber) {
+      setScannerOpen(true);
+      return;
+    }
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    localStorage.setItem(TABLE_KEY, tableNumber);
+    if (branchId) localStorage.setItem(BRANCH_KEY, branchId);
     router.push('/checkout');
-  }, [cart, router]);
+  }, [cart, tableNumber, branchId, router]);
 
   return (
     <div className="min-h-screen bg-cream">
@@ -117,11 +178,28 @@ export default function MenuPage() {
             </a>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-coffee-50 text-coffee-700 text-sm font-medium">
-                <QrCode className="w-4 h-4" />
-                <span className="hidden sm:inline">Meja A-12</span>
-                <span className="sm:hidden">A-12</span>
-              </div>
+              {tableNumber ? (
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold select-none"
+                  title={`Terverifikasi dari QR Meja ${tableNumber}`}
+                >
+                  <QrCode className="w-4 h-4 text-coffee-600" />
+                  <span className="hidden sm:inline">Meja {tableNumber}</span>
+                  <span className="sm:hidden">{tableNumber}</span>
+                  <Lock className="w-3 h-3 text-coffee-400 ml-0.5" />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200/80 text-amber-800 text-xs sm:text-sm font-medium hover:bg-amber-100/70 transition-colors"
+                  title="Scan QR code di meja untuk memesan"
+                >
+                  <Camera className="w-4 h-4 text-amber-600" />
+                  <span className="hidden sm:inline">Scan Meja</span>
+                  <span className="sm:hidden">Scan</span>
+                </button>
+              )}
             </div>
 
             <button
@@ -139,6 +217,51 @@ export default function MenuPage() {
           </div>
         </div>
       </div>
+
+      {/* Table status banner */}
+      {tableNumber ? (
+        <div className="bg-coffee-50/70 border-b border-coffee-100/60 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs text-coffee-800">
+            <div className="flex items-center gap-2">
+              <QrCode className="w-3.5 h-3.5 text-coffee-600 flex-shrink-0" />
+              <span>
+                Terhubung ke <strong>Meja {tableNumber}</strong> via scan QR code.
+              </span>
+            </div>
+            <span className="text-[11px] text-coffee-600/80 flex items-center gap-1 font-medium select-none">
+              <Lock className="w-3 h-3" /> Terkunci otomatis
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-amber-50/90 border-b border-amber-200/60 px-4 py-2.5">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs sm:text-sm text-amber-900">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span>
+                <strong>Belum scan QR meja.</strong> Pemesanan hanya dapat dilakukan setelah memindai QR code di meja.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 text-white font-bold text-xs hover:bg-amber-700 transition-colors shadow-soft"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Scan di Web</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQrGuide(true)}
+                className="whitespace-nowrap font-bold underline hover:text-amber-950 text-xs"
+              >
+                Panduan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hero header */}
       <div className="bg-gradient-to-b from-sand-100/60 to-cream pt-12 pb-8">
@@ -393,22 +516,131 @@ export default function MenuPage() {
                       {formatPrice(cartTotal)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-coffee-50 text-coffee-700 text-xs">
-                    <QrCode className="w-4 h-4 flex-shrink-0" />
-                    <span>Pesanan akan dikirim ke Meja A-12</span>
-                  </div>
-                  <button
-                    onClick={goToCheckout}
-                    className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95"
-                  >
-                    Pesan Sekarang — {formatPrice(cartTotal)}
-                  </button>
+
+                  {tableNumber ? (
+                    <>
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-coffee-50 text-coffee-700 text-xs">
+                        <QrCode className="w-4 h-4 flex-shrink-0" />
+                        <span>
+                          Pesanan akan dikirim ke <strong className="font-bold text-coffee-900">Meja {tableNumber}</strong>
+                        </span>
+                        <Lock className="w-3 h-3 text-coffee-400 ml-auto" />
+                      </div>
+                      <button
+                        onClick={goToCheckout}
+                        className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95 shadow-soft"
+                      >
+                        Pesan Sekarang — {formatPrice(cartTotal)}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-xs">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Scan QR di Mejamu</p>
+                          <p className="text-amber-800/80 mt-0.5">
+                            Pemesanan hanya dapat diproses setelah memindai QR code di meja.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setScannerOpen(true)}
+                        className="w-full py-4 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 transition-colors active:scale-95 flex items-center justify-center gap-2 shadow-soft"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Scan QR Meja Sekarang
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </motion.div>
           </>
         )}
       </AnimatePresence>
+
+      {/* QR Scan Guide Modal */}
+      <AnimatePresence>
+        {showQrGuide && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-charcoal/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowQrGuide(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-soft-xl border border-coffee-100 text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center mx-auto mb-4">
+                <QrCode className="w-8 h-8 text-amber-700" />
+              </div>
+
+              <h3 className="text-lg font-bold text-coffee-900">
+                Pindai QR Code di Meja
+              </h3>
+              <p className="mt-2 text-xs sm:text-sm text-charcoal/70 leading-relaxed">
+                Pemesanan hanya dapat dilakukan dengan memindai kode QR yang ada di mejamu agar pesanan langsung diantar ke tempat dudukmu.
+              </p>
+
+              <div className="mt-5 space-y-2.5 text-left bg-coffee-50/70 rounded-2xl p-4 text-xs text-coffee-900">
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-coffee-700 text-cream text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                    1
+                  </span>
+                  <span>Duduk di salah satu meja Kopi Nako yang tersedia.</span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-coffee-700 text-cream text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                    2
+                  </span>
+                  <span>Scan QR code meja langsung lewat kamera website ini atau kamera HP.</span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-coffee-700 text-cream text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                    3
+                  </span>
+                  <span>Menu akan otomatis terhubung dengan nomor mejamu dan siap dipesan!</span>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQrGuide(false);
+                    setScannerOpen(true);
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 flex items-center justify-center gap-2 shadow-soft"
+                >
+                  <Camera className="w-4 h-4" />
+                  Buka Scanner Kamera Web
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowQrGuide(false)}
+                  className="w-full py-2.5 rounded-xl text-charcoal/60 hover:text-charcoal font-semibold text-xs transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* In-website live camera QR Scanner Modal */}
+      <QrScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanSuccess={handleScanSuccess}
+      />
 
       {/* Floating cart button (mobile) */}
       {cartCount > 0 && !cartOpen && (
