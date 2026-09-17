@@ -102,21 +102,68 @@ function MenuPageInner() {
 
   useEffect(() => {
     async function fetchMenu() {
-      const { data, error } = await supabase
-        .from('menu_items')
-        .select('*')
-        .eq('is_available', true)
-        .order('sort_order', { ascending: true });
+      setLoading(true);
+      if (branchId) {
+        // Fetch branch-specific overrides
+        const [menuRes, branchMenuRes] = await Promise.all([
+          supabase
+            .from('menu_items')
+            .select('*')
+            .order('sort_order', { ascending: true }),
+          supabase
+            .from('branch_menu_items')
+            .select('*')
+            .eq('branch_id', branchId),
+        ]);
 
-      if (error) {
-        setError('Gagal memuat menu. Coba lagi nanti.');
+        if (menuRes.error) {
+          setError('Gagal memuat menu. Coba lagi nanti.');
+        } else {
+          const rawItems = (menuRes.data || []) as MenuItem[];
+          const branchRows = (branchMenuRes.data || []) as {
+            menu_item_id: string;
+            is_available: boolean;
+            is_enabled: boolean;
+            custom_price: number | null;
+          }[];
+
+          const branchMap = new Map(branchRows.map((r) => [r.menu_item_id, r]));
+
+          const branchItems = rawItems
+            .filter((item) => {
+              const bRow = branchMap.get(item.id);
+              if (bRow) {
+                return bRow.is_enabled && bRow.is_available;
+              }
+              return item.is_available;
+            })
+            .map((item) => {
+              const bRow = branchMap.get(item.id);
+              if (bRow && bRow.custom_price != null) {
+                return { ...item, price: bRow.custom_price };
+              }
+              return item;
+            });
+
+          setItems(branchItems);
+        }
       } else {
-        setItems(data || []);
+        const { data, error } = await supabase
+          .from('menu_items')
+          .select('*')
+          .eq('is_available', true)
+          .order('sort_order', { ascending: true });
+
+        if (error) {
+          setError('Gagal memuat menu. Coba lagi nanti.');
+        } else {
+          setItems(data || []);
+        }
       }
       setLoading(false);
     }
     fetchMenu();
-  }, []);
+  }, [branchId]);
 
   const filteredItems = items.filter((item) => {
     const matchesCategory = activeCategory === 'all' || item.category === activeCategory;

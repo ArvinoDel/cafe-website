@@ -2,7 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Coffee, LogOut, LayoutDashboard, QrCode, Building2 } from 'lucide-react';
+import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 
 // ─── Profile type ─────────────────────────────────────────────────────────────
@@ -60,6 +60,7 @@ export function AdminHeader() {
 
   const navItems = [
     { href: '/admin', label: 'Pesanan', icon: LayoutDashboard },
+    { href: '/admin/menu', label: 'Menu', icon: UtensilsCrossed },
     { href: '/admin/tables', label: 'QR Meja', icon: QrCode },
     ...(profile?.role === 'superadmin'
       ? [{ href: '/admin/branches', label: 'Cabang & Akun', icon: Building2 }]
