@@ -27,6 +27,8 @@ type Branch = {
   id: string;
   name: string;
   address: string | null;
+  opening_hours: string | null;
+  maps_url: string | null;
   created_at: string;
 };
 
@@ -65,9 +67,9 @@ export default function BranchesPage() {
       <div className="flex items-center justify-center py-24">
         <div className="text-center">
           <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <p className="font-bold text-coffee-900">Akses Ditolak</p>
+          <p className="font-bold text-coffee-900">Access Denied</p>
           <p className="text-sm text-charcoal/50 mt-1">
-            Halaman ini hanya untuk superadmin.
+            This page is only accessible to superadmins.
           </p>
         </div>
       </div>
@@ -101,7 +103,7 @@ function BranchesContent() {
           id: r.id,
           full_name: r.full_name,
           branch_id: r.branch_id,
-          branch_name: r.branches?.name ?? '–',
+          branch_name: r.branches?.name ?? '\u2013',
         })),
       );
     }
@@ -116,9 +118,11 @@ function BranchesContent() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-extrabold text-coffee-900">Cabang &amp; Akun</h1>
+          <h1 className="text-xl font-extrabold text-coffee-900">Branches &amp; Accounts</h1>
           <p className="text-sm text-charcoal/50 mt-0.5">
-            Kelola cabang dan akun admin Kopi Nako.
+            {branches.length <= 1
+              ? 'Manage your cafe location and admin accounts.'
+              : `Manage ${branches.length} locations and admin accounts.`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -127,17 +131,30 @@ function BranchesContent() {
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-coffee-700 text-cream text-sm font-bold hover:bg-coffee-800 transition-colors active:scale-95"
           >
             <Building2 className="w-4 h-4" />
-            Tambah Cabang
+            {branches.length === 0 ? 'Add Location' : branches.length === 1 ? 'Add Another Location' : 'Add Location'}
           </button>
           <button
             onClick={() => setAdminModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-coffee-100 text-coffee-700 text-sm font-bold hover:bg-coffee-50 transition-colors active:scale-95"
           >
             <UserPlus className="w-4 h-4" />
-            Tambah Admin
+            Add Admin
           </button>
         </div>
       </div>
+
+      {/* Single-branch hint banner */}
+      {branches.length === 1 && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-coffee-50 border border-coffee-100">
+          <Building2 className="w-5 h-5 text-coffee-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-coffee-900">Single location mode</p>
+            <p className="text-xs text-charcoal/50 mt-0.5">
+              Your cafe is running as a single location. Click &ldquo;Add Another Location&rdquo; above to expand to multiple branches — your public site will automatically switch to a multi-location view.
+            </p>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -148,7 +165,7 @@ function BranchesContent() {
           {/* Branches list */}
           <section>
             <h2 className="text-sm font-bold text-charcoal/50 uppercase tracking-wide mb-3">
-              Daftar Cabang ({branches.length})
+              Locations ({branches.length})
             </h2>
             <motion.div
               variants={staggerContainer}
@@ -196,7 +213,7 @@ function BranchesContent() {
               })}
               {branches.length === 0 && (
                 <div className="col-span-full text-center py-10 text-charcoal/40 text-sm">
-                  Belum ada cabang. Tambahkan cabang pertama.
+                  No locations yet. Add your first location above.
                 </div>
               )}
             </motion.div>
@@ -205,12 +222,12 @@ function BranchesContent() {
           {/* Admins list */}
           <section>
             <h2 className="text-sm font-bold text-charcoal/50 uppercase tracking-wide mb-3">
-              Akun Admin Cabang ({admins.length})
+              Branch Admin Accounts ({admins.length})
             </h2>
             <div className="bg-white rounded-2xl border border-coffee-100/80 overflow-hidden">
               {admins.length === 0 ? (
                 <div className="text-center py-10 text-charcoal/40 text-sm">
-                  Belum ada akun admin cabang.
+                  No branch admin accounts yet.
                 </div>
               ) : (
                 <table className="w-full text-sm">
@@ -285,25 +302,29 @@ function BranchFormModal({
   const supabase = getSupabase();
   const [name, setName] = useState(initial?.name ?? '');
   const [address, setAddress] = useState(initial?.address ?? '');
+  const [openingHours, setOpeningHours] = useState(initial?.opening_hours ?? '');
+  const [mapsUrl, setMapsUrl] = useState(initial?.maps_url ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) { setError('Nama cabang wajib diisi.'); return; }
+    if (!name.trim()) { setError('Location name is required.'); return; }
     setSaving(true);
     setError(null);
 
+    const payload = {
+      name: name.trim(),
+      address: address.trim() || null,
+      opening_hours: openingHours.trim() || null,
+      maps_url: mapsUrl.trim() || null,
+    };
+
     if (initial) {
-      const { error: err } = await supabase
-        .from('branches')
-        .update({ name: name.trim(), address: address.trim() || null })
-        .eq('id', initial.id);
+      const { error: err } = await supabase.from('branches').update(payload).eq('id', initial.id);
       if (err) { setError(err.message); setSaving(false); return; }
     } else {
-      const { error: err } = await supabase
-        .from('branches')
-        .insert({ name: name.trim(), address: address.trim() || null });
+      const { error: err } = await supabase.from('branches').insert(payload);
       if (err) { setError(err.message); setSaving(false); return; }
     }
 
@@ -321,7 +342,7 @@ function BranchFormModal({
       >
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-coffee-900">
-            {initial ? 'Edit Cabang' : 'Tambah Cabang Baru'}
+            {initial ? 'Edit Location' : 'Add New Location'}
           </h3>
           <button onClick={onClose} className="text-charcoal/35 hover:text-charcoal/60 transition-colors">
             <X className="w-5 h-5" />
@@ -331,26 +352,50 @@ function BranchFormModal({
         <form onSubmit={handleSave} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
-              Nama Cabang <span className="text-red-500">*</span>
+              Location Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Kopi Nako Bogor"
+              placeholder="Main Street Cafe"
               required
               className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
             />
           </div>
           <div>
             <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
-              Alamat (opsional)
+              Address (optional)
             </label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Jl. Sudirman No. 1, Bogor"
+              placeholder="123 Main Street, City"
+              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+              Opening Hours (optional)
+            </label>
+            <input
+              type="text"
+              value={openingHours}
+              onChange={(e) => setOpeningHours(e.target.value)}
+              placeholder="Mon–Fri 7am–10pm · Sat–Sun 8am–11pm"
+              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+              Google Maps URL (optional)
+            </label>
+            <input
+              type="url"
+              value={mapsUrl}
+              onChange={(e) => setMapsUrl(e.target.value)}
+              placeholder="https://maps.google.com/?q=..."
               className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
             />
           </div>
@@ -360,14 +405,14 @@ function BranchFormModal({
               onClick={onClose}
               className="flex-1 py-2.5 rounded-xl border border-coffee-100 text-charcoal/70 font-semibold text-sm hover:bg-coffee-50 transition-colors"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
               className="flex-1 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60"
             >
-              {saving ? 'Menyimpan...' : 'Simpan'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>

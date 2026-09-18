@@ -4,8 +4,26 @@
 
 @layer base {
   :root {
-    /* Kopi Nako Brand Colors - warm, earthy, coffee-toned */
-    --coffee-50: #faf6f2;
+    /*
+     * ── Brand color CSS custom properties ────────────────────────────────────
+     * These defaults match the original warm coffee palette.
+     * In production, app/layout.tsx overwrites them server-side by reading
+     * the `theme` row from site_content, so the page renders with the tenant's
+     * palette on first paint — no FOUC.
+     *
+     * Usage in Tailwind:  bg-[var(--color-primary)]
+     * Usage in CSS:       background: var(--color-primary)
+     */
+    --color-primary:    #6b4122;  /* main brand / buttons                  */
+    --color-secondary:  #e4c298;  /* soft sand accent                      */
+    --color-background: #faf6f2;  /* page background (cream)               */
+    --color-foreground: #2a1f17;  /* body text (charcoal)                  */
+    --color-accent:     #f0dcc0;  /* hover backgrounds, subtle highlights  */
+    --color-card:       #ffffff;  /* card / modal background               */
+    --color-muted:      #f1e8de;  /* muted backgrounds                     */
+
+    /* ── Derived coffee-palette stops (kept for existing Tailwind classes) ── */
+    --coffee-50:  #faf6f2;
     --coffee-100: #f1e8de;
     --coffee-200: #e3d0bf;
     --coffee-300: #cdaa8b;
@@ -17,35 +35,35 @@
     --coffee-900: #3a2415;
     --coffee-950: #1e120a;
 
-    --cream: #faf6f2;
-    --sand-50: #fdf9f3;
-    --sand-100: #f8eede;
-    --sand-200: #f0dcc0;
-    --sand-300: #e4c298;
+    --cream:      #faf6f2;
+    --sand-50:    #fdf9f3;
+    --sand-100:   #f8eede;
+    --sand-200:   #f0dcc0;
+    --sand-300:   #e4c298;
 
-    --charcoal: #2a1f17;
+    --charcoal:   #2a1f17;
 
-    /* shadcn compatibility */
-    --background: 30 25% 98%;
-    --foreground: 20 30% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 20 30% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 30% 12%;
-    --primary: 25 45% 27%;
-    --primary-foreground: 30 25% 98%;
-    --secondary: 30 35% 90%;
-    --secondary-foreground: 25 45% 27%;
-    --muted: 30 20% 95%;
-    --muted-foreground: 20 10% 42%;
-    --accent: 30 40% 88%;
-    --accent-foreground: 25 45% 27%;
-    --destructive: 0 84% 60%;
+    /* ── shadcn/ui compatibility (HSL notation) ─────────────────────────── */
+    --background:          30 25% 98%;
+    --foreground:          20 30% 12%;
+    --card:                0 0% 100%;
+    --card-foreground:     20 30% 12%;
+    --popover:             0 0% 100%;
+    --popover-foreground:  20 30% 12%;
+    --primary:             25 45% 27%;
+    --primary-foreground:  30 25% 98%;
+    --secondary:           30 35% 90%;
+    --secondary-foreground:25 45% 27%;
+    --muted:               30 20% 95%;
+    --muted-foreground:    20 10% 42%;
+    --accent:              30 40% 88%;
+    --accent-foreground:   25 45% 27%;
+    --destructive:         0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 30 20% 88%;
-    --input: 30 20% 88%;
-    --ring: 25 45% 27%;
-    --radius: 0.75rem;
+    --border:              30 20% 88%;
+    --input:               30 20% 88%;
+    --ring:                25 45% 27%;
+    --radius:              0.75rem;
 
     --chart-1: 25 45% 27%;
     --chart-2: 30 40% 55%;
@@ -63,7 +81,8 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-cream text-foreground;
+    background-color: var(--color-background);
+    @apply text-foreground;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

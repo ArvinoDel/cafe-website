@@ -12,22 +12,47 @@ import {
 const commitments = [
   {
     icon: Sprout,
-    title: '100% Biji Indonesia',
-    desc: 'Kami pakai biji kopi dari petani lokal Indonesia, masing-masing blended sesuai profil rasanya.',
+    title: 'Quality Sourced Beans',
+    desc: 'We source our coffee beans directly from carefully selected farms, each chosen for their unique flavour profile.',
   },
   {
     icon: HandHeart,
-    title: 'Dukung Petani Lokal',
-    desc: 'Setiap cangkir kopi mendukung petani kopi Indonesia. Hubungan langsung, harga yang adil.',
+    title: 'Supporting Farmers',
+    desc: 'Every cup you enjoy supports the farmers behind it. Direct relationships, fair prices, and shared values.',
   },
   {
     icon: Globe2,
-    title: 'Konsep Ramah Lingkungan',
-    desc: 'Bangunan kaca dengan pencahayaan alami, mengurangi energi. Packaging yang lebih bijak.',
+    title: 'Eco-Conscious Approach',
+    desc: 'From natural lighting design to thoughtful packaging, we work toward a lighter footprint with every decision.',
   },
 ];
 
-export default function LocalRoots() {
+export type LocalRootsContent = {
+  tag?: string;
+  title?: string;
+  titleAccent?: string;
+  description?: string;
+  stats?: { value: string; label: string }[];
+  commitments?: { icon?: string; title: string; desc: string }[];
+  storyImageUrl?: string;
+  storyImageAlt?: string;
+};
+
+const defaultCommitmentIcons = [Sprout, HandHeart, Globe2];
+
+export default function LocalRoots({ content }: { content?: LocalRootsContent }) {
+  const tag = content?.tag || 'Our Story';
+  const title = content?.title || 'Rooted in craft,';
+  const titleAccent = content?.titleAccent || 'driven by passion.';
+  const description = content?.description || "We started small — a simple idea that great coffee and honest food should be easy for everyone to enjoy. Today we're proud to serve our community every day, with the same care and quality we started with.";
+  const stats = content?.stats && content.stats.length >= 2 ? content.stats : [
+    { value: '100%', label: 'Quality Sourced' },
+    { value: '5★', label: 'Rated by guests' },
+  ];
+  const commitmentItems = content?.commitments && content.commitments.length > 0 ? content.commitments : commitments;
+  const storyImageUrl = content?.storyImageUrl || 'https://images.pexels.com/photos/9535503/pexels-photo-9535503.jpeg?auto=compress&cs=tinysrgb&h=650&w=940';
+  const storyImageAlt = content?.storyImageAlt || 'Freshly sourced coffee beans';
+
   return (
     <section
       id="story"
@@ -49,8 +74,8 @@ export default function LocalRoots() {
           >
             <div className="relative rounded-3xl overflow-hidden shadow-soft-xl aspect-[4/3]">
               <img
-                src="https://images.pexels.com/photos/9535503/pexels-photo-9535503.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
-                alt='Biji kopi Indonesia pilihan'
+                src={storyImageUrl}
+                alt={storyImageAlt}
                 className="w-full h-full object-cover"
                 loading="lazy"
               />
@@ -59,12 +84,12 @@ export default function LocalRoots() {
 
             {/* Stats overlay */}
             <div className="absolute -bottom-6 -right-2 sm:right-6 bg-white rounded-2xl shadow-soft-lg p-5 sm:p-6">
-              <p className="text-3xl sm:text-4xl font-extrabold text-coffee-700">100%</p>
-              <p className="text-sm text-charcoal/60 mt-1">Biji Indonesia</p>
+              <p className="text-3xl sm:text-4xl font-extrabold text-coffee-700">{stats[0]?.value || '100%'}</p>
+              <p className="text-sm text-charcoal/60 mt-1">{stats[0]?.label || 'Quality Sourced'}</p>
             </div>
             <div className="absolute -top-4 -left-2 sm:left-6 bg-sand-300 rounded-2xl shadow-soft p-4 sm:p-5">
-              <p className="text-2xl sm:text-3xl font-extrabold text-coffee-900">50+</p>
-              <p className="text-xs sm:text-sm text-coffee-800/70 mt-1">Outlet nasional</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-coffee-900">{stats[1]?.value || '5★'}</p>
+              <p className="text-xs sm:text-sm text-coffee-800/70 mt-1">{stats[1]?.label || 'Rated by guests'}</p>
             </div>
           </motion.div>
 
@@ -79,25 +104,23 @@ export default function LocalRoots() {
               variants={fadeInUp}
               className="text-sm font-semibold text-sand-300 uppercase tracking-wider"
             >
-              Cerita Kami
+              {tag}
             </motion.span>
 
             <motion.h2
               variants={fadeInUp}
               className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight text-balance leading-[1.15]"
             >
-              Dari warung nasi
+              {title}
               <br />
-              <span className="text-sand-300">jadi kedai kopi kekinian.</span>
+              <span className="text-sand-300">{titleAccent}</span>
             </motion.h2>
 
             <motion.p
               variants={fadeInUp}
               className="mt-5 text-lg text-white/60 leading-relaxed max-w-lg"
             >
-              NaKo singkatan dari Nasi-Kopi. Berawal dari warung nasi kecil
-              di Bogor, sekarang kami hadir di 50+ outlet se-Indonesia.
-              Tetap pakai biji kopi Indonesia, tetap mendukung petani lokal.
+              {description}
             </motion.p>
 
             {/* Commitment items */}
@@ -105,10 +128,10 @@ export default function LocalRoots() {
               variants={fadeInUp}
               className="mt-8 space-y-5"
             >
-              {commitments.map((item) => {
-                const Icon = item.icon;
+              {commitmentItems.map((item, idx) => {
+                const Icon = defaultCommitmentIcons[idx % defaultCommitmentIcons.length];
                 return (
-                  <div key={item.title} className="flex items-start gap-4 group">
+                  <div key={item.title || idx} className="flex items-start gap-4 group">
                     <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-coffee-800 border border-coffee-700 text-sand-300 flex-shrink-0 transition-colors group-hover:bg-sand-300 group-hover:text-coffee-900">
                       <Icon className="w-6 h-6" />
                     </div>

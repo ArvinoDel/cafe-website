@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Menu, X, QrCode, Coffee, Camera } from 'lucide-react';
+import { Menu, X, Coffee, Camera } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 
 const navLinks = [
@@ -13,11 +13,23 @@ const navLinks = [
   { label: 'Our Story', href: '#story' },
 ];
 
-export default function Navbar() {
+export type NavbarContent = {
+  brandName?: string;
+  brandSubtitle?: string;
+  ctaLabel?: string;
+  links?: { label: string; href: string }[];
+};
+
+export default function Navbar({ content }: { content?: NavbarContent }) {
   const router = useRouter();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  const brandName = content?.brandName || 'CAFE';
+  const brandSubtitle = content?.brandSubtitle || 'Specialty Coffee';
+  const ctaLabel = content?.ctaLabel || 'Scan to Order';
+  const links = content?.links?.length ? content.links : navLinks;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -28,8 +40,8 @@ export default function Navbar() {
   }, []);
 
   const handleScanSuccess = (table: string, branchId: string | null) => {
-    localStorage.setItem('kopi-nako-table', table);
-    if (branchId) localStorage.setItem('kopi-nako-branch', branchId);
+    localStorage.setItem('cafe-table', table);
+    if (branchId) localStorage.setItem('cafe-branch', branchId);
     const url = branchId ? `/menu?table=${table}&branch=${branchId}` : `/menu?table=${table}`;
     router.push(url);
   };
@@ -55,17 +67,17 @@ export default function Navbar() {
               </div>
               <div className="flex flex-col leading-none">
                 <span className="text-lg sm:text-xl font-extrabold tracking-tight text-coffee-900">
-                  KOPI
+                  {brandName}
                 </span>
                 <span className="text-[10px] sm:text-xs font-medium tracking-[0.2em] text-coffee-500 uppercase">
-                  Nako
+                  {brandSubtitle}
                 </span>
               </div>
             </a>
 
             {/* Desktop nav */}
             <div className="hidden md:flex items-center gap-8">
-              {navLinks.map((link) => (
+              {links.map((link) => (
                 <a
                   key={link.href}
                   href={link.href}
@@ -85,7 +97,7 @@ export default function Navbar() {
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-coffee-700 text-cream text-sm font-semibold hover:bg-coffee-800 transition-all hover:shadow-soft-lg active:scale-95"
               >
                 <Camera className="w-4 h-4" />
-                Scan to Order
+                {ctaLabel}
               </button>
             </div>
 
@@ -108,7 +120,7 @@ export default function Navbar() {
             className="md:hidden bg-cream/95 backdrop-blur-xl border-t border-coffee-100 overflow-hidden"
           >
             <div className="px-4 py-4 space-y-1">
-              {navLinks.map((link) => (
+              {links.map((link) => (
                 <a
                   key={link.href}
                   href={link.href}
@@ -127,7 +139,7 @@ export default function Navbar() {
                 className="w-full flex items-center justify-center gap-2 mt-2 px-4 py-3 rounded-xl bg-coffee-700 text-cream font-semibold"
               >
                 <Camera className="w-4 h-4" />
-                Scan to Order
+                {ctaLabel}
               </button>
             </div>
           </motion.div>

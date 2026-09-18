@@ -14,22 +14,45 @@ import {
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 
 const footerLinks = {
-  Brand: ['About Us', 'Our Stores', 'Careers', 'Press'],
-  Menu: ['Kopi', 'Non-Kopi', 'Makanan', 'Snack'],
-  'Self Service': ['How It Works', 'Scan Barcode', 'Download App', 'Gift Cards'],
-  Support: ['Help Center', 'Contact Us', 'Privacy Policy', 'Terms of Service'],
+  Brand: ['About Us', 'Our Locations', 'Careers', 'Press'],
+  Menu: ['Coffee', 'Non-Coffee', 'Food', 'Snacks'],
+  'Self Service': ['How It Works', 'Scan & Order', 'Gift Cards', 'Loyalty'],
+  Support: ['Help Centre', 'Contact Us', 'Privacy Policy', 'Terms of Service'],
 };
 
 const socials = [
-  { icon: Instagram, href: 'https://www.instagram.com/kopinako.id', label: 'Instagram' },
+  { icon: Instagram, href: '#', label: 'Instagram' },
   { icon: Twitter, href: '#', label: 'Twitter' },
-  { icon: Facebook, href: 'https://www.facebook.com/Kopinako', label: 'Facebook' },
+  { icon: Facebook, href: '#', label: 'Facebook' },
   { icon: Youtube, href: '#', label: 'Youtube' },
 ];
 
-export default function Footer() {
+export type FooterContent = {
+  brandName?: string;
+  brandSubtitle?: string;
+  tagline?: string;
+  newsletter?: {
+    label?: string;
+    placeholder?: string;
+    successMessage?: string;
+  };
+  linkColumns?: Record<string, string[]>;
+  socials?: { platform: string; href: string; label: string }[];
+  copyright?: string;
+};
+
+export default function Footer({ content }: { content?: FooterContent }) {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  const brandName = content?.brandName || 'CAFE';
+  const brandSubtitle = content?.brandSubtitle || 'Specialty Coffee';
+  const tagline = content?.tagline || 'Freshly brewed specialty coffee and great food, served right to your table. Scan the QR code and order in seconds.';
+  const newsletterLabel = content?.newsletter?.label || 'Get the latest news & offers';
+  const newsletterPlaceholder = content?.newsletter?.placeholder || 'your@email.com';
+  const newsletterSuccess = content?.newsletter?.successMessage || 'Thanks for subscribing!';
+  const columns = content?.linkColumns || footerLinks;
+  const copyright = content?.copyright || 'Your Cafe';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,21 +81,20 @@ export default function Footer() {
                 <Coffee className="w-5 h-5" />
               </div>
               <div className="flex flex-col leading-none">
-                <span className="text-xl font-extrabold">KOPI</span>
+                <span className="text-xl font-extrabold">{brandName}</span>
                 <span className="text-xs font-medium tracking-[0.2em] text-coffee-400 uppercase">
-                  Nako
+                  {brandSubtitle}
                 </span>
               </div>
             </div>
             <p className="text-cream/50 text-sm leading-relaxed max-w-sm mb-6">
-              Siang makan nasi, kalau malam minum kopi. Scan barcode di meja,
-              pesan tanpa antri. #sobatnakogariskeras
+              {tagline}
             </p>
 
             {/* Newsletter */}
             <div>
               <p className="text-sm font-semibold text-cream mb-3">
-                Dapat info terbaru dari Nako
+                {newsletterLabel}
               </p>
               <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm">
                 <div className="relative flex-1">
@@ -81,7 +103,7 @@ export default function Footer() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@kamu.com"
+                    placeholder={newsletterPlaceholder}
                     required
                     className="w-full pl-10 pr-4 py-3 rounded-xl bg-coffee-900 border border-coffee-800 text-cream text-sm placeholder:text-cream/30 focus:outline-none focus:border-sand-300 transition-colors"
                   />
@@ -100,14 +122,14 @@ export default function Footer() {
                   animate={{ opacity: 1, y: 0 }}
                   className="mt-2 text-sm text-sand-300"
                 >
-                  Makasih sudah subscribe!
+                  {newsletterSuccess}
                 </motion.p>
               )}
             </div>
           </motion.div>
 
           {/* Link columns */}
-          {Object.entries(footerLinks).map(([category, links]) => (
+          {Object.entries(columns).map(([category, links]) => (
             <motion.div key={category} variants={fadeInUp}>
               <h4 className="text-sm font-bold text-cream uppercase tracking-wider mb-4">
                 {category}
@@ -131,7 +153,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-6">
           <p className="text-sm text-cream/40 text-center sm:text-left">
-            © {new Date().getFullYear()} Kopi Nako. All rights reserved.
+            © {new Date().getFullYear()} {copyright}. All rights reserved.
           </p>
           <div className="flex items-center gap-3">
             {socials.map((social) => {

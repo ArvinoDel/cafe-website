@@ -39,7 +39,7 @@ export default function AdminLoginPage() {
     });
 
     if (authError) {
-      setError('Email atau password salah. Coba lagi.');
+      setError('Incorrect email or password. Please try again.');
       setLoading(false);
       return;
     }
@@ -61,15 +61,15 @@ export default function AdminLoginPage() {
           <div className="w-14 h-14 rounded-2xl bg-coffee-700 flex items-center justify-center mb-4 shadow-soft">
             <Coffee className="w-7 h-7 text-cream" />
           </div>
-          <h1 className="text-2xl font-extrabold text-coffee-900 tracking-tight">Kopi Nako</h1>
-          <p className="text-sm text-charcoal/50 mt-1 font-medium">Portal Admin</p>
+          <h1 className="text-2xl font-extrabold text-coffee-900 tracking-tight">Cafe Admin</h1>
+          <p className="text-sm text-charcoal/50 mt-1 font-medium">Admin Portal</p>
         </div>
 
         {/* Card */}
         <div className="bg-white rounded-2xl border border-coffee-100/80 shadow-soft-lg p-7">
-          <h2 className="text-lg font-bold text-coffee-900 mb-1">Masuk</h2>
+          <h2 className="text-lg font-bold text-coffee-900 mb-1">Sign In</h2>
           <p className="text-xs text-charcoal/50 mb-6">
-            Gunakan akun yang telah dibuat oleh superadmin.
+            Use the account created by your superadmin.
           </p>
 
           {error && (
@@ -97,7 +97,7 @@ export default function AdminLoginPage() {
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@kopinako.id"
+                  placeholder="admin@yourcafe.com"
                   required
                   className="w-full pl-10 pr-4 py-3 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm placeholder:text-charcoal/35 focus:outline-none focus:border-coffee-400 transition-colors"
                 />
@@ -138,13 +138,13 @@ export default function AdminLoginPage() {
               disabled={loading}
               className="w-full py-3.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed shadow-soft mt-2"
             >
-              {loading ? 'Memverifikasi...' : 'Masuk ke Dashboard'}
+              {loading ? 'Verifying...' : 'Sign In to Dashboard'}
             </button>
           </form>
         </div>
 
         <p className="text-center text-xs text-charcoal/35 mt-6">
-          Kopi Nako Admin &copy; {new Date().getFullYear()}
+          Cafe Admin &copy; {new Date().getFullYear()}
         </p>
       </motion.div>
     </div>

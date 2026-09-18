@@ -2,7 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed } from 'lucide-react';
+import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 
 // ─── Profile type ─────────────────────────────────────────────────────────────
@@ -59,11 +59,14 @@ export function AdminHeader() {
   }
 
   const navItems = [
-    { href: '/admin', label: 'Pesanan', icon: LayoutDashboard },
+    { href: '/admin', label: 'Orders', icon: LayoutDashboard },
     { href: '/admin/menu', label: 'Menu', icon: UtensilsCrossed },
-    { href: '/admin/tables', label: 'QR Meja', icon: QrCode },
+    { href: '/admin/tables', label: 'QR Tables', icon: QrCode },
     ...(profile?.role === 'superadmin'
-      ? [{ href: '/admin/branches', label: 'Cabang & Akun', icon: Building2 }]
+      ? [
+          { href: '/admin/branches', label: 'Branches & Accounts', icon: Building2 },
+          { href: '/admin/site-content', label: 'Site Content', icon: Palette },
+        ]
       : []),
   ];
 
@@ -78,10 +81,10 @@ export function AdminHeader() {
             </div>
             <div className="leading-none">
               <span className="text-sm font-extrabold text-coffee-900 tracking-tight">
-                Kopi Nako
+                Cafe Admin
               </span>
               <span className="block text-[10px] text-coffee-500 font-medium uppercase tracking-widest">
-                Admin
+                Dashboard
               </span>
             </div>
           </div>
@@ -129,10 +132,10 @@ export function AdminHeader() {
               id="admin-logout"
               onClick={handleLogout}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-charcoal/60 hover:bg-red-50 hover:text-red-600 transition-colors text-sm font-semibold"
-              title="Keluar"
+              title="Logout"
             >
               <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Keluar</span>
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
@@ -189,16 +192,16 @@ export function UnlinkedAdminNotice({ email }: { email?: string }) {
         <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
           <Coffee className="w-8 h-8 text-amber-600" />
         </div>
-        <h1 className="text-xl font-extrabold text-coffee-900">Akun Belum Terhubung</h1>
+        <h1 className="text-xl font-extrabold text-coffee-900">Account Not Linked</h1>
         <p className="mt-2 text-charcoal/70 text-sm leading-relaxed">
-          Akun Anda {email ? <span className="font-semibold text-coffee-800">({email})</span> : ''} belum terhubung ke profil admin. Hubungi superadmin.
+          Your account {email ? <span className="font-semibold text-coffee-800">({email})</span> : ''} is not linked to an admin profile. Please contact your superadmin.
         </p>
         <button
           onClick={handleLogout}
           className="mt-6 w-full py-3 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors flex items-center justify-center gap-2"
         >
           <LogOut className="w-4 h-4" />
-          <span>Keluar</span>
+          <span>Logout</span>
         </button>
       </div>
     </div>

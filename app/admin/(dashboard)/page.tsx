@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw,
@@ -16,6 +16,9 @@ import {
   MessageSquare,
   Loader2,
   Building2,
+  Pencil,
+  Trash2,
+  Calendar,
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../AdminShell';
@@ -119,11 +122,16 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86400)} hari lalu`;
 }
 
-function todayRange(): { start: string; end: string } {
+function isToday(iso: string): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
-  return { start, end };
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -136,11 +144,13 @@ export default function AdminDashboard() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [statusTab, setStatusTab] = useState<OrderStatus | 'all'>('all');
-  const [stats, setStats] = useState<DayStats>({ count: 0, revenue: 0 });
-  const [branchStats, setBranchStats] = useState<Map<string, DayStats>>(new Map());
+  const [timeRange, setTimeRange] = useState<'today' | 'all'>('today');
+
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<Order | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   // ── Fetch orders ──────────────────────────────────────────────────────────
@@ -149,7 +159,6 @@ export default function AdminDashboard() {
     const sb = supabase.current;
     let query = sb.from('orders').select('*, branches(name)').order('created_at', { ascending: false });
 
-    // Admin is always implicitly scoped by RLS; for UI clarity we also filter client-side
     if (profile.role === 'admin' && profile.branch_id) {
       query = query.eq('branch_id', profile.branch_id);
     } else if (profile.role === 'superadmin' && selectedBranchId !== 'all') {
@@ -159,29 +168,6 @@ export default function AdminDashboard() {
     const { data } = await query;
     if (data) {
       setOrders(data as Order[]);
-
-      // Compute today's stats
-      const { start, end } = todayRange();
-      const todayOrders = (data as Order[]).filter(
-        (o) =>
-          o.status !== 'cancelled' &&
-          o.created_at >= start &&
-          o.created_at < end,
-      );
-      setStats({
-        count: todayOrders.length,
-        revenue: todayOrders.reduce((s, o) => s + o.total, 0),
-      });
-
-      // Per-branch stats for superadmin
-      if (profile.role === 'superadmin') {
-        const map = new Map<string, DayStats>();
-        for (const o of todayOrders) {
-          const prev = map.get(o.branch_id) ?? { count: 0, revenue: 0 };
-          map.set(o.branch_id, { count: prev.count + 1, revenue: prev.revenue + o.total });
-        }
-        setBranchStats(map);
-      }
     }
     setLastRefresh(new Date());
     setLoading(false);
@@ -224,6 +210,35 @@ export default function AdminDashboard() {
     setCancelTarget(null);
   }
 
+  async function deleteOrder(orderId: string) {
+    setUpdating(orderId);
+    await supabase.current.from('orders').delete().eq('id', orderId);
+    await fetchOrders();
+    setUpdating(null);
+    setDeleteTarget(null);
+  }
+
+  // ── Stats calculation ─────────────────────────────────────────────────────
+
+  const statsOrders = orders.filter((o) => {
+    if (o.status === 'cancelled') return false;
+    if (timeRange === 'today') return isToday(o.created_at);
+    return true;
+  });
+
+  const stats: DayStats = {
+    count: statsOrders.length,
+    revenue: statsOrders.reduce((s, o) => s + o.total, 0),
+  };
+
+  const branchStats = new Map<string, DayStats>();
+  if (profile.role === 'superadmin') {
+    for (const o of statsOrders) {
+      const prev = branchStats.get(o.branch_id) ?? { count: 0, revenue: 0 };
+      branchStats.set(o.branch_id, { count: prev.count + 1, revenue: prev.revenue + o.total });
+    }
+  }
+
   // ── Filtered orders ───────────────────────────────────────────────────────
 
   const filtered = orders.filter((o) =>
@@ -239,7 +254,45 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Stats strip */}
+      {/* Stats header & Timeframe selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-2xl border border-coffee-100/80 p-4">
+        <div>
+          <h2 className="font-extrabold text-coffee-900 text-base">Ringkasan Penjualan</h2>
+          <p className="text-xs text-charcoal/50 mt-0.5">
+            Statistik pesanan aktif dan selesai (tidak termasuk dibatalkan).
+          </p>
+        </div>
+
+        {/* Timeframe Toggle Pills */}
+        <div className="flex items-center gap-1.5 bg-coffee-50/80 p-1 rounded-xl border border-coffee-100 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setTimeRange('today')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              timeRange === 'today'
+                ? 'bg-coffee-700 text-cream shadow-sm'
+                : 'text-charcoal/60 hover:text-coffee-900'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Hari Ini</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTimeRange('all')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              timeRange === 'all'
+                ? 'bg-coffee-700 text-cream shadow-sm'
+                : 'text-charcoal/60 hover:text-coffee-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Semua Waktu</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
       <motion.div
         variants={staggerContainer}
         initial="hidden"
@@ -253,7 +306,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 mb-1">
             <Coffee className="w-4 h-4 text-coffee-500" />
             <span className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">
-              Pesanan Hari Ini
+              {timeRange === 'today' ? 'Pesanan Hari Ini' : 'Total Semua Pesanan'}
             </span>
           </div>
           <p className="text-3xl font-extrabold text-coffee-900">{stats.count}</p>
@@ -265,18 +318,18 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="w-4 h-4 text-coffee-500" />
             <span className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">
-              Pendapatan Hari Ini
+              {timeRange === 'today' ? 'Revenue Today' : 'All-Time Revenue'}
             </span>
           </div>
           <p className="text-xl font-extrabold text-coffee-900">{formatPrice(stats.revenue)}</p>
         </motion.div>
       </motion.div>
 
-      {/* Per-branch stats (superadmin all-branch view) */}
+      {/* Per-branch stats — only shown in superadmin all-branch view when 2+ branches */}
       {profile.role === 'superadmin' && selectedBranchId === 'all' && branches.length > 1 && (
         <div className="bg-white rounded-2xl border border-coffee-100/80 p-4">
           <p className="text-xs font-bold text-charcoal/50 uppercase tracking-wide mb-3">
-            Rincian per Cabang (Hari Ini)
+            By Location ({timeRange === 'today' ? 'Today' : 'All Time'})
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {branches.map((b) => {
@@ -293,7 +346,7 @@ export default function AdminDashboard() {
                     </span>
                   </div>
                   <div className="text-right ml-2">
-                    <p className="text-xs font-bold text-coffee-800">{s.count} pesanan</p>
+                    <p className="text-xs font-bold text-coffee-800">{s.count} orders</p>
                     <p className="text-[10px] text-charcoal/50">{formatPrice(s.revenue)}</p>
                   </div>
                 </div>
@@ -305,13 +358,15 @@ export default function AdminDashboard() {
 
       {/* Controls: branch selector + refresh indicator */}
       <div className="flex flex-wrap items-center gap-3">
-        {profile.role === 'superadmin' && (
+        {/* Branch selector: only show dropdown when 2+ branches exist.
+            Single-branch tenants just see their shop name — no concept of "branches". */}
+        {profile.role === 'superadmin' && branches.length > 1 && (
           <select
             value={selectedBranchId}
             onChange={(e) => setSelectedBranchId(e.target.value)}
             className="px-3 py-2 rounded-xl bg-white border border-coffee-100 text-charcoal text-sm font-semibold focus:outline-none focus:border-coffee-400 transition-colors"
           >
-            <option value="all">Semua Cabang</option>
+            <option value="all">All Locations</option>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
@@ -319,16 +374,22 @@ export default function AdminDashboard() {
             ))}
           </select>
         )}
+        {profile.role === 'superadmin' && branches.length === 1 && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-coffee-50 border border-coffee-100">
+            <Building2 className="w-4 h-4 text-coffee-500" />
+            <span className="text-sm font-semibold text-coffee-900">{branches[0]?.name}</span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           <span className="flex items-center gap-1.5 text-xs text-charcoal/40 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Live · diperbarui {relativeTime(lastRefresh.toISOString())}
+            Live · updated {relativeTime(lastRefresh.toISOString())}
           </span>
           <button
             onClick={() => { setLoading(true); fetchOrders(); }}
             className="p-2 rounded-xl hover:bg-coffee-50 text-charcoal/50 hover:text-coffee-700 transition-colors"
-            title="Refresh manual"
+            title="Refresh"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -390,6 +451,8 @@ export default function AdminDashboard() {
                 updating={updating === order.id}
                 onAdvance={(nextStatus) => advanceStatus(order.id, nextStatus)}
                 onCancelRequest={() => setCancelTarget(order.id)}
+                onEdit={() => setEditTarget(order)}
+                onDelete={() => setDeleteTarget(order)}
               />
             ))}
           </AnimatePresence>
@@ -399,13 +462,7 @@ export default function AdminDashboard() {
       {/* Cancel confirmation modal */}
       <AnimatePresence>
         {cancelTarget && (
-          <motion.div
-            key="cancel-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-charcoal/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
-          >
+          <ModalBackdrop onClose={() => setCancelTarget(null)}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -437,7 +494,68 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </motion.div>
-          </motion.div>
+          </ModalBackdrop>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Order Confirmation Modal */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <ModalBackdrop onClose={() => setDeleteTarget(null)}>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-soft-lg"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <Trash2 className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-coffee-900">Hapus Riwayat Pesanan?</h3>
+                  <p className="text-xs text-charcoal/50 mt-0.5">
+                    Pesanan <span className="font-mono font-bold text-coffee-900">#{deleteTarget.order_code}</span> ({deleteTarget.customer_name}) akan dihapus permanen dari riwayat database.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-5">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-coffee-100 text-charcoal/70 font-semibold text-sm hover:bg-coffee-50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => deleteOrder(deleteTarget.id)}
+                  disabled={!!updating}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {updating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Menghapus...</span>
+                    </>
+                  ) : (
+                    <span>Ya, Hapus</span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </ModalBackdrop>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Order Modal */}
+      <AnimatePresence>
+        {editTarget && (
+          <EditOrderModal
+            order={editTarget}
+            branches={branches}
+            isSuperadmin={profile.role === 'superadmin'}
+            onClose={() => setEditTarget(null)}
+            onSaved={fetchOrders}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -452,12 +570,16 @@ function OrderCard({
   updating,
   onAdvance,
   onCancelRequest,
+  onEdit,
+  onDelete,
 }: {
   order: Order;
   isSuperadmin: boolean;
   updating: boolean;
   onAdvance: (next: OrderStatus) => void;
   onCancelRequest: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const next = NEXT_STATUS[order.status];
   const nextLabel = NEXT_LABELS[order.status];
@@ -469,68 +591,86 @@ function OrderCard({
       variants={fadeInUp}
       layout
       exit={{ opacity: 0, scale: 0.95 }}
-      className="bg-white rounded-2xl border border-coffee-100/80 p-4 flex flex-col gap-3 shadow-soft"
+      className="bg-white rounded-2xl border border-coffee-100/80 p-4 flex flex-col gap-3 shadow-soft justify-between"
     >
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-extrabold text-coffee-900 font-mono tracking-wide">
-              #{order.order_code}
-            </span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[order.status]}`}>
-              {STATUS_LABELS[order.status]}
-            </span>
+      <div className="space-y-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-extrabold text-coffee-900 font-mono tracking-wide">
+                #{order.order_code}
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[order.status]}`}>
+                {STATUS_LABELS[order.status]}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5 text-xs text-charcoal/50">
+              <span className="font-semibold text-charcoal/70">Meja {order.table_number}</span>
+              <span>·</span>
+              <span>{order.customer_name}</span>
+              {isSuperadmin && order.branches?.name && (
+                <>
+                  <span>·</span>
+                  <span className="flex items-center gap-1">
+                    <Building2 className="w-3 h-3" />
+                    {order.branches.name}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-charcoal/50">
-            <span className="font-semibold text-charcoal/70">Meja {order.table_number}</span>
-            <span>·</span>
-            <span>{order.customer_name}</span>
-            {isSuperadmin && order.branches?.name && (
-              <>
-                <span>·</span>
-                <span className="flex items-center gap-1">
-                  <Building2 className="w-3 h-3" />
-                  {order.branches.name}
-                </span>
-              </>
+
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {order.payment_method === 'qris' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
+                <CreditCard className="w-3 h-3" /> QRIS
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-coffee-50 text-coffee-700 px-2 py-1 rounded-lg">
+                <Wallet className="w-3 h-3" /> Tunai
+              </span>
             )}
+            {/* Edit & Delete Action Buttons */}
+            <button
+              onClick={onEdit}
+              className="p-1.5 rounded-lg text-charcoal/40 hover:text-coffee-700 hover:bg-coffee-50 transition-colors"
+              title="Edit pesanan"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded-lg text-charcoal/40 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Hapus riwayat pesanan"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {order.payment_method === 'qris' ? (
-            <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
-              <CreditCard className="w-3 h-3" /> QRIS
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-[10px] font-bold bg-coffee-50 text-coffee-700 px-2 py-1 rounded-lg">
-              <Wallet className="w-3 h-3" /> Tunai
-            </span>
-          )}
-        </div>
-      </div>
 
-      {/* Items */}
-      <div className="space-y-1">
-        {order.items.map((item, i) => (
-          <div key={i} className="flex items-center justify-between text-sm">
-            <span className="text-charcoal/80">
-              {item.quantity}× {item.name}
-            </span>
-            <span className="text-coffee-700 font-semibold text-xs">
-              {formatPrice(item.price * item.quantity)}
-            </span>
+        {/* Items */}
+        <div className="space-y-1">
+          {order.items.map((item, i) => (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <span className="text-charcoal/80">
+                {item.quantity}× {item.name}
+              </span>
+              <span className="text-coffee-700 font-semibold text-xs">
+                {formatPrice(item.price * item.quantity)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Notes */}
+        {order.notes && (
+          <div className="flex items-start gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+            <MessageSquare className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-900 italic">{order.notes}</p>
           </div>
-        ))}
+        )}
       </div>
-
-      {/* Notes */}
-      {order.notes && (
-        <div className="flex items-start gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
-          <MessageSquare className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-900 italic">{order.notes}</p>
-        </div>
-      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-coffee-50 pt-3 mt-1">
@@ -570,6 +710,235 @@ function OrderCard({
           )}
         </div>
       </div>
+    </motion.div>
+  );
+}
+
+// ─── Edit Order Modal ─────────────────────────────────────────────────────────
+
+function EditOrderModal({
+  order,
+  branches,
+  isSuperadmin,
+  onClose,
+  onSaved,
+}: {
+  order: Order;
+  branches: Branch[];
+  isSuperadmin: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const supabase = getSupabase();
+
+  const [customerName, setCustomerName] = useState(order.customer_name);
+  const [tableNumber, setTableNumber] = useState(order.table_number);
+  const [status, setStatus] = useState<OrderStatus>(order.status);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qris'>(order.payment_method);
+  const [notes, setNotes] = useState(order.notes ?? '');
+  const [branchId, setBranchId] = useState(order.branch_id);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault();
+    if (!customerName.trim() || !tableNumber.trim()) {
+      setError('Nama pelanggan dan nomor meja wajib diisi.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const payload: any = {
+      customer_name: customerName.trim(),
+      table_number: tableNumber.trim(),
+      status,
+      payment_method: paymentMethod,
+      notes: notes.trim() || null,
+    };
+
+    if (isSuperadmin) {
+      payload.branch_id = branchId;
+    }
+
+    const { error: err } = await supabase
+      .from('orders')
+      .update(payload)
+      .eq('id', order.id);
+
+    if (err) {
+      setError(err.message);
+      setSaving(false);
+      return;
+    }
+
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
+        className="w-full max-w-md bg-white rounded-2xl p-6 shadow-soft-lg max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-4 border-b border-coffee-50 pb-3">
+          <div>
+            <h3 className="font-bold text-coffee-900 text-base">Edit Riwayat Pesanan</h3>
+            <p className="text-xs text-charcoal/50 font-mono mt-0.5">#{order.order_code}</p>
+          </div>
+          <button onClick={onClose} className="text-charcoal/40 hover:text-charcoal transition-colors p-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-200/80 mb-4">
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                Nama Pelanggan <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                required
+                className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                No. Meja <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={tableNumber}
+                onChange={(e) => setTableNumber(e.target.value)}
+                required
+                className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                Status Pesanan
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as OrderStatus)}
+                className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 cursor-pointer"
+              >
+                <option value="pending">Pending</option>
+                <option value="preparing">Disiapkan</option>
+                <option value="ready">Siap Diantar</option>
+                <option value="completed">Selesai</option>
+                <option value="cancelled">Dibatalkan</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                Metode Pembayaran
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'qris')}
+                className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 cursor-pointer"
+              >
+                <option value="cash">Tunai (Cash)</option>
+                <option value="qris">QRIS</option>
+              </select>
+            </div>
+          </div>
+
+          {isSuperadmin && branches.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                Cabang
+              </label>
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 cursor-pointer"
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+              Catatan
+            </label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Catatan pesanan..."
+              className="w-full px-3.5 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-3 border-t border-coffee-50">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-coffee-100 text-charcoal/70 font-semibold text-sm hover:bg-coffee-50 transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <span>Simpan Perubahan</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── Modal Backdrop ───────────────────────────────────────────────────────────
+
+function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <motion.div
+      key="modal-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-charcoal/30 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <div onClick={(e) => e.stopPropagation()}>{children}</div>
     </motion.div>
   );
 }

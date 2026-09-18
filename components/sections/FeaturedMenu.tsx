@@ -4,35 +4,36 @@ import { motion } from 'framer-motion';
 import { Plus } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 
+// Neutral placeholder items — replaced by DB-driven featured items in Phase 2
 const menuItems = [
   {
-    name: 'Es Kopi Susu Nako',
-    description: 'Kopi susu creamy dengan gula aren khas Nako.',
-    price: 'Rp 27.000',
+    name: 'Signature Latte',
+    description: 'Our house espresso with steamed milk and a touch of house-made syrup.',
+    price: '$5.50',
     image:
       'https://images.pexels.com/photos/38523136/pexels-photo-38523136.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: 'Bestseller',
   },
   {
-    name: 'Latte Aren',
-    description: 'Espresso lembut dengan susu dan sirop gula aren asli.',
-    price: 'Rp 29.000',
+    name: 'Cold Brew Tonic',
+    description: 'Smooth cold brew over tonic water with a citrus twist. Refreshingly bold.',
+    price: '$6.00',
     image:
       'https://images.pexels.com/photos/4913342/pexels-photo-4913342.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: null,
   },
   {
-    name: 'Nasi Campur Nako',
-    description: 'Nasi dengan lauk pilihan, tempe, telur, dan sayuran.',
-    price: 'Rp 28.000',
+    name: 'Chicken Rice Bowl',
+    description: 'Tender chicken over steamed rice with house sauce, greens, and a soft egg.',
+    price: '$8.90',
     image:
       'https://images.pexels.com/photos/37081060/pexels-photo-37081060.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: 'Bestseller',
   },
   {
     name: 'Mango Lassi',
-    description: 'Yoghurt dengan mango dan bahan rahasia. Manis dan segar.',
-    price: 'Rp 25.000',
+    description: 'Creamy yoghurt blended with real mango. Sweet, tangy, and refreshing.',
+    price: '$4.50',
     image:
       'https://images.pexels.com/photos/8330286/pexels-photo-8330286.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
     badge: 'New',
@@ -55,13 +56,13 @@ export default function FeaturedMenu() {
               variants={fadeInUp}
               className="text-sm font-semibold text-coffee-600 uppercase tracking-wider"
             >
-              Menu Favorit
+              Customer Favourites
             </motion.span>
             <motion.h2
               variants={fadeInUp}
               className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight"
             >
-              Yang paling dicari
+              Most loved picks
             </motion.h2>
           </div>
           <motion.a
@@ -69,7 +70,7 @@ export default function FeaturedMenu() {
             href="/menu"
             className="text-coffee-700 font-semibold text-sm hover:text-coffee-800 transition-colors inline-flex items-center gap-1 group"
           >
-            Lihat menu lengkap
+            View full menu
             <span className="transition-transform group-hover:translate-x-1">→</span>
           </motion.a>
         </motion.div>

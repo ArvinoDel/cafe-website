@@ -13,24 +13,48 @@ const steps = [
   {
     icon: QrCode,
     num: '01',
-    title: 'Scan Barcode',
-    desc: 'Buka kamera HP, scan barcode yang ada di setiap meja. Menu lengkap langsung muncul di layar-mu.',
+    title: 'Scan the QR Code',
+    desc: 'Open your camera, scan the QR code on your table, and the full menu appears instantly on your screen.',
   },
   {
     icon: ListOrdered,
     num: '02',
-    title: 'Pilih & Pesan',
-    desc: 'Pilih kopi, nasi, atau snack favoritmu. Custom sesuai selera, bayar langsung dari HP — gampang.',
+    title: 'Choose & Customise',
+    desc: 'Pick your drinks and food, customise to your preference, and pay securely right from your phone.',
   },
   {
     icon: Coffee,
     num: '03',
-    title: 'Nikmati',
-    desc: 'Pesananmu langsung dibuat barista. Tinggal tunggu di meja, kopi dan makanan datang sendiri.',
+    title: 'Sit Back & Enjoy',
+    desc: 'Our team prepares your order and brings it straight to your table. No queuing, no hassle.',
   },
 ];
 
-export default function HowItWorks() {
+export type HowItWorksContent = {
+  tag?: string;
+  title?: string;
+  titleAccent?: string;
+  description?: string;
+  steps?: { num: string; title: string; desc: string }[];
+  mockup?: {
+    appLabel?: string;
+    tableLabel?: string;
+    tableValue?: string;
+    tableStatus?: string;
+    menuTitle?: string;
+  };
+};
+
+const defaultStepIcons = [QrCode, ListOrdered, Coffee];
+
+export default function HowItWorks({ content }: { content?: HowItWorksContent }) {
+  const tag = content?.tag || 'How It Works';
+  const title = content?.title || 'Three steps,';
+  const titleAccent = content?.titleAccent || 'coffee without the wait.';
+  const description = content?.description || 'No queuing, no flagging down staff. Simply scan the QR code at your table, choose what you love, and settle back while we bring your order to you.';
+  const stepItems = content?.steps && content.steps.length > 0 ? content.steps : steps;
+  const mockup = content?.mockup || {};
+
   return (
     <section id="how-it-works" className="py-20 sm:py-28 bg-cream relative overflow-hidden">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-coffee-50 rounded-full blur-3xl -z-10" />
@@ -56,7 +80,7 @@ export default function HowItWorks() {
                   {/* Status bar */}
                   <div className="flex justify-between items-center px-6 pt-8 pb-2 text-cream/80 text-xs">
                     <span className="font-semibold">9:41</span>
-                    <span>NAKO</span>
+                    <span>{mockup.appLabel || 'CAFE'}</span>
                   </div>
 
                   {/* Table indicator */}
@@ -65,60 +89,60 @@ export default function HowItWorks() {
                       <QrCode className="w-5 h-5 text-sand-200" />
                     </div>
                     <div>
-                      <p className="text-cream/60 text-xs">Meja</p>
-                      <p className="text-cream text-lg font-bold">A-12</p>
+                      <p className="text-cream/60 text-xs">{mockup.tableLabel || 'Table'}</p>
+                      <p className="text-cream text-lg font-bold">{mockup.tableValue || 'A-12'}</p>
                     </div>
                     <div className="ml-auto px-3 py-1 rounded-lg bg-green-400/20 text-green-300 text-xs font-medium">
-                      Aktif
+                      {mockup.tableStatus || 'Active'}
                     </div>
                   </div>
 
                   {/* Menu preview */}
                   <div className="mx-4 mt-3 bg-cream rounded-2xl p-4 flex-1 flex flex-col">
                     <p className="text-coffee-800 text-sm font-bold mb-3">
-                      Menu Pilihan
+                      {mockup.menuTitle || "Today's Menu"}
                     </p>
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-12 h-12 rounded-xl bg-coffee-100 flex items-center justify-center overflow-hidden flex-shrink-0">
                         <img
                           src="https://images.pexels.com/photos/38523136/pexels-photo-38523136.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
-                          alt="Es Kopi Susu"
+                          alt="Specialty Coffee"
                           className="w-full h-full object-cover"
                         />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-charcoal truncate">
-                          Es Kopi Susu Nako
+                          Signature Latte
                         </p>
                         <p className="text-xs text-charcoal/50">Iced · Less Ice</p>
                       </div>
-                      <p className="text-sm font-bold text-coffee-700">27K</p>
+                      <p className="text-sm font-bold text-coffee-700">$5.50</p>
                     </div>
                     <div className="flex items-center gap-3 mb-3 pb-3 border-b border-coffee-50">
                       <div className="w-12 h-12 rounded-xl bg-sand-100 flex items-center justify-center overflow-hidden flex-shrink-0">
                         <img
                           src="https://images.pexels.com/photos/37081060/pexels-photo-37081060.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
-                          alt="Nasi Campur"
+                          alt="Fresh Bowl"
                           className="w-full h-full object-cover"
                         />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-charcoal truncate">
-                          Nasi Campur Nako
+                          Chicken Rice Bowl
                         </p>
-                        <p className="text-xs text-charcoal/50">Pedas Sedang</p>
+                        <p className="text-xs text-charcoal/50">Medium Spice</p>
                       </div>
-                      <p className="text-sm font-bold text-coffee-700">28K</p>
+                      <p className="text-sm font-bold text-coffee-700">$8.90</p>
                     </div>
                     <div className="mt-auto">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs text-charcoal/50">Total</span>
                         <span className="text-lg font-extrabold text-coffee-800">
-                          Rp 55.000
+                          $14.40
                         </span>
                       </div>
                       <button className="w-full py-3 rounded-xl bg-coffee-700 text-cream text-sm font-bold">
-                        Pesan Sekarang
+                        Place Order
                       </button>
                     </div>
                   </div>
@@ -143,25 +167,23 @@ export default function HowItWorks() {
               variants={fadeInUp}
               className="text-sm font-semibold text-coffee-600 uppercase tracking-wider"
             >
-              Cara Pesan
+              {tag}
             </motion.span>
 
             <motion.h2
               variants={fadeInUp}
               className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight text-balance leading-[1.15]"
             >
-              Tiga langkah,
+              {title}
               <br />
-              <span className="text-coffee-600">kopi tanpa antri.</span>
+              <span className="text-coffee-600">{titleAccent}</span>
             </motion.h2>
 
             <motion.p
               variants={fadeInUp}
               className="mt-5 text-lg text-charcoal/60 leading-relaxed max-w-lg"
             >
-              Gak perlu antri, gak perlu panggil waiter. Cukup scan barcode
-              di meja, pilih menu, dan duduk manis sambil nunggu pesanan
-              datang.
+              {description}
             </motion.p>
 
             {/* Steps */}
@@ -169,10 +191,10 @@ export default function HowItWorks() {
               variants={fadeInUp}
               className="mt-8 space-y-6"
             >
-              {steps.map((step) => {
-                const Icon = step.icon;
+              {stepItems.map((step, idx) => {
+                const Icon = defaultStepIcons[idx % defaultStepIcons.length];
                 return (
-                  <div key={step.num} className="flex items-start gap-5 group">
+                  <div key={step.num || idx} className="flex items-start gap-5 group">
                     <div className="relative flex-shrink-0">
                       <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-coffee-100 text-coffee-700 transition-colors group-hover:bg-coffee-700 group-hover:text-cream">
                         <Icon className="w-6 h-6" />

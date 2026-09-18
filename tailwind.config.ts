@@ -74,6 +74,17 @@ const config: Config = {
           '4': 'hsl(var(--chart-4))',
           '5': 'hsl(var(--chart-5))',
         },
+        // ── Runtime tenant theme tokens (set via CSS custom properties) ──────
+        // Use bg-brand-primary, text-brand-foreground, etc.
+        brand: {
+          primary:    'var(--color-primary)',
+          secondary:  'var(--color-secondary)',
+          background: 'var(--color-background)',
+          foreground: 'var(--color-foreground)',
+          accent:     'var(--color-accent)',
+          card:       'var(--color-card)',
+          muted:      'var(--color-muted)',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
