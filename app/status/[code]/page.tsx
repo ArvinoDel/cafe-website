@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Coffee, XCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Coffee, XCircle, RefreshCw, Receipt } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 
 type OrderItem = {
@@ -70,23 +70,50 @@ export default function OrderStatusPage() {
   }, [code]);
 
   const fetchOrder = useCallback(async () => {
+    if (!code) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
+
     try {
+      // 1. Direct query against Supabase orders table
       const { data, error } = await supabase
-        .rpc('get_order_by_code', { p_code: code })
+        .from('orders')
+        .select('*')
+        .eq('order_code', code)
         .maybeSingle();
 
       if (data && !error) {
         setOrder(data as Order);
         setNotFound(false);
-      } else {
-        // Fallback to local storage order snapshot if Supabase table is not yet created
-        const local = getLocalOrder();
-        if (local) {
-          setOrder(local);
+        setLastChecked(new Date());
+        setLoading(false);
+        isFirstLoad.current = false;
+        return;
+      }
+
+      // 2. Fallback to server lookup API
+      const res = await fetch(`/api/orders/lookup?code=${encodeURIComponent(code)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.order) {
+          setOrder(json.order as Order);
           setNotFound(false);
-        } else if (isFirstLoad.current) {
-          setNotFound(true);
+          setLastChecked(new Date());
+          setLoading(false);
+          isFirstLoad.current = false;
+          return;
         }
+      }
+
+      // 3. Fallback to localStorage snapshot
+      const local = getLocalOrder();
+      if (local) {
+        setOrder(local);
+        setNotFound(false);
+      } else if (isFirstLoad.current) {
+        setNotFound(true);
       }
     } catch {
       const local = getLocalOrder();
@@ -97,6 +124,7 @@ export default function OrderStatusPage() {
         setNotFound(true);
       }
     }
+
     setLastChecked(new Date());
     setLoading(false);
     isFirstLoad.current = false;
@@ -172,7 +200,14 @@ export default function OrderStatusPage() {
               <span className="font-semibold text-sm">Menu</span>
             </button>
             <h1 className="font-bold text-coffee-900">Status Pesanan</h1>
-            <div className="w-16" />
+            <button
+              onClick={() => router.push('/orders')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs font-semibold hover:bg-coffee-100/70 transition-colors"
+              title="Semua Riwayat Pesanan"
+            >
+              <Receipt className="w-3.5 h-3.5 text-coffee-700" />
+              <span className="hidden sm:inline">Riwayat</span>
+            </button>
           </div>
         </div>
       </div>

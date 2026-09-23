@@ -9,6 +9,7 @@ import QrScannerModal from '@/components/ui/QrScannerModal';
 const navLinks = [
   { label: 'Home', href: '#home' },
   { label: 'Menu', href: '/menu' },
+  { label: 'Riwayat', href: '/orders' },
   { label: 'Stores', href: '#stores' },
   { label: 'Our Story', href: '#story' },
 ];

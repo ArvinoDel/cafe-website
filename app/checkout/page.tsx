@@ -20,6 +20,7 @@ import {
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
+import { saveOrderToHistory } from '@/lib/order-history';
 
 type CartItem = {
   id: string;
@@ -148,6 +149,26 @@ function CheckoutPageInner() {
       // Order still confirmed for the customer even if it couldn't be saved.
     }
 
+    try {
+      const orderSnapshot = {
+        order_code: code,
+        customer_name: name.trim(),
+        table_number: tableNumber.trim(),
+        items: cart,
+        subtotal,
+        total: subtotal,
+        payment_method: payment,
+        notes: notes.trim() || null,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      };
+      localStorage.setItem('kopi-nako-order-' + code, JSON.stringify(orderSnapshot));
+      localStorage.setItem('kopi-nako-last-order', JSON.stringify(orderSnapshot));
+      saveOrderToHistory(code);
+    } catch {
+      // Ignore storage errors
+    }
+
     localStorage.removeItem(CART_KEY);
     setOrderCode(code);
     setSubmitting(false);
@@ -196,12 +217,20 @@ function CheckoutPageInner() {
           >
             Lihat Status Pesanan
           </button>
-          <button
-            onClick={() => router.push('/menu')}
-            className="mt-2.5 w-full py-3 rounded-xl text-coffee-700 font-semibold text-sm hover:bg-coffee-50 transition-colors"
-          >
-            Kembali ke Menu
-          </button>
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <button
+              onClick={() => router.push('/orders')}
+              className="py-2.5 rounded-xl bg-coffee-50 text-coffee-800 font-semibold text-xs hover:bg-coffee-100/80 transition-colors"
+            >
+              Riwayat Pesanan
+            </button>
+            <button
+              onClick={() => router.push('/menu')}
+              className="py-2.5 rounded-xl border border-coffee-100 text-coffee-700 font-semibold text-xs hover:bg-coffee-50 transition-colors"
+            >
+              Kembali ke Menu
+            </button>
+          </div>
         </motion.div>
       </div>
     );
