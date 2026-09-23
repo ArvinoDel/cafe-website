@@ -32,11 +32,17 @@ export function BrandProvider({
   });
 
   useEffect(() => {
-    // If initialBrand was provided from server, sync it
+    // If initialBrand was provided from server, sync it if changed
     if (initialBrand?.brandName) {
-      setBrand({
-        brandName: initialBrand.brandName,
-        brandSubtitle: initialBrand.brandSubtitle || DEFAULT_BRAND.brandSubtitle,
+      setBrand((prev) => {
+        const nextSubtitle = initialBrand.brandSubtitle || DEFAULT_BRAND.brandSubtitle;
+        if (prev.brandName === initialBrand.brandName && prev.brandSubtitle === nextSubtitle) {
+          return prev;
+        }
+        return {
+          brandName: initialBrand.brandName!,
+          brandSubtitle: nextSubtitle,
+        };
       });
       try {
         localStorage.setItem('cafe-brand-name', initialBrand.brandName);

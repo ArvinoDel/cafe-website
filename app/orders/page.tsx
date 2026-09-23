@@ -129,88 +129,83 @@ export default function CustomerOrderHistoryPage() {
   // Tab filter
   const [tab, setTab] = useState<'all' | 'active' | 'completed'>('all');
 
-  // Load order codes from localStorage
-  const loadCodes = useCallback(() => {
-    const list = getStoredOrderCodes();
-    setCodes(list);
-    return list;
-  }, []);
-
   // Fetch full details of saved orders
-  const fetchOrders = useCallback(
-    async (orderCodesToFetch?: string[]) => {
-      const targetCodes = orderCodesToFetch ?? codes;
-      if (targetCodes.length === 0) {
-        setOrders([]);
+  const fetchOrders = useCallback(async (orderCodesToFetch?: string[]) => {
+    const targetCodes = orderCodesToFetch ?? getStoredOrderCodes();
+    if (!targetCodes || targetCodes.length === 0) {
+      setOrders([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      // Attempt 1: Direct Supabase query
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, order_code, customer_name, table_number, items, subtotal, total, payment_method, notes, status, created_at')
+        .in('order_code', targetCodes)
+        .order('created_at', { ascending: false });
+
+      if (data && !error && data.length > 0) {
+        setOrders(data as CustomerOrder[]);
+        setLastUpdated(new Date());
         setLoading(false);
         setRefreshing(false);
         return;
       }
 
-      try {
-        // Attempt 1: Direct Supabase query
-        const { data, error } = await supabase
-          .from('orders')
-          .select('id, order_code, customer_name, table_number, items, subtotal, total, payment_method, notes, status, created_at')
-          .in('order_code', targetCodes)
-          .order('created_at', { ascending: false });
-
-        if (data && !error && data.length > 0) {
-          setOrders(data as CustomerOrder[]);
+      // Attempt 2: Server API batch lookup
+      const res = await fetch(`/api/orders/lookup?codes=${encodeURIComponent(targetCodes.join(','))}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.orders) {
+          setOrders(json.orders as CustomerOrder[]);
           setLastUpdated(new Date());
           setLoading(false);
           setRefreshing(false);
           return;
         }
-
-        // Attempt 2: Server API batch lookup
-        const res = await fetch(`/api/orders/lookup?codes=${encodeURIComponent(targetCodes.join(','))}`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json?.orders) {
-            setOrders(json.orders as CustomerOrder[]);
-            setLastUpdated(new Date());
-            setLoading(false);
-            setRefreshing(false);
-            return;
-          }
-        }
-
-        // Attempt 3: Local storage snapshots fallback
-        const localOrders: CustomerOrder[] = [];
-        targetCodes.forEach((c) => {
-          try {
-            const raw = localStorage.getItem('kopi-nako-order-' + c);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (parsed?.order_code) localOrders.push(parsed);
-            }
-          } catch {}
-        });
-
-        if (localOrders.length > 0) {
-          setOrders(localOrders);
-        }
-      } catch (err) {
-        console.error('Error fetching order history:', err);
-      } finally {
-        setLastUpdated(new Date());
-        setLoading(false);
-        setRefreshing(false);
       }
-    },
-    [codes],
-  );
+
+      // Attempt 3: Local storage snapshots fallback
+      const localOrders: CustomerOrder[] = [];
+      targetCodes.forEach((c) => {
+        try {
+          const raw = localStorage.getItem('kopi-nako-order-' + c);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.order_code) localOrders.push(parsed);
+          }
+        } catch {}
+      });
+
+      if (localOrders.length > 0) {
+        setOrders(localOrders);
+      }
+    } catch (err) {
+      console.error('Error fetching order history:', err);
+    } finally {
+      setLastUpdated(new Date());
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   // Initialize on mount
   useEffect(() => {
-    const initialCodes = loadCodes();
-    fetchOrders(initialCodes);
-  }, [loadCodes, fetchOrders]);
+    const list = getStoredOrderCodes();
+    setCodes(list);
+    fetchOrders(list);
+  }, [fetchOrders]);
 
   // Periodic polling for active orders
+  const hasActiveOrders = useMemo(
+    () => orders.some((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready'),
+    [orders]
+  );
+
   useEffect(() => {
-    const hasActiveOrders = orders.some((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
     if (!hasActiveOrders) return;
 
     const timer = setInterval(() => {
@@ -218,7 +213,7 @@ export default function CustomerOrderHistoryPage() {
     }, 12000);
 
     return () => clearInterval(timer);
-  }, [orders, fetchOrders]);
+  }, [hasActiveOrders, fetchOrders]);
 
   // Handle manual code addition
   async function handleAddCode(e: React.FormEvent) {
