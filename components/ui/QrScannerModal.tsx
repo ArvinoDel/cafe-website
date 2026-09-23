@@ -13,6 +13,7 @@ import {
   QrCode,
   Sparkles,
 } from 'lucide-react';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 export function extractTableCode(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
@@ -87,6 +88,7 @@ export default function QrScannerModal({
   onClose,
   onScanSuccess,
 }: QrScannerModalProps) {
+  const { brandName } = useBrand();
   const [cameraActive, setCameraActive] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [scannedTable, setScannedTable] = useState<string | null>(null);
@@ -138,11 +140,11 @@ export default function QrScannerModal({
           setScannedTable(null);
         }, 1200);
       } else {
-        setErrorMsg('QR code terdeteksi, namun bukan kode meja Kopi Nako yang valid.');
+        setErrorMsg(`QR code terdeteksi, namun bukan kode meja ${brandName} yang valid.`);
         setIsProcessing(false);
       }
     },
-    [isProcessing, onScanSuccess, onClose, stopScanner],
+    [isProcessing, onScanSuccess, onClose, stopScanner, brandName],
   );
 
   const startScanner = useCallback(async () => {

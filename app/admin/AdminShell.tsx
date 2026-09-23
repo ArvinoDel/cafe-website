@@ -4,6 +4,7 @@ import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 // ─── Profile type ─────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ export function AdminProfileProvider({
 
 export function AdminHeader() {
   const profile = useContext(AdminProfileContext);
+  const { brandName } = useBrand();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -81,7 +83,7 @@ export function AdminHeader() {
             </div>
             <div className="leading-none">
               <span className="text-sm font-extrabold text-coffee-900 tracking-tight">
-                Cafe Admin
+                {brandName} Admin
               </span>
               <span className="block text-[10px] text-coffee-500 font-medium uppercase tracking-widest">
                 Dashboard

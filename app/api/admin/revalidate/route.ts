@@ -28,6 +28,8 @@ export async function POST() {
 
   revalidatePath('/');
   revalidatePath('/menu');
+  revalidatePath('/orders');
+  revalidatePath('/checkout');
 
   return NextResponse.json({ revalidated: true });
 }

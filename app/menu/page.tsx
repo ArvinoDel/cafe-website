@@ -7,6 +7,7 @@ import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCir
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 type MenuItem = {
   id: string;
@@ -49,6 +50,7 @@ export default function MenuPage() {
 function MenuPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { brandName } = useBrand();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -331,7 +333,7 @@ function MenuPageInner() {
             transition={{ duration: 0.5 }}
           >
             <span className="text-sm font-semibold text-coffee-600 uppercase tracking-wider">
-              Menu Nako
+              Menu {brandName}
             </span>
             <h1 className="mt-2 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight">
               Pilih kesukaanmu
@@ -653,7 +655,7 @@ function MenuPageInner() {
                   <span className="w-5 h-5 rounded-full bg-coffee-700 text-cream text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                     1
                   </span>
-                  <span>Duduk di salah satu meja Kopi Nako yang tersedia.</span>
+                  <span>Duduk di salah satu meja {brandName} yang tersedia.</span>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <span className="w-5 h-5 rounded-full bg-coffee-700 text-cream text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">

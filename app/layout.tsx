@@ -2,28 +2,13 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import { createClient } from '@supabase/supabase-js';
+import { BrandProvider } from '@/components/providers/BrandProvider';
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-jakarta',
   display: 'swap',
 });
-
-export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
-  title: 'Your Cafe — Specialty Coffee & Fresh Kitchen',
-  description:
-    'Scan the QR code at your table, browse the menu, and order without the wait. Great coffee and fresh food served right to your seat.',
-  openGraph: {
-    title: 'Your Cafe — Specialty Coffee & Fresh Kitchen',
-    description: 'Scan the QR code at your table and order without the wait.',
-    images: [{ url: 'https://bolt.new/static/og_default.png' }],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    images: [{ url: 'https://bolt.new/static/og_default.png' }],
-  },
-};
 
 // ── Default theme (applied before DB row is fetched or if fetch fails) ─────────
 const DEFAULT_THEME: Record<string, string> = {
@@ -36,33 +21,68 @@ const DEFAULT_THEME: Record<string, string> = {
   muted:      '#f1e8de',
 };
 
-/**
- * Fetch the `theme` row from site_content using a direct anon-key request.
- * We intentionally bypass cookie auth here (public content) and fall back
- * gracefully to DEFAULT_THEME when the table doesn't exist yet.
- */
-async function getSiteTheme(): Promise<Record<string, string>> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-    || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const DEFAULT_BRAND = {
+  brandName: 'CAFE',
+  brandSubtitle: 'Specialty Coffee & Fresh Kitchen',
+};
 
-  if (!url || !key) return DEFAULT_THEME;
+async function getSiteConfig(): Promise<{
+  theme: Record<string, string>;
+  brand: { brandName: string; brandSubtitle: string };
+}> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    return { theme: DEFAULT_THEME, brand: DEFAULT_BRAND };
+  }
 
   try {
     const supabase = createClient(url, key);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('site_content')
-      .select('content')
-      .eq('section', 'theme')
-      .maybeSingle();
+      .select('section, content')
+      .in('section', ['theme', 'navbar']);
 
-    if (error || !data?.content) return DEFAULT_THEME;
+    const map = (data || []).reduce((acc, row) => {
+      acc[row.section] = row.content;
+      return acc;
+    }, {} as Record<string, any>);
 
-    // Merge DB values with defaults (so missing keys fall back safely)
-    return { ...DEFAULT_THEME, ...(data.content as Record<string, string>) };
+    const theme = { ...DEFAULT_THEME, ...(map.theme as Record<string, string>) };
+    const navbarContent = (map.navbar as Record<string, string>) || {};
+    const brand = {
+      brandName: navbarContent.brandName || DEFAULT_BRAND.brandName,
+      brandSubtitle: navbarContent.brandSubtitle || DEFAULT_BRAND.brandSubtitle,
+    };
+
+    return { theme, brand };
   } catch {
-    return DEFAULT_THEME;
+    return { theme: DEFAULT_THEME, brand: DEFAULT_BRAND };
   }
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { brand } = await getSiteConfig();
+  const name = brand.brandName || 'CAFE';
+  const subtitle = brand.brandSubtitle || 'Specialty Coffee & Fresh Kitchen';
+
+  return {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
+    title: `${name} — ${subtitle}`,
+    description: `Scan the QR code at your table, browse the menu, and order without the wait. Great coffee and fresh food served right to your seat at ${name}.`,
+    openGraph: {
+      title: `${name} — ${subtitle}`,
+      description: `Scan the QR code at your table and order without the wait at ${name}.`,
+      images: [{ url: 'https://bolt.new/static/og_default.png' }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      images: [{ url: 'https://bolt.new/static/og_default.png' }],
+    },
+  };
 }
 
 /** Build an inline <style> string that overrides CSS custom properties. */
@@ -78,7 +98,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const theme = await getSiteTheme();
+  const { theme, brand } = await getSiteConfig();
   const themeStyle = buildThemeStyle(theme);
 
   return (
@@ -87,7 +107,9 @@ export default async function RootLayout({
         {/* Inline theme so first paint already has the correct palette */}
         <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       </head>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <BrandProvider initialBrand={brand}>{children}</BrandProvider>
+      </body>
     </html>
   );
 }

@@ -531,7 +531,7 @@ function AdminCreateModal({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin.bogor@kopinako.id"
+                  placeholder="admin.cabang@cafe.id"
                   required
                   className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
                 />

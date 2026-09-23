@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, Printer, Coffee, Building2, Loader2 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 
 type Branch = { id: string; name: string };
@@ -28,6 +29,7 @@ function getSupabase() {
 export default function TableQrPage() {
   const router = useRouter();
   const profile = useAdminProfile();
+  const { brandName } = useBrand();
 
   const [origin, setOrigin] = useState('');
   const [prefix, setPrefix] = useState('A');
@@ -48,7 +50,7 @@ export default function TableQrPage() {
         .from('branches')
         .select('id, name')
         .order('name')
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           if (data) {
             setBranches(data as Branch[]);
             if (data.length > 0) {
@@ -192,7 +194,7 @@ export default function TableQrPage() {
             >
               <div className="flex items-center gap-1.5 text-coffee-700 mb-1">
                 <Coffee className="w-4 h-4" />
-                <span className="text-xs font-bold uppercase tracking-wide">Kopi Nako</span>
+                <span className="text-xs font-bold uppercase tracking-wide">{brandName}</span>
               </div>
               {selectedBranchName && (
                 <p className="text-[10px] text-charcoal/50 mb-2 font-medium">{selectedBranchName}</p>

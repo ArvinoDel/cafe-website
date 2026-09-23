@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Menu, X, Coffee, Camera } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 const navLinks = [
   { label: 'Home', href: '#home' },
@@ -23,12 +24,13 @@ export type NavbarContent = {
 
 export default function Navbar({ content }: { content?: NavbarContent }) {
   const router = useRouter();
+  const brand = useBrand();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  const brandName = content?.brandName || 'CAFE';
-  const brandSubtitle = content?.brandSubtitle || 'Specialty Coffee';
+  const brandName = content?.brandName || brand.brandName || 'CAFE';
+  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || 'Specialty Coffee';
   const ctaLabel = content?.ctaLabel || 'Scan to Order';
   const links = content?.links?.length ? content.links : navLinks;
 

@@ -28,6 +28,7 @@ import {
 } from '@/lib/order-history';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 type OrderItem = {
   id: string;
@@ -111,6 +112,7 @@ function relativeTime(iso: string): string {
 
 export default function CustomerOrderHistoryPage() {
   const router = useRouter();
+  const { brandName } = useBrand();
 
   const [codes, setCodes] = useState<string[]>([]);
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -324,7 +326,7 @@ export default function CustomerOrderHistoryPage() {
           <div className="flex-1 text-xs text-charcoal/70 leading-relaxed">
             <p className="font-bold text-coffee-900">Tersimpan di Perangkat Ini</p>
             <p className="mt-0.5 text-charcoal/60">
-              Riwayat pesanan disimpan otomatis di browser kamu tanpa perlu login. Kamu juga bisa melacak pesanan lain dengan memasukkan kode pesanan di bawah.
+              Riwayat pesanan {brandName} disimpan otomatis di browser kamu tanpa perlu login. Kamu juga bisa melacak pesanan lain dengan memasukkan kode pesanan di bawah.
             </p>
           </div>
         </div>
@@ -445,7 +447,7 @@ export default function CustomerOrderHistoryPage() {
             </h3>
             <p className="text-xs text-charcoal/50 max-w-sm mx-auto">
               {tab === 'all'
-                ? 'Pesanan yang kamu pesan dari browser ini akan otomatis tersimpan di sini.'
+                ? `Pesanan ${brandName} yang kamu pesan dari browser ini akan otomatis tersimpan di sini.`
                 : 'Kamu tidak memiliki pesanan dalam status ini.'}
             </p>
             <div className="pt-2">

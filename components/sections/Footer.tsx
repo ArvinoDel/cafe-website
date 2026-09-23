@@ -12,6 +12,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 const footerLinks = {
   Brand: ['About Us', 'Our Locations', 'Careers', 'Press'],
@@ -42,17 +43,18 @@ export type FooterContent = {
 };
 
 export default function Footer({ content }: { content?: FooterContent }) {
+  const brand = useBrand();
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  const brandName = content?.brandName || 'CAFE';
-  const brandSubtitle = content?.brandSubtitle || 'Specialty Coffee';
+  const brandName = content?.brandName || brand.brandName || 'CAFE';
+  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || 'Specialty Coffee';
   const tagline = content?.tagline || 'Freshly brewed specialty coffee and great food, served right to your table. Scan the QR code and order in seconds.';
   const newsletterLabel = content?.newsletter?.label || 'Get the latest news & offers';
   const newsletterPlaceholder = content?.newsletter?.placeholder || 'your@email.com';
   const newsletterSuccess = content?.newsletter?.successMessage || 'Thanks for subscribing!';
   const columns = content?.linkColumns || footerLinks;
-  const copyright = content?.copyright || 'Your Cafe';
+  const copyright = content?.copyright || brand.brandName || 'CAFE';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -8,6 +8,7 @@ import {
   slideInLeft,
   slideInRight,
 } from '@/lib/animations';
+import { useBrand } from '@/components/providers/BrandProvider';
 
 const steps = [
   {
@@ -48,6 +49,7 @@ export type HowItWorksContent = {
 const defaultStepIcons = [QrCode, ListOrdered, Coffee];
 
 export default function HowItWorks({ content }: { content?: HowItWorksContent }) {
+  const brand = useBrand();
   const tag = content?.tag || 'How It Works';
   const title = content?.title || 'Three steps,';
   const titleAccent = content?.titleAccent || 'coffee without the wait.';
@@ -80,7 +82,7 @@ export default function HowItWorks({ content }: { content?: HowItWorksContent })
                   {/* Status bar */}
                   <div className="flex justify-between items-center px-6 pt-8 pb-2 text-cream/80 text-xs">
                     <span className="font-semibold">9:41</span>
-                    <span>{mockup.appLabel || 'CAFE'}</span>
+                    <span>{mockup.appLabel || brand.brandName || 'CAFE'}</span>
                   </div>
 
                   {/* Table indicator */}

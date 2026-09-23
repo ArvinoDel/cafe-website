@@ -584,6 +584,12 @@ function SiteContentEditor() {
       setSaveState('error');
     } else {
       setSaveState('success');
+      if (activeSection === 'navbar' && payload.brandName) {
+        try {
+          localStorage.setItem('cafe-brand-name', String(payload.brandName));
+          window.dispatchEvent(new Event('brandchange'));
+        } catch {}
+      }
       // Trigger ISR revalidation via API route
       await fetch('/api/admin/revalidate', { method: 'POST' }).catch(() => null);
     }
