@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt } from 'lucide-react';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
@@ -62,14 +62,32 @@ function MenuPageInner() {
   const [branchId, setBranchId] = useState<string | null>(null);
   const [showQrGuide, setShowQrGuide] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [tableChangeNotice, setTableChangeNotice] = useState<string | null>(null);
+
+  // Auto-dismiss table notice after 6 seconds
+  useEffect(() => {
+    if (!tableChangeNotice) return;
+    const timer = setTimeout(() => {
+      setTableChangeNotice(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [tableChangeNotice]);
 
   const handleScanSuccess = useCallback(
     (scanned: string, scannedBranchId: string | null) => {
+      const prevTable = localStorage.getItem(TABLE_KEY);
       setTableNumber(scanned);
       localStorage.setItem(TABLE_KEY, scanned);
       if (scannedBranchId) {
         setBranchId(scannedBranchId);
         localStorage.setItem(BRANCH_KEY, scannedBranchId);
+      }
+      if (prevTable && prevTable !== scanned) {
+        setTableChangeNotice(
+          `Meja berhasil dipindahkan dari Meja ${prevTable} ke Meja ${scanned}! Keranjang belanja kamu tetap tersimpan.`,
+        );
+      } else {
+        setTableChangeNotice(`Terhubung ke Meja ${scanned}! Selamat memesan.`);
       }
       const url = scannedBranchId
         ? `/menu?table=${scanned}&branch=${scannedBranchId}`
@@ -87,6 +105,12 @@ function MenuPageInner() {
     const fromBranch = searchParams.get('branch');
     if (fromQr && fromQr.trim()) {
       const clean = fromQr.trim().toUpperCase();
+      const stored = localStorage.getItem(TABLE_KEY);
+      if (stored && stored !== clean) {
+        setTableChangeNotice(
+          `Meja berhasil dipindahkan dari Meja ${stored} ke Meja ${clean}! Keranjang belanja kamu tetap tersimpan.`,
+        );
+      }
       setTableNumber(clean);
       localStorage.setItem(TABLE_KEY, clean);
     } else {
@@ -228,15 +252,19 @@ function MenuPageInner() {
 
             <div className="flex items-center gap-2">
               {tableNumber ? (
-                <div
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold select-none"
-                  title={`Terverifikasi dari QR Meja ${tableNumber}`}
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold hover:bg-coffee-100/80 transition-all active:scale-95 group"
+                  title={`Terhubung ke Meja ${tableNumber}. Klik untuk scan meja baru jika pindah meja.`}
                 >
                   <QrCode className="w-4 h-4 text-coffee-600" />
                   <span className="hidden sm:inline">Meja {tableNumber}</span>
                   <span className="sm:hidden">{tableNumber}</span>
-                  <Lock className="w-3 h-3 text-coffee-400 ml-0.5" />
-                </div>
+                  <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-coffee-700 font-medium bg-coffee-100/90 px-1.5 py-0.5 rounded border border-coffee-200/50 ml-0.5 group-hover:bg-coffee-200/70">
+                    <RefreshCw className="w-2.5 h-2.5 text-coffee-600" /> Pindah
+                  </span>
+                </button>
               ) : (
                 <button
                   type="button"
@@ -281,7 +309,7 @@ function MenuPageInner() {
 
       {/* Table status banner */}
       {tableNumber ? (
-        <div className="bg-coffee-50/70 border-b border-coffee-100/60 px-4 py-2">
+        <div className="bg-coffee-50/70 border-b border-coffee-100/60 px-4 py-2.5">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs text-coffee-800">
             <div className="flex items-center gap-2">
               <QrCode className="w-3.5 h-3.5 text-coffee-600 flex-shrink-0" />
@@ -289,9 +317,18 @@ function MenuPageInner() {
                 Terhubung ke <strong>Meja {tableNumber}</strong> via scan QR code.
               </span>
             </div>
-            <span className="text-[11px] text-coffee-600/80 flex items-center gap-1 font-medium select-none">
-              <Lock className="w-3 h-3" /> Terkunci otomatis
-            </span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="hidden sm:inline text-[11px] text-coffee-600/70">Pindah tempat?</span>
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-coffee-100 hover:bg-coffee-200/80 text-coffee-900 font-bold text-xs transition-colors active:scale-95 shadow-2xs"
+                title="Pindah meja dan scan stiker QR di meja baru"
+              >
+                <RefreshCw className="w-3 h-3 text-coffee-700" />
+                <span>Pindah Meja</span>
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -323,6 +360,33 @@ function MenuPageInner() {
           </div>
         </div>
       )}
+
+      {/* Table change toast / notice */}
+      <AnimatePresence>
+        {tableChangeNotice && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-emerald-50 border-b border-emerald-200 px-4 py-2.5 text-emerald-900 text-xs sm:text-sm overflow-hidden"
+          >
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span className="font-semibold">{tableChangeNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTableChangeNotice(null)}
+                className="text-emerald-700 hover:text-emerald-950 p-1 flex-shrink-0"
+                aria-label="Tutup notifikasi"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Hero header */}
       <div className="bg-gradient-to-b from-sand-100/60 to-cream pt-12 pb-8">
@@ -580,12 +644,24 @@ function MenuPageInner() {
 
                   {tableNumber ? (
                     <>
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-coffee-50 text-coffee-700 text-xs">
-                        <QrCode className="w-4 h-4 flex-shrink-0" />
-                        <span>
-                          Pesanan akan dikirim ke <strong className="font-bold text-coffee-900">Meja {tableNumber}</strong>
-                        </span>
-                        <Lock className="w-3 h-3 text-coffee-400 ml-auto" />
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-coffee-50 text-coffee-700 text-xs">
+                        <div className="flex items-center gap-2">
+                          <QrCode className="w-4 h-4 flex-shrink-0 text-coffee-600" />
+                          <span>
+                            Pesanan untuk <strong className="font-bold text-coffee-900">Meja {tableNumber}</strong>
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCartOpen(false);
+                            setScannerOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 font-bold text-coffee-700 hover:text-coffee-950 bg-coffee-100 hover:bg-coffee-200/80 px-2 py-0.5 rounded text-[11px] transition-colors whitespace-nowrap"
+                          title="Pindah meja dan scan stiker QR di meja baru"
+                        >
+                          <RefreshCw className="w-2.5 h-2.5" /> Ganti
+                        </button>
                       </div>
                       <button
                         onClick={goToCheckout}
@@ -701,6 +777,13 @@ function MenuPageInner() {
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanSuccess={handleScanSuccess}
+        currentTable={tableNumber}
+        title={tableNumber ? 'Scan QR Meja Baru' : 'Scan QR Code Meja'}
+        subtitle={
+          tableNumber
+            ? `Saat ini terhubung ke Meja ${tableNumber}. Arahkan kamera ke stiker QR meja baru.`
+            : 'Arahkan kamera ke stiker QR di meja untuk memesan'
+        }
       />
 
       {/* Floating cart button (mobile) */}

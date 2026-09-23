@@ -28,6 +28,14 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [currentTable, setCurrentTable] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('kopi-nako-table') || localStorage.getItem('cafe-table');
+      if (stored) setCurrentTable(stored);
+    }
+  }, [scannerOpen]);
 
   const brandName = content?.brandName || brand.brandName || 'CAFE';
   const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || 'Specialty Coffee';
@@ -158,6 +166,13 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanSuccess={handleScanSuccess}
+        currentTable={currentTable}
+        title={currentTable ? 'Scan QR Meja Baru' : 'Scan QR Code Meja'}
+        subtitle={
+          currentTable
+            ? `Saat ini terhubung ke Meja ${currentTable}. Arahkan kamera ke stiker QR meja baru.`
+            : 'Arahkan kamera ke stiker QR di meja untuk memesan'
+        }
       />
     </>
   );

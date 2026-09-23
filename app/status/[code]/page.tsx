@@ -2,9 +2,22 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Coffee, XCircle, RefreshCw, Receipt } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ArrowLeft,
+  Check,
+  Coffee,
+  XCircle,
+  RefreshCw,
+  Receipt,
+  QrCode,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Loader2,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
+import QrScannerModal from '@/components/ui/QrScannerModal';
 
 type OrderItem = {
   id: string;
@@ -51,6 +64,81 @@ export default function OrderStatusPage() {
   const [notFound, setNotFound] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const isFirstLoad = useRef(true);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [isUpdatingTable, setIsUpdatingTable] = useState(false);
+  const [tableUpdateNotice, setTableUpdateNotice] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const handleTableScan = useCallback(
+    async (scannedTable: string) => {
+      if (!order) return;
+      if (scannedTable === order.table_number) {
+        setTableUpdateNotice({
+          type: 'success',
+          message: `Kamu sudah berada di Meja ${scannedTable}.`,
+        });
+        return;
+      }
+
+      setIsUpdatingTable(true);
+      try {
+        const res = await fetch('/api/orders/update-table', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_code: order.order_code,
+            new_table: scannedTable,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setTableUpdateNotice({
+            type: 'error',
+            message: data.error || 'Gagal memindahkan meja. Silakan coba lagi atau beritahu barista.',
+          });
+          return;
+        }
+
+        // Update state
+        setOrder((prev) => (prev ? { ...prev, table_number: scannedTable } : null));
+
+        // Update localStorage
+        try {
+          localStorage.setItem('kopi-nako-table', scannedTable);
+          const stored = localStorage.getItem('kopi-nako-order-' + order.order_code);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            parsed.table_number = scannedTable;
+            localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(parsed));
+          }
+          const lastOrder = localStorage.getItem('kopi-nako-last-order');
+          if (lastOrder) {
+            const parsed = JSON.parse(lastOrder);
+            if (parsed?.order_code === order.order_code) {
+              parsed.table_number = scannedTable;
+              localStorage.setItem('kopi-nako-last-order', JSON.stringify(parsed));
+            }
+          }
+        } catch {}
+
+        setTableUpdateNotice({
+          type: 'success',
+          message: `Nomor meja pesanan berhasil dipindahkan ke Meja ${scannedTable}! Barista akan mengantar ke meja barumu.`,
+        });
+      } catch {
+        setTableUpdateNotice({
+          type: 'error',
+          message: 'Koneksi bermasalah saat memindahkan meja. Silakan coba lagi.',
+        });
+      } finally {
+        setIsUpdatingTable(false);
+      }
+    },
+    [order],
+  );
 
   const getLocalOrder = useCallback((): Order | null => {
     try {
@@ -217,7 +305,7 @@ export default function OrderStatusPage() {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl border border-coffee-100/80 p-5 text-center"
+          className="bg-white rounded-2xl border border-coffee-100/80 p-5 text-center shadow-soft"
         >
           <div className="w-14 h-14 rounded-2xl bg-coffee-50 flex items-center justify-center mx-auto mb-3">
             <Coffee className="w-7 h-7 text-coffee-700" />
@@ -226,9 +314,65 @@ export default function OrderStatusPage() {
             Kode Pesanan
           </p>
           <p className="text-2xl font-extrabold text-coffee-900 mt-0.5">{order.order_code}</p>
-          <p className="text-sm text-charcoal/50 mt-1">
-            Meja {order.table_number} &middot; {order.customer_name}
+          <p className="text-sm text-charcoal/60 mt-1 font-medium">
+            Pemesan: <strong>{order.customer_name}</strong>
           </p>
+
+          {/* Table display & re-scan action */}
+          <div className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-coffee-50 text-coffee-900 text-xs font-bold border border-coffee-200/70">
+              <QrCode className="w-3.5 h-3.5 text-coffee-600" />
+              <span>Meja {order.table_number}</span>
+            </div>
+
+            {(order.status === 'pending' || order.status === 'preparing') && (
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                disabled={isUpdatingTable}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold border border-amber-200/80 transition-colors active:scale-95 disabled:opacity-50 shadow-2xs"
+                title="Pindah meja dan scan stiker QR di meja baru"
+              >
+                {isUpdatingTable ? (
+                  <Loader2 className="w-3.5 h-3.5 text-amber-700 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+                )}
+                <span>Pindah Meja? Scan QR Baru</span>
+              </button>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {tableUpdateNotice && (
+              <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                className={`mt-3 p-3 rounded-xl text-xs flex items-center justify-between gap-2 text-left ${
+                  tableUpdateNotice.type === 'success'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                    : 'bg-red-50 border border-red-200 text-red-900'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {tableUpdateNotice.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                  )}
+                  <span>{tableUpdateNotice.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTableUpdateNotice(null)}
+                  className="text-charcoal/40 hover:text-charcoal p-1 flex-shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
 
         {/* Status stepper */}
@@ -341,6 +485,16 @@ export default function OrderStatusPage() {
           </div>
         </div>
       </div>
+
+      {/* In-website live camera QR Scanner Modal */}
+      <QrScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanSuccess={(scanned) => handleTableScan(scanned)}
+        currentTable={order.table_number}
+        title="Pindah Meja Pesanan"
+        subtitle={`Pesanan saat ini di Meja ${order.table_number}. Arahkan kamera ke stiker QR meja baru.`}
+      />
     </div>
   );
 }

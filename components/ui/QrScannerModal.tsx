@@ -106,12 +106,18 @@ interface QrScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onScanSuccess: (tableNumber: string, branchId: string | null) => void;
+  title?: string;
+  subtitle?: string;
+  currentTable?: string | null;
 }
 
 export default function QrScannerModal({
   isOpen,
   onClose,
   onScanSuccess,
+  title,
+  subtitle,
+  currentTable,
 }: QrScannerModalProps) {
   const { brandName } = useBrand();
   const [cameraActive, setCameraActive] = useState(false);
@@ -279,8 +285,15 @@ export default function QrScannerModal({
                 <Camera className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-coffee-900">Scan QR Code Meja</h3>
-                <p className="text-[11px] text-charcoal/50">Arahkan kamera ke stiker QR di meja</p>
+                <h3 className="font-bold text-sm text-coffee-900">
+                  {title || (currentTable ? 'Scan QR Meja Baru' : 'Scan QR Code Meja')}
+                </h3>
+                <p className="text-[11px] text-charcoal/50">
+                  {subtitle ||
+                    (currentTable
+                      ? `Saat ini Meja ${currentTable} · Arahkan ke stiker QR meja baru`
+                      : 'Arahkan kamera ke stiker QR di meja')}
+                </p>
               </div>
             </div>
             <button
@@ -329,13 +342,27 @@ export default function QrScannerModal({
                 </div>
                 <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-sand-300 mb-1">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>QR Berhasil Terverifikasi</span>
+                  <span>
+                    {currentTable && currentTable !== scannedTable
+                      ? 'Pindah Meja Berhasil!'
+                      : 'QR Berhasil Terverifikasi'}
+                  </span>
                 </div>
-                <h4 className="text-2xl font-black tracking-tight text-cream">
-                  Meja {scannedTable}
-                </h4>
+                {currentTable && currentTable !== scannedTable ? (
+                  <div className="flex items-center justify-center gap-2 text-xl sm:text-2xl font-black tracking-tight text-cream mt-1">
+                    <span className="text-sand-300/80 line-through text-lg">Meja {currentTable}</span>
+                    <span>➔</span>
+                    <span className="text-emerald-300">Meja {scannedTable}</span>
+                  </div>
+                ) : (
+                  <h4 className="text-2xl font-black tracking-tight text-cream">
+                    Meja {scannedTable}
+                  </h4>
+                )}
                 <p className="text-xs text-cream/70 mt-2">
-                  Menghubungkan meja ke pesananmu...
+                  {currentTable && currentTable !== scannedTable
+                    ? 'Memperbarui meja untuk pesananmu...'
+                    : 'Menghubungkan meja ke pesananmu...'}
                 </p>
               </motion.div>
             )}

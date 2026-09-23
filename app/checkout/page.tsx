@@ -16,6 +16,8 @@ import {
   Lock,
   AlertCircle,
   Camera,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp } from '@/lib/animations';
@@ -65,13 +67,28 @@ function CheckoutPageInner() {
   const [orderCode, setOrderCode] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [branchId, setBranchId] = useState<string>(DEFAULT_BRANCH_ID);
+  const [tableNotice, setTableNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!tableNotice) return;
+    const timer = setTimeout(() => {
+      setTableNotice(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [tableNotice]);
 
   const handleScanSuccess = useCallback((scanned: string, scannedBranchId: string | null) => {
+    const prev = localStorage.getItem(TABLE_KEY);
     setTableNumber(scanned);
     localStorage.setItem(TABLE_KEY, scanned);
     if (scannedBranchId) {
       setBranchId(scannedBranchId);
       localStorage.setItem(BRANCH_KEY, scannedBranchId);
+    }
+    if (prev && prev !== scanned) {
+      setTableNotice(`Nomor meja berhasil diubah dari Meja ${prev} ke Meja ${scanned}!`);
+    } else {
+      setTableNotice(`Terhubung ke Meja ${scanned}!`);
     }
   }, []);
 
@@ -87,6 +104,10 @@ function CheckoutPageInner() {
     const fromBranch = searchParams.get('branch');
     if (fromQr && fromQr.trim()) {
       const clean = fromQr.trim().toUpperCase();
+      const storedTable = localStorage.getItem(TABLE_KEY);
+      if (storedTable && storedTable !== clean) {
+        setTableNotice(`Nomor meja diperbarui dari Meja ${storedTable} ke Meja ${clean}!`);
+      }
       setTableNumber(clean);
       localStorage.setItem(TABLE_KEY, clean);
     } else {
@@ -402,11 +423,20 @@ function CheckoutPageInner() {
                 <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-coffee-50/70 border border-coffee-200/80 text-coffee-900 text-sm">
                   <div className="flex items-center gap-2.5">
                     <QrCode className="w-4 h-4 text-coffee-700 flex-shrink-0" />
-                    <span className="font-bold text-base">Meja {tableNumber}</span>
+                    <div>
+                      <span className="font-bold text-base block leading-tight">Meja {tableNumber}</span>
+                      <span className="text-[11px] text-coffee-600/80">Terverifikasi dari scan QR</span>
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold text-coffee-700 bg-coffee-100/90 px-2.5 py-1 rounded-full flex items-center gap-1 select-none">
-                    <Lock className="w-3 h-3 text-coffee-600" /> Terkunci dari QR
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setScannerOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-100 hover:bg-coffee-200/80 text-coffee-900 font-bold text-xs transition-colors active:scale-95 shadow-2xs"
+                    title="Pindah meja dan scan stiker QR di meja baru"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-coffee-700" />
+                    <span>Pindah Meja</span>
+                  </button>
                 </div>
               ) : (
                 <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs space-y-2">
@@ -427,11 +457,32 @@ function CheckoutPageInner() {
                 </div>
               )}
               {tableNumber && (
-                <p className="text-[11px] text-charcoal/45 mt-1.5 flex items-center gap-1 select-none">
-                  <Lock className="w-3 h-3 text-charcoal/40 flex-shrink-0" />
-                  Nomor meja otomatis terkunci dari scan QR dan tidak dapat diubah manual.
+                <p className="text-[11px] text-charcoal/50 mt-1.5 flex items-center justify-between">
+                  <span>Pindah tempat duduk? Scan ulang stiker QR di meja barumu kapan saja.</span>
                 </p>
               )}
+              <AnimatePresence>
+                {tableNotice && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2 overflow-hidden"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <span className="font-semibold">{tableNotice}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTableNotice(null)}
+                      className="text-emerald-700 hover:text-emerald-950 p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div>
               <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
@@ -524,6 +575,13 @@ function CheckoutPageInner() {
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanSuccess={handleScanSuccess}
+        currentTable={tableNumber || null}
+        title={tableNumber ? 'Scan QR Meja Baru' : 'Scan QR Code Meja'}
+        subtitle={
+          tableNumber
+            ? `Saat ini Meja ${tableNumber}. Arahkan kamera ke stiker QR meja baru.`
+            : 'Arahkan kamera ke stiker QR di mejamu untuk memesan'
+        }
       />
     </div>
   );
