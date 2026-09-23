@@ -19,19 +19,28 @@ export function extractTableCode(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
 
-  // Check URL query param ?table=...
+  // Check URL query params (?table=..., ?meja=..., ?t=...)
   try {
     const url = new URL(trimmed, 'https://kopi-nako.local');
-    const tableParam = url.searchParams.get('table');
+    const tableParam =
+      url.searchParams.get('table') ||
+      url.searchParams.get('meja') ||
+      url.searchParams.get('t');
     if (tableParam && tableParam.trim()) {
       return tableParam.trim().toUpperCase();
+    }
+
+    // Path pattern like /menus/A-1 or /menu/A-1
+    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-z0-9-]+)$/i);
+    if (pathMatch && pathMatch[1]) {
+      return pathMatch[1].trim().toUpperCase();
     }
   } catch {
     // Continue with regex fallback
   }
 
-  // Regex check for ?table=XYZ or &table=XYZ or table=XYZ
-  const matchParam = trimmed.match(/(?:[?&]|^)table=([^&#]+)/i);
+  // Regex check for ?table=XYZ or &table=XYZ or table=XYZ or meja=XYZ
+  const matchParam = trimmed.match(/(?:[?&]|^)(?:table|meja|t)=([^&#]+)/i);
   if (matchParam && matchParam[1]) {
     return decodeURIComponent(matchParam[1]).trim().toUpperCase();
   }
@@ -60,11 +69,27 @@ export function extractTableAndBranch(raw: string): { table: string; branchId: s
 
   try {
     const url = new URL(trimmed, 'https://kopi-nako.local');
-    const tableParam = url.searchParams.get('table');
-    const branchParam = url.searchParams.get('branch');
+    const tableParam =
+      url.searchParams.get('table') ||
+      url.searchParams.get('meja') ||
+      url.searchParams.get('t');
+    const branchParam =
+      url.searchParams.get('branch') ||
+      url.searchParams.get('branchId') ||
+      url.searchParams.get('cabang');
+
     if (tableParam && tableParam.trim()) {
       return {
         table: tableParam.trim().toUpperCase(),
+        branchId: branchParam?.trim() || null,
+      };
+    }
+
+    // Path pattern like /menus/A-1 or /menu/A-1
+    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-z0-9-]+)$/i);
+    if (pathMatch && pathMatch[1]) {
+      return {
+        table: pathMatch[1].trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
       };
     }

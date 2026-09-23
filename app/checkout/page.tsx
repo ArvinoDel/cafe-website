@@ -291,7 +291,7 @@ function CheckoutPageInner() {
             <div className="text-xs sm:text-sm space-y-2">
               <p className="font-bold">QR Meja Belum Terdeteksi</p>
               <p className="text-amber-800/90 leading-relaxed">
-                Pemesanan hanya dapat dilakukan melalui scan QR code di meja. Kamu bisa scan langsung menggunakan kamera website ini tanpa Google Lens / aplikasi lain!
+                Pemesanan hanya dapat dilakukan melalui scan QR code di meja. Kamu bisa scan langsung menggunakan Google Lens, Kamera HP, atau kamera website ini!
               </p>
               <div className="flex items-center gap-2 pt-1">
                 <button

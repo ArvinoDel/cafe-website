@@ -44,7 +44,11 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
 
   const handleScanSuccess = (table: string, branchId: string | null) => {
     localStorage.setItem('cafe-table', table);
-    if (branchId) localStorage.setItem('cafe-branch', branchId);
+    localStorage.setItem('kopi-nako-table', table);
+    if (branchId) {
+      localStorage.setItem('cafe-branch', branchId);
+      localStorage.setItem('kopi-nako-branch', branchId);
+    }
     const url = branchId ? `/menu?table=${table}&branch=${branchId}` : `/menu?table=${table}`;
     router.push(url);
   };

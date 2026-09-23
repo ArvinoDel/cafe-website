@@ -11,6 +11,14 @@ const nextConfig = {
     };
     return config;
   },
+  async rewrites() {
+    return [
+      {
+        source: '/menus',
+        destination: '/menu',
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
