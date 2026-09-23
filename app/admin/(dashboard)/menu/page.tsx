@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, FormEvent } from 'react';
+import { useEffect, useState, useCallback, useMemo, forwardRef, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -643,39 +643,46 @@ export default function MenuManagementPage() {
 
 // ─── Menu Item Card ───────────────────────────────────────────────────────────
 
-function MenuItemCard({
-  item,
-  isBranchView,
-  isSuperadmin,
-  toggling,
-  onToggleAvailability,
-  onToggleEnabled,
-  onEditMaster,
-  onDeleteMaster,
-  onOpenPriceModal,
-}: {
-  item: MenuItem & {
-    is_enabled: boolean;
-    is_available: boolean;
-    effectivePrice: number;
-    hasCustomPrice: boolean;
-    branchRow: BranchMenuItem | null;
-  };
-  isBranchView: boolean;
-  isSuperadmin: boolean;
-  toggling: boolean;
-  onToggleAvailability: () => void;
-  onToggleEnabled: () => void;
-  onEditMaster: () => void;
-  onDeleteMaster: () => void;
-  onOpenPriceModal: () => void;
-}) {
+const MenuItemCard = forwardRef<
+  HTMLDivElement,
+  {
+    item: MenuItem & {
+      is_enabled: boolean;
+      is_available: boolean;
+      effectivePrice: number;
+      hasCustomPrice: boolean;
+      branchRow: BranchMenuItem | null;
+    };
+    isBranchView: boolean;
+    isSuperadmin: boolean;
+    toggling: boolean;
+    onToggleAvailability: () => void;
+    onToggleEnabled: () => void;
+    onEditMaster: () => void;
+    onDeleteMaster: () => void;
+    onOpenPriceModal: () => void;
+  }
+>(function MenuItemCard(
+  {
+    item,
+    isBranchView,
+    isSuperadmin,
+    toggling,
+    onToggleAvailability,
+    onToggleEnabled,
+    onEditMaster,
+    onDeleteMaster,
+    onOpenPriceModal,
+  },
+  ref
+) {
   const [imgError, setImgError] = useState(false);
 
   const isServed = !isBranchView || item.is_enabled;
 
   return (
     <motion.div
+      ref={ref}
       variants={fadeInUp}
       layout
       exit={{ opacity: 0, scale: 0.95 }}
@@ -864,7 +871,7 @@ function MenuItemCard({
       </div>
     </motion.div>
   );
-}
+});
 
 // ─── Add / Edit Master Modal ──────────────────────────────────────────────────
 

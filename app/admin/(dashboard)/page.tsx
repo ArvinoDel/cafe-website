@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
+import { useEffect, useState, useCallback, useRef, forwardRef, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RefreshCw,
@@ -212,10 +212,27 @@ export default function AdminDashboard() {
 
   async function deleteOrder(orderId: string) {
     setUpdating(orderId);
-    await supabase.current.from('orders').delete().eq('id', orderId);
-    await fetchOrders();
-    setUpdating(null);
-    setDeleteTarget(null);
+    try {
+      const res = await fetch(`/api/admin/orders?id=${orderId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'Gagal menghapus pesanan.');
+      }
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (err: any) {
+      console.error('Failed to delete order:', err);
+      // Fallback attempt with direct supabase client
+      const { error: sbErr } = await supabase.current.from('orders').delete().eq('id', orderId);
+      if (sbErr) {
+        alert(err?.message || sbErr.message || 'Gagal menghapus pesanan.');
+      }
+    } finally {
+      await fetchOrders();
+      setUpdating(null);
+      setDeleteTarget(null);
+    }
   }
 
   // ── Stats calculation ─────────────────────────────────────────────────────
@@ -564,23 +581,29 @@ export default function AdminDashboard() {
 
 // ─── Order card ───────────────────────────────────────────────────────────────
 
-function OrderCard({
-  order,
-  isSuperadmin,
-  updating,
-  onAdvance,
-  onCancelRequest,
-  onEdit,
-  onDelete,
-}: {
-  order: Order;
-  isSuperadmin: boolean;
-  updating: boolean;
-  onAdvance: (next: OrderStatus) => void;
-  onCancelRequest: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
+const OrderCard = forwardRef<
+  HTMLDivElement,
+  {
+    order: Order;
+    isSuperadmin: boolean;
+    updating: boolean;
+    onAdvance: (next: OrderStatus) => void;
+    onCancelRequest: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+  }
+>(function OrderCard(
+  {
+    order,
+    isSuperadmin,
+    updating,
+    onAdvance,
+    onCancelRequest,
+    onEdit,
+    onDelete,
+  },
+  ref
+) {
   const next = NEXT_STATUS[order.status];
   const nextLabel = NEXT_LABELS[order.status];
   const canAdvance = !!next && order.status !== 'completed' && order.status !== 'cancelled';
@@ -588,6 +611,7 @@ function OrderCard({
 
   return (
     <motion.div
+      ref={ref}
       variants={fadeInUp}
       layout
       exit={{ opacity: 0, scale: 0.95 }}
@@ -712,7 +736,7 @@ function OrderCard({
       </div>
     </motion.div>
   );
-}
+});
 
 // ─── Edit Order Modal ─────────────────────────────────────────────────────────
 
