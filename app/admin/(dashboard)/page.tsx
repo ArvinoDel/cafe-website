@@ -19,10 +19,14 @@ import {
   Pencil,
   Trash2,
   Calendar,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import { playOrderChime, unlockAudio } from '@/lib/audio';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +64,9 @@ type DayStats = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL = 6000;
+// Realtime channel is the primary update mechanism; polling is a slow fallback
+const POLL_INTERVAL = 60_000;
+const SOUND_KEY = 'kopi-nako-sound-enabled';
 
 const STATUS_TABS: { key: OrderStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'Semua' },
@@ -152,6 +158,9 @@ export default function AdminDashboard() {
   const [editTarget, setEditTarget] = useState<Order | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
+  // Keep a ref so realtime callbacks always read the latest value
+  const soundEnabledRef = useRef(false);
 
   // ── Fetch orders ──────────────────────────────────────────────────────────
 
@@ -181,18 +190,87 @@ export default function AdminDashboard() {
     if (data) setBranches(data as Branch[]);
   }, [profile.role]);
 
-  // ── Polling ───────────────────────────────────────────────────────────────
+  // ── Polling + Realtime ────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchBranches();
   }, [fetchBranches]);
 
+  // Read sound preference from localStorage on mount
   useEffect(() => {
-    fetchOrders();
-    const id = setInterval(fetchOrders, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchOrders]);
+    const stored = localStorage.getItem(SOUND_KEY);
+    const enabled = stored === 'true';
+    setSoundEnabled(enabled);
+    soundEnabledRef.current = enabled;
+  }, []);
 
+  useEffect(() => {
+    // Initial fetch
+    fetchOrders();
+
+    // Slow fallback poll — realtime is the primary mechanism
+    const pollId = setInterval(fetchOrders, POLL_INTERVAL);
+
+    // Capture the client reference so the cleanup closure is stable
+    const sb = supabase.current;
+
+    // ── Supabase Realtime subscription ────────────────────────────────────
+    const channel = sb
+      .channel('admin-orders-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'orders' },
+        (payload) => {
+          const newOrder = payload.new as Order;
+
+          setOrders((prev) => {
+            // Avoid duplicates if the poll already picked it up
+            if (prev.some((o) => o.id === newOrder.id)) return prev;
+            return [newOrder, ...prev];
+          });
+
+          // Sound alert (only if admin has opted in)
+          if (soundEnabledRef.current) {
+            playOrderChime();
+          }
+
+          // Toast notification
+          toast(`Pesanan baru #${newOrder.order_code}`, {
+            description: `Meja ${newOrder.table_number} · ${newOrder.customer_name}`,
+            duration: 6000,
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          const updated = payload.new as Order;
+          setOrders((prev) =>
+            prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)),
+          );
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'orders' },
+        (payload) => {
+          const removed = payload.old as { id: string };
+          setOrders((prev) => prev.filter((o) => o.id !== removed.id));
+        },
+      )
+      .subscribe((status) => {
+        // Re-fetch when the channel reconnects to catch any missed events
+        if (status === 'SUBSCRIBED') {
+          fetchOrders();
+        }
+      });
+
+    return () => {
+      clearInterval(pollId);
+      sb.removeChannel(channel);
+    };
+  }, [fetchOrders]);
   // ── Status update ─────────────────────────────────────────────────────────
 
   async function advanceStatus(orderId: string, nextStatus: OrderStatus) {
@@ -235,6 +313,18 @@ export default function AdminDashboard() {
     }
   }
 
+  // ── Sound toggle ──────────────────────────────────────────────────────────
+
+  function toggleSound() {
+    const next = !soundEnabledRef.current;
+    soundEnabledRef.current = next;
+    setSoundEnabled(next);
+    localStorage.setItem(SOUND_KEY, String(next));
+    // Unlock AudioContext on the user gesture and play a demo chime
+    unlockAudio();
+    if (next) playOrderChime();
+  }
+
   // ── Stats calculation ─────────────────────────────────────────────────────
 
   const statsOrders = orders.filter((o) => {
@@ -258,6 +348,8 @@ export default function AdminDashboard() {
 
   // ── Filtered orders ───────────────────────────────────────────────────────
 
+  const pendingCount = orders.filter((o) => o.status === 'pending').length;
+
   const filtered = orders.filter((o) =>
     statusTab === 'all' ? true : o.status === statusTab,
   );
@@ -268,6 +360,18 @@ export default function AdminDashboard() {
       key === 'all' ? orders.length : orders.filter((o) => o.status === key).length,
     ]),
   ) as Record<string, number>;
+
+  // ── Update document title with pending count ──────────────────────────────
+  useEffect(() => {
+    if (pendingCount > 0) {
+      document.title = `(${pendingCount}) Orders · Admin`;
+    } else {
+      document.title = 'Orders · Admin';
+    }
+    return () => {
+      document.title = 'Orders · Admin';
+    };
+  }, [pendingCount]);
 
   return (
     <div className="space-y-6">
@@ -403,6 +507,19 @@ export default function AdminDashboard() {
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             Live · updated {relativeTime(lastRefresh.toISOString())}
           </span>
+          {/* Sound toggle — clicking this also satisfies the browser user-gesture
+              requirement, unlocking the AudioContext for future autoplay */}
+          <button
+            onClick={toggleSound}
+            className={`p-2 rounded-xl transition-colors ${
+              soundEnabled
+                ? 'bg-coffee-100 text-coffee-700 hover:bg-coffee-200'
+                : 'hover:bg-coffee-50 text-charcoal/40 hover:text-coffee-700'
+            }`}
+            title={soundEnabled ? 'Matikan suara notifikasi' : 'Aktifkan suara notifikasi'}
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
           <button
             onClick={() => { setLoading(true); fetchOrders(); }}
             className="p-2 rounded-xl hover:bg-coffee-50 text-charcoal/50 hover:text-coffee-700 transition-colors"

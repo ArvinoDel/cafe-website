@@ -19,7 +19,6 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase-client';
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
@@ -32,18 +31,26 @@ type CartItem = {
   quantity: number;
 };
 
-const CART_KEY = 'kopi-nako-cart';
-const TABLE_KEY = 'kopi-nako-table';
+// Shape returned by POST /api/orders/create and stored in localStorage
+type OrderSnapshot = {
+  order_code: string;
+  customer_name: string;
+  table_number: string;
+  items: CartItem[];
+  subtotal: number;
+  total: number;
+  payment_method: 'cash' | 'qris';
+  notes: string | null;
+  status: string;
+  created_at: string;
+};
+
+const CART_KEY   = 'kopi-nako-cart';
+const TABLE_KEY  = 'kopi-nako-table';
 const BRANCH_KEY = 'kopi-nako-branch';
-// Fallback default branch UUID (matches the one seeded in the migration)
-const DEFAULT_BRANCH_ID = 'a0000000-0000-0000-0000-000000000001';
 
 function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
-}
-
-function generateOrderCode(): string {
-  return 'NK' + Date.now().toString().slice(-6);
 }
 
 export default function CheckoutPage() {
@@ -55,18 +62,21 @@ export default function CheckoutPage() {
 }
 
 function CheckoutPageInner() {
-  const router = useRouter();
+  const router       = useRouter();
   const searchParams = useSearchParams();
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [name, setName] = useState('');
+  const [cart, setCart]             = useState<CartItem[]>([]);
+  const [loaded, setLoaded]         = useState(false);
+  const [name, setName]             = useState('');
   const [tableNumber, setTableNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [payment, setPayment] = useState<'cash' | 'qris'>('cash');
+  const [notes, setNotes]           = useState('');
+  const [payment, setPayment]       = useState<'cash' | 'qris'>('cash');
   const [submitting, setSubmitting] = useState(false);
-  const [orderCode, setOrderCode] = useState<string | null>(null);
+  const [orderCode, setOrderCode]   = useState<string | null>(null);
+  const [orderTotal, setOrderTotal] = useState<number>(0);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [branchId, setBranchId] = useState<string>(DEFAULT_BRANCH_ID);
+  // branchId may be null when there is exactly one branch (server resolves it)
+  const [branchId, setBranchId]     = useState<string | null>(null);
   const [tableNotice, setTableNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -100,7 +110,7 @@ function CheckoutPageInner() {
       setCart([]);
     }
 
-    const fromQr = searchParams.get('table');
+    const fromQr     = searchParams.get('table');
     const fromBranch = searchParams.get('branch');
     if (fromQr && fromQr.trim()) {
       const clean = fromQr.trim().toUpperCase();
@@ -146,60 +156,80 @@ function CheckoutPageInner() {
     [cart, persistCart],
   );
 
-  const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const subtotal  = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
   const handleConfirm = async () => {
     if (submitting || cart.length === 0 || !name.trim() || !tableNumber.trim()) return;
     setSubmitting(true);
-    const code = generateOrderCode();
+    setSubmitError(null);
 
     try {
-      await supabase.from('orders').insert({
-        order_code: code,
-        customer_name: name.trim(),
-        table_number: tableNumber.trim(),
-        items: cart,
-        subtotal,
-        total: subtotal,
+      const payload = {
+        customer_name:  name.trim(),
+        table_number:   tableNumber.trim(),
         payment_method: payment,
-        notes: notes.trim() || null,
-        branch_id: branchId || DEFAULT_BRANCH_ID,
-      });
-    } catch {
-      // Order still confirmed for the customer even if it couldn't be saved.
-    }
-
-    try {
-      const orderSnapshot = {
-        order_code: code,
-        customer_name: name.trim(),
-        table_number: tableNumber.trim(),
-        items: cart,
-        subtotal,
-        total: subtotal,
-        payment_method: payment,
-        notes: notes.trim() || null,
-        status: 'pending',
-        created_at: new Date().toISOString(),
+        notes:          notes.trim() || undefined,
+        // Only send menu_item id + quantity — server resolves prices
+        items: cart.map((c) => ({ id: c.id, quantity: c.quantity })),
+        // Include branch_id only when we have one (may be null for single-branch sites)
+        ...(branchId ? { branch_id: branchId } : {}),
       };
-      localStorage.setItem('kopi-nako-order-' + code, JSON.stringify(orderSnapshot));
-      localStorage.setItem('kopi-nako-last-order', JSON.stringify(orderSnapshot));
-      saveOrderToHistory(code);
-    } catch {
-      // Ignore storage errors
-    }
 
-    localStorage.removeItem(CART_KEY);
-    setOrderCode(code);
-    setSubmitting(false);
+      const res = await fetch('/api/orders/create', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.order) {
+        // Server returned a structured error — show it inline, keep cart
+        setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
+        setSubmitting(false);
+        return;
+      }
+
+      const order: OrderSnapshot = data.order;
+
+      // Persist the authoritative server snapshot to localStorage
+      try {
+        const snapshot = {
+          order_code:     order.order_code,
+          customer_name:  order.customer_name,
+          table_number:   order.table_number,
+          items:          order.items,
+          subtotal:       order.subtotal,
+          total:          order.total,
+          payment_method: order.payment_method,
+          notes:          order.notes,
+          status:         order.status,
+          created_at:     order.created_at,
+        };
+        localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(snapshot));
+        localStorage.setItem('kopi-nako-last-order', JSON.stringify(snapshot));
+        saveOrderToHistory(order.order_code);
+      } catch {
+        // Ignore storage errors — order is already saved server-side
+      }
+
+      // Clear cart only after successful save
+      localStorage.removeItem(CART_KEY);
+      setOrderTotal(order.total);
+      setOrderCode(order.order_code);
+    } catch {
+      setSubmitError('Koneksi bermasalah. Periksa internet kamu dan coba lagi.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!loaded) {
     return <div className="min-h-screen bg-cream" />;
   }
 
-  // Success state
+  // ── Success state ────────────────────────────────────────────────────────────
   if (orderCode) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center px-4">
@@ -228,7 +258,7 @@ function CheckoutPageInner() {
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-charcoal/50">Total Bayar</span>
-              <span className="font-bold text-coffee-700">{formatPrice(subtotal)}</span>
+              <span className="font-bold text-coffee-700">{formatPrice(orderTotal)}</span>
             </div>
           </div>
 
@@ -257,7 +287,7 @@ function CheckoutPageInner() {
     );
   }
 
-  // Empty cart state
+  // ── Empty cart state ─────────────────────────────────────────────────────────
   if (cart.length === 0) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center px-4">
@@ -277,8 +307,9 @@ function CheckoutPageInner() {
     );
   }
 
+  // ── Main checkout form ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-cream pb-28">
+    <div className="min-h-screen bg-cream pb-52 sm:pb-56">
       {/* Top bar */}
       <div className="sticky top-0 z-40 bg-cream/80 backdrop-blur-xl border-b border-coffee-100/60">
         <div className="max-w-2xl mx-auto px-4 sm:px-6">
@@ -334,6 +365,55 @@ function CheckoutPageInner() {
           </motion.div>
         )}
 
+        {/* Table notice (after scan) */}
+        <AnimatePresence>
+          {tableNotice && (
+            <motion.div
+              key="table-notice"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-between gap-2"
+            >
+              <div className="flex items-center gap-2 text-emerald-800 text-xs font-semibold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                {tableNotice}
+              </div>
+              <button
+                onClick={() => setTableNotice(null)}
+                className="text-emerald-600 hover:text-emerald-800 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Inline submit error */}
+        <AnimatePresence>
+          {submitError && (
+            <motion.div
+              key="submit-error"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3"
+            >
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-800">Pesanan gagal dikirim</p>
+                <p className="text-xs text-red-700 mt-0.5">{submitError}</p>
+              </div>
+              <button
+                onClick={() => setSubmitError(null)}
+                className="text-red-400 hover:text-red-600 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Order items */}
         <motion.section variants={fadeInUp} initial="hidden" animate="visible">
           <h2 className="text-sm font-bold text-coffee-900 uppercase tracking-wide mb-3">
@@ -378,14 +458,14 @@ function CheckoutPageInner() {
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
+                    <button
+                      onClick={() => removeItem(item.id)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      aria-label={`Hapus ${item.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => removeItem(item.id)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
-                    aria-label={`Hapus ${item.name}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -450,39 +530,17 @@ function CheckoutPageInner() {
                   <button
                     type="button"
                     onClick={() => setScannerOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-coffee-700 text-cream font-bold text-xs hover:bg-coffee-800 transition-colors shadow-soft active:scale-95"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 transition-colors text-xs active:scale-95"
                   >
-                    <Camera className="w-3.5 h-3.5" /> Scan QR Meja Sekarang
+                    <Camera className="w-3.5 h-3.5" /> Buka Scanner
                   </button>
                 </div>
               )}
-              {tableNumber && (
-                <p className="text-[11px] text-charcoal/50 mt-1.5 flex items-center justify-between">
-                  <span>Pindah tempat duduk? Scan ulang stiker QR di meja barumu kapan saja.</span>
-                </p>
-              )}
-              <AnimatePresence>
-                {tableNotice && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2 overflow-hidden"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      <span className="font-semibold">{tableNotice}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setTableNotice(null)}
-                      className="text-emerald-700 hover:text-emerald-950 p-0.5"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+            </div>
+            {/* Lock badge for non-editable table field */}
+            <div className="flex items-center gap-1.5 text-charcoal/35 text-[11px]">
+              <Lock className="w-3 h-3" />
+              <span>Nomor meja hanya bisa diubah lewat scan QR code di meja</span>
             </div>
             <div>
               <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
@@ -537,7 +595,7 @@ function CheckoutPageInner() {
       </div>
 
       {/* Sticky confirm bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-cream/95 backdrop-blur-xl border-t border-coffee-100/60 z-40">
+      <div className="fixed bottom-0 left-0 right-0 bg-cream/95 backdrop-blur-xl border-t border-coffee-100/60 z-40 pb-[max(0px,env(safe-area-inset-bottom))]">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between mb-3">
             <span className="text-charcoal/60 text-sm">Total ({itemCount} item)</span>

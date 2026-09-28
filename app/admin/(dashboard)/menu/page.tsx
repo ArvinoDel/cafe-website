@@ -601,7 +601,7 @@ export default function MenuManagementPage() {
                 <div>
                   <h3 className="font-bold text-coffee-900">Hapus Master Menu?</h3>
                   <p className="text-xs text-charcoal/50 mt-0.5">
-                    Item <span className="font-semibold text-coffee-800">"{deleteTarget.name}"</span> akan dihapus dari seluruh cabang.
+                    Item <span className="font-semibold text-coffee-800">&quot;{deleteTarget.name}&quot;</span> akan dihapus dari seluruh cabang.
                   </p>
                 </div>
               </div>

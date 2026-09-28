@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import { createClient } from '@supabase/supabase-js';
 import { BrandProvider } from '@/components/providers/BrandProvider';
+import { Toaster } from '@/components/ui/sonner';
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -108,7 +109,10 @@ export default async function RootLayout({
         <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       </head>
       <body className="font-sans antialiased">
-        <BrandProvider initialBrand={brand}>{children}</BrandProvider>
+        <BrandProvider initialBrand={brand}>
+          {children}
+          <Toaster richColors position="top-right" />
+        </BrandProvider>
       </body>
     </html>
   );
