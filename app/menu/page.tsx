@@ -3,11 +3,13 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
+import ItemNoteModal from '@/components/ui/ItemNoteModal';
+import { getItemLineKey, normalizeNote } from '@/lib/item-options';
 import { useBrand } from '@/components/providers/BrandProvider';
 
 type MenuItem = {
@@ -22,7 +24,11 @@ type MenuItem = {
   sort_order: number;
 };
 
-type CartItem = MenuItem & { quantity: number };
+type CartItem = MenuItem & {
+  lineKey: string;
+  quantity: number;
+  note?: string | null;
+};
 
 const categories = [
   { id: 'all', label: 'Semua' },
@@ -64,6 +70,36 @@ function MenuPageInner() {
   const [showQrGuide, setShowQrGuide] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [tableChangeNotice, setTableChangeNotice] = useState<string | null>(null);
+
+  // Note modal state
+  const [noteModalTarget, setNoteModalTarget] = useState<{
+    item: MenuItem;
+    initialNote?: string;
+    initialQuantity?: number;
+    lineKeyToEdit?: string;
+    isEditing: boolean;
+  } | null>(null);
+
+  // Restore cart from localStorage on mount (with lineKey backward compatibility)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(CART_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setCart(
+            parsed.map((item: any) => ({
+              ...item,
+              lineKey: item.lineKey || getItemLineKey(item.id, item.note),
+              note: item.note || undefined,
+            })),
+          );
+        }
+      }
+    } catch {
+      // ignore parse error
+    }
+  }, []);
 
   // Auto-dismiss table notice after 6 seconds
   useEffect(() => {
@@ -201,26 +237,103 @@ function MenuPageInner() {
     return matchesCategory && matchesSearch;
   });
 
-  const addToCart = useCallback((item: MenuItem) => {
+  const addToCartWithNote = useCallback(
+    (item: MenuItem, note?: string | null, qty = 1) => {
+      const cleanNote = normalizeNote(note);
+      const lineKey = getItemLineKey(item.id, cleanNote);
+
+      setCart((prev) => {
+        const existing = prev.find((c) => c.lineKey === lineKey);
+        let next: CartItem[];
+        if (existing) {
+          next = prev.map((c) =>
+            c.lineKey === lineKey ? { ...c, quantity: c.quantity + qty } : c,
+          );
+        } else {
+          next = [
+            ...prev,
+            {
+              ...item,
+              lineKey,
+              quantity: qty,
+              note: cleanNote || undefined,
+            },
+          ];
+        }
+        try {
+          localStorage.setItem(CART_KEY, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [],
+  );
+
+  const addToCart = useCallback(
+    (item: MenuItem) => {
+      addToCartWithNote(item, null, 1);
+    },
+    [addToCartWithNote],
+  );
+
+  const removeFromCart = useCallback((lineKey: string) => {
     setCart((prev) => {
-      const existing = prev.find((c) => c.id === item.id);
-      if (existing) {
-        return prev.map((c) => (c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c));
-      }
-      return [...prev, { ...item, quantity: 1 }];
+      const next = prev.filter((c) => c.lineKey !== lineKey);
+      try {
+        localStorage.setItem(CART_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
     });
   }, []);
 
-  const removeFromCart = useCallback((id: string) => {
-    setCart((prev) => prev.filter((c) => c.id !== id));
+  const updateQuantity = useCallback((lineKey: string, delta: number) => {
+    setCart((prev) => {
+      const next = prev
+        .map((c) => (c.lineKey === lineKey ? { ...c, quantity: c.quantity + delta } : c))
+        .filter((c) => c.quantity > 0);
+      try {
+        localStorage.setItem(CART_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   }, []);
 
-  const updateQuantity = useCallback((id: string, delta: number) => {
-    setCart((prev) =>
-      prev
-        .map((c) => (c.id === id ? { ...c, quantity: c.quantity + delta } : c))
-        .filter((c) => c.quantity > 0),
-    );
+  const editCartItemNote = useCallback((oldLineKey: string, newNote: string) => {
+    const cleanNote = normalizeNote(newNote);
+    setCart((prev) => {
+      const target = prev.find((c) => c.lineKey === oldLineKey);
+      if (!target) return prev;
+
+      const newLineKey = getItemLineKey(target.id, cleanNote);
+      let next: CartItem[];
+
+      if (oldLineKey === newLineKey) {
+        return prev;
+      }
+
+      // If another line already has this exact lineKey, merge quantities
+      const existingWithNewKey = prev.find((c) => c.lineKey === newLineKey);
+      if (existingWithNewKey) {
+        next = prev
+          .filter((c) => c.lineKey !== oldLineKey)
+          .map((c) =>
+            c.lineKey === newLineKey
+              ? { ...c, quantity: c.quantity + target.quantity }
+              : c,
+          );
+      } else {
+        next = prev.map((c) =>
+          c.lineKey === oldLineKey
+            ? { ...c, lineKey: newLineKey, note: cleanNote || undefined }
+            : c,
+        );
+      }
+
+      try {
+        localStorage.setItem(CART_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   }, []);
 
   const cartCount = cart.reduce((sum, c) => sum + c.quantity, 0);
@@ -531,13 +644,31 @@ function MenuPageInner() {
                     <span className="text-lg font-extrabold text-coffee-700">
                       {formatPrice(item.price)}
                     </span>
-                    <button
-                      onClick={() => addToCart(item)}
-                      className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90"
-                      aria-label={`Add ${item.name} to cart`}
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNoteModalTarget({
+                            item,
+                            initialNote: '',
+                            isEditing: false,
+                          })
+                        }
+                        className="px-2.5 py-1.5 rounded-xl bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700 text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95"
+                        title="Atur catatan (gula, es, level pedas, dll)"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Catatan</span>
+                      </button>
+                      <button
+                        onClick={() => addToCart(item)}
+                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90"
+                        aria-label={`Add ${item.name} to cart`}
+                        title="Tambah langsung"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -597,42 +728,83 @@ function MenuPageInner() {
                   <div className="space-y-4">
                     {cart.map((item) => (
                       <div
-                        key={item.id}
-                        className="flex items-center gap-3 bg-white rounded-xl p-3 border border-coffee-100/60"
+                        key={item.lineKey}
+                        className="flex flex-col gap-2 bg-white rounded-xl p-3 border border-coffee-100/60 shadow-soft"
                       >
-                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
-                          {item.image_url && (
-                            <img
-                              src={item.image_url}
-                              alt={item.name}
-                              className="w-full h-full object-cover"
-                            />
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
+                            {item.image_url && (
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-coffee-900 text-sm truncate">
+                              {item.name}
+                            </p>
+                            <p className="text-coffee-600 text-sm font-bold">
+                              {formatPrice(item.price)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => updateQuantity(item.lineKey, -1)}
+                              className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <span className="font-bold text-coffee-900 w-6 text-center">
+                              {item.quantity}
+                            </span>
+                            <button
+                              onClick={() => updateQuantity(item.lineKey, 1)}
+                              className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Note badge / Add note trigger */}
+                        <div className="flex items-center justify-between pt-1 border-t border-coffee-50 text-xs">
+                          {item.note ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setNoteModalTarget({
+                                  item,
+                                  initialNote: item.note || '',
+                                  lineKeyToEdit: item.lineKey,
+                                  isEditing: true,
+                                })
+                              }
+                              className="flex items-center gap-1.5 text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 border border-amber-200/60 rounded-md px-2 py-0.5 text-left transition-colors max-w-full"
+                              title="Klik untuk ubah catatan"
+                            >
+                              <MessageSquare className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                              <span className="truncate">{item.note}</span>
+                              <Pencil className="w-2.5 h-2.5 text-amber-600/70 ml-1 flex-shrink-0" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setNoteModalTarget({
+                                  item,
+                                  initialNote: '',
+                                  lineKeyToEdit: item.lineKey,
+                                  isEditing: true,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-coffee-600 hover:text-coffee-800 hover:bg-coffee-50 px-2 py-0.5 rounded transition-colors"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Tambah Catatan (less sugar, es, dll)</span>
+                            </button>
                           )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-coffee-900 text-sm truncate">
-                            {item.name}
-                          </p>
-                          <p className="text-coffee-600 text-sm font-bold">
-                            {formatPrice(item.price)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => updateQuantity(item.id, -1)}
-                            className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                          >
-                            <Minus className="w-4 h-4" />
-                          </button>
-                          <span className="font-bold text-coffee-900 w-6 text-center">
-                            {item.quantity}
-                          </span>
-                          <button
-                            onClick={() => updateQuantity(item.id, 1)}
-                            className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -807,6 +979,24 @@ function MenuPageInner() {
           <span className="font-bold">{formatPrice(cartTotal)}</span>
         </motion.button>
       )}
+
+      {/* Item Note / Customization Modal */}
+      <ItemNoteModal
+        isOpen={Boolean(noteModalTarget)}
+        item={noteModalTarget?.item ?? null}
+        initialNote={noteModalTarget?.initialNote ?? ''}
+        initialQuantity={noteModalTarget?.initialQuantity ?? 1}
+        isEditing={noteModalTarget?.isEditing ?? false}
+        onClose={() => setNoteModalTarget(null)}
+        onConfirm={(confirmedNote, quantity) => {
+          if (!noteModalTarget) return;
+          if (noteModalTarget.isEditing && noteModalTarget.lineKeyToEdit) {
+            editCartItemNote(noteModalTarget.lineKeyToEdit, confirmedNote);
+          } else {
+            addToCartWithNote(noteModalTarget.item, confirmedNote, quantity);
+          }
+        }}
+      />
     </div>
   );
 }

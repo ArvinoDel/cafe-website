@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -19,6 +19,8 @@ import {
   ShoppingBag,
   CreditCard,
   Wallet,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import {
   getStoredOrderCodes,
@@ -29,12 +31,14 @@ import {
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useBrand } from '@/components/providers/BrandProvider';
+import { executeReorder } from '@/lib/menu-availability';
 
 type OrderItem = {
   id: string;
   name: string;
   price: number;
   quantity: number;
+  note?: string | null;
 };
 
 type CustomerOrder = {
@@ -42,6 +46,7 @@ type CustomerOrder = {
   order_code: string;
   customer_name: string;
   table_number: string;
+  branch_id: string;
   items: OrderItem[];
   subtotal: number;
   total: number;
@@ -129,6 +134,11 @@ export default function CustomerOrderHistoryPage() {
   // Tab filter
   const [tab, setTab] = useState<'all' | 'active' | 'completed'>('all');
 
+  // Reorder state — key is order_code, value is loading/toast message
+  const [reorderingCode, setReorderingCode] = useState<string | null>(null);
+  const [reorderToast, setReorderToast] = useState<string | null>(null);
+  const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Fetch full details of saved orders
   const fetchOrders = useCallback(async (orderCodesToFetch?: string[]) => {
     const targetCodes = orderCodesToFetch ?? getStoredOrderCodes();
@@ -143,7 +153,7 @@ export default function CustomerOrderHistoryPage() {
       // Attempt 1: Direct Supabase query
       const { data, error } = await supabase
         .from('orders')
-        .select('id, order_code, customer_name, table_number, items, subtotal, total, payment_method, notes, status, created_at')
+        .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
         .in('order_code', targetCodes)
         .order('created_at', { ascending: false });
 
@@ -263,6 +273,45 @@ export default function CustomerOrderHistoryPage() {
     }
   }
 
+  // "Pesan lagi" handler
+  async function handleReorder(order: CustomerOrder) {
+    if (reorderingCode) return; // prevent concurrent reorders
+    setReorderingCode(order.order_code);
+    try {
+      const { added, skipped } = await executeReorder(
+        order.items.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
+        order.branch_id || null,
+      );
+
+      let msg = '';
+      if (added === 0) {
+        msg = 'Maaf, menu dari pesanan ini sedang tidak tersedia.';
+      } else if (skipped.length > 0) {
+        msg = `${added} item dimasukkan. Tidak tersedia: ${skipped.join(', ')}`;
+      } else {
+        msg = `${added} item dimasukkan ke keranjang.`;
+      }
+
+      // Show toast then redirect
+      setReorderToast(msg);
+      if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+
+      if (added > 0) {
+        // Short delay so the user sees the toast before navigation
+        reorderToastTimer.current = setTimeout(() => {
+          router.push('/menu');
+        }, 1200);
+      } else {
+        reorderToastTimer.current = setTimeout(() => setReorderToast(null), 3500);
+      }
+    } catch {
+      setReorderToast('Gagal memuat menu. Coba lagi.');
+      reorderToastTimer.current = setTimeout(() => setReorderToast(null), 3500);
+    } finally {
+      setReorderingCode(null);
+    }
+  }
+
   // Filter orders by tab
   const filteredOrders = useMemo(() => {
     if (tab === 'active') {
@@ -325,6 +374,23 @@ export default function CustomerOrderHistoryPage() {
             </p>
           </div>
         </div>
+
+        {/* Reorder toast */}
+        <AnimatePresence>
+          {reorderToast && (
+            <motion.div
+              key="reorder-toast"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-start gap-2.5 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm"
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <span>{reorderToast}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Manual search / Add order by code */}
         <form onSubmit={handleAddCode} className="bg-white rounded-2xl border border-coffee-100/80 p-4 shadow-soft space-y-3">
@@ -524,13 +590,20 @@ export default function CustomerOrderHistoryPage() {
                     <div className="bg-coffee-50/40 rounded-xl p-3 space-y-1.5">
                       {order.items?.map((item, idx) => (
                         <div
-                          key={item.id || idx}
-                          className="flex items-center justify-between text-xs"
+                          key={item.id ? `${item.id}-${idx}` : idx}
+                          className="flex items-start justify-between text-xs gap-2"
                         >
-                          <span className="text-charcoal/80">
-                            <strong className="text-coffee-900">{item.quantity}x</strong> {item.name}
-                          </span>
-                          <span className="text-charcoal/60 font-medium">
+                          <div className="min-w-0">
+                            <span className="text-charcoal/80">
+                              <strong className="text-coffee-900">{item.quantity}x</strong> {item.name}
+                            </span>
+                            {item.note && (
+                              <p className="text-[11px] text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                                Catatan: {item.note}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-charcoal/60 font-medium flex-shrink-0">
                             {formatPrice(item.price * item.quantity)}
                           </span>
                         </div>
@@ -553,13 +626,30 @@ export default function CustomerOrderHistoryPage() {
                         </span>
                       </div>
 
-                      <button
-                        onClick={() => router.push(`/status/${order.order_code}`)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-coffee-700 text-cream text-xs font-bold hover:bg-coffee-800 transition-all shadow-soft active:scale-95"
-                      >
-                        <span>Lihat Status</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {/* Pesan lagi button */}
+                        <button
+                          onClick={() => handleReorder(order)}
+                          disabled={!!reorderingCode}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-coffee-50 border border-coffee-200/80 text-coffee-800 text-xs font-bold hover:bg-coffee-100 transition-all active:scale-95 disabled:opacity-50"
+                          title="Pesan menu yang sama lagi"
+                        >
+                          {reorderingCode === order.order_code ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          )}
+                          <span>Pesan lagi</span>
+                        </button>
+
+                        <button
+                          onClick={() => router.push(`/status/${order.order_code}`)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-coffee-700 text-cream text-xs font-bold hover:bg-coffee-800 transition-all shadow-soft active:scale-95"
+                        >
+                          <span>Lihat Status</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </motion.div>
                 );

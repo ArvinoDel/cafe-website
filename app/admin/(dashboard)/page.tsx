@@ -21,6 +21,7 @@ import {
   Calendar,
   Volume2,
   VolumeX,
+  SmilePlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createBrowserClient } from '@supabase/ssr';
@@ -37,6 +38,7 @@ type OrderItem = {
   name: string;
   price: number;
   quantity: number;
+  note?: string | null;
 };
 
 type Order = {
@@ -60,6 +62,19 @@ type Branch = { id: string; name: string };
 type DayStats = {
   count: number;
   revenue: number;
+};
+
+type OrderFeedback = {
+  order_id: string;
+  rating: 1 | 2 | 3;
+  comment: string | null;
+};
+
+const RATING_EMOJI: Record<1 | 2 | 3, string> = { 1: '🙁', 2: '😐', 3: '😊' };
+const RATING_LABEL: Record<1 | 2 | 3, string> = {
+  1: 'Kurang puas',
+  2: 'Biasa saja',
+  3: 'Puas banget!',
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -162,6 +177,17 @@ export default function AdminDashboard() {
   // Keep a ref so realtime callbacks always read the latest value
   const soundEnabledRef = useRef(false);
 
+  // Feedback: keyed by order_id
+  const [feedbackMap, setFeedbackMap] = useState<Map<string, OrderFeedback>>(new Map());
+
+  // 7-day feedback summary
+  const [feedbackSummary, setFeedbackSummary] = useState<{
+    happy: number;
+    neutral: number;
+    unhappy: number;
+    total: number;
+  } | null>(null);
+
   // ── Fetch orders ──────────────────────────────────────────────────────────
 
   const fetchOrders = useCallback(async () => {
@@ -177,6 +203,45 @@ export default function AdminDashboard() {
     const { data } = await query;
     if (data) {
       setOrders(data as Order[]);
+      // Fetch feedback for completed orders
+      const completedIds = (data as Order[])
+        .filter((o) => o.status === 'completed')
+        .map((o) => o.id);
+      if (completedIds.length > 0) {
+        const sb = supabase.current;
+        const { data: fbData } = await sb
+          .from('order_feedback')
+          .select('order_id, rating, comment')
+          .in('order_id', completedIds);
+        if (fbData) {
+          const map = new Map<string, OrderFeedback>(
+            (fbData as OrderFeedback[]).map((f) => [f.order_id, f]),
+          );
+          setFeedbackMap(map);
+        }
+      }
+
+      // 7-day feedback summary (branch-scoped)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      let summaryQuery = supabase.current
+        .from('order_feedback')
+        .select('rating')
+        .gte('created_at', sevenDaysAgo);
+
+      if (profile.role === 'admin' && profile.branch_id) {
+        summaryQuery = summaryQuery.eq('branch_id', profile.branch_id);
+      } else if (profile.role === 'superadmin' && selectedBranchId !== 'all') {
+        summaryQuery = summaryQuery.eq('branch_id', selectedBranchId);
+      }
+
+      const { data: summaryData } = await summaryQuery;
+      if (summaryData) {
+        const rows = summaryData as { rating: number }[];
+        const happy   = rows.filter((r) => r.rating === 3).length;
+        const neutral  = rows.filter((r) => r.rating === 2).length;
+        const unhappy  = rows.filter((r) => r.rating === 1).length;
+        setFeedbackSummary({ happy, neutral, unhappy, total: rows.length });
+      }
     }
     setLastRefresh(new Date());
     setLoading(false);
@@ -446,6 +511,39 @@ export default function AdminDashboard() {
         </motion.div>
       </motion.div>
 
+      {/* 7-day feedback summary */}
+      {feedbackSummary && feedbackSummary.total > 0 && (
+        <div className="bg-white rounded-2xl border border-coffee-100/80 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <SmilePlus className="w-4 h-4 text-coffee-500" />
+            <p className="text-xs font-bold text-charcoal/50 uppercase tracking-wide">
+              Ulasan Tamu · 7 Hari Terakhir
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {[
+              { emoji: '😊', label: 'Puas', count: feedbackSummary.happy },
+              { emoji: '😐', label: 'Biasa', count: feedbackSummary.neutral },
+              { emoji: '🙁', label: 'Kurang', count: feedbackSummary.unhappy },
+            ].map(({ emoji, label, count }) => (
+              <div
+                key={label}
+                className="flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100/60"
+              >
+                <span className="text-xl">{emoji}</span>
+                <span className="text-lg font-extrabold text-coffee-900">{count}</span>
+                <span className="text-[10px] text-charcoal/40 font-semibold">{label}</span>
+              </div>
+            ))}
+            <div className="flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl bg-coffee-700 text-cream">
+              <span className="text-xl font-bold">★</span>
+              <span className="text-lg font-extrabold">{feedbackSummary.total}</span>
+              <span className="text-[10px] font-semibold opacity-70">Total</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Per-branch stats — only shown in superadmin all-branch view when 2+ branches */}
       {profile.role === 'superadmin' && selectedBranchId === 'all' && branches.length > 1 && (
         <div className="bg-white rounded-2xl border border-coffee-100/80 p-4">
@@ -583,6 +681,7 @@ export default function AdminDashboard() {
                 order={order}
                 isSuperadmin={profile.role === 'superadmin'}
                 updating={updating === order.id}
+                feedback={feedbackMap.get(order.id) ?? null}
                 onAdvance={(nextStatus) => advanceStatus(order.id, nextStatus)}
                 onCancelRequest={() => setCancelTarget(order.id)}
                 onEdit={() => setEditTarget(order)}
@@ -704,6 +803,7 @@ const OrderCard = forwardRef<
     order: Order;
     isSuperadmin: boolean;
     updating: boolean;
+    feedback?: OrderFeedback | null;
     onAdvance: (next: OrderStatus) => void;
     onCancelRequest: () => void;
     onEdit: () => void;
@@ -714,6 +814,7 @@ const OrderCard = forwardRef<
     order,
     isSuperadmin,
     updating,
+    feedback,
     onAdvance,
     onCancelRequest,
     onEdit,
@@ -791,15 +892,22 @@ const OrderCard = forwardRef<
         </div>
 
         {/* Items */}
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {order.items.map((item, i) => (
-            <div key={i} className="flex items-center justify-between text-sm">
-              <span className="text-charcoal/80">
-                {item.quantity}× {item.name}
-              </span>
-              <span className="text-coffee-700 font-semibold text-xs">
-                {formatPrice(item.price * item.quantity)}
-              </span>
+            <div key={i} className="text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-charcoal/80">
+                  {item.quantity}× {item.name}
+                </span>
+                <span className="text-coffee-700 font-semibold text-xs">
+                  {formatPrice(item.price * item.quantity)}
+                </span>
+              </div>
+              {item.note && (
+                <p className="text-[11px] text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                  Catatan: {item.note}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -809,6 +917,25 @@ const OrderCard = forwardRef<
           <div className="flex items-start gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
             <MessageSquare className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-900 italic">{order.notes}</p>
+          </div>
+        )}
+
+        {/* Feedback (completed orders only) */}
+        {order.status === 'completed' && feedback && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100">
+            <span className="text-base leading-none mt-0.5 flex-shrink-0">
+              {RATING_EMOJI[feedback.rating as 1 | 2 | 3]}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-coffee-700 uppercase tracking-wide">
+                {RATING_LABEL[feedback.rating as 1 | 2 | 3]}
+              </p>
+              {feedback.comment && (
+                <p className="text-xs text-charcoal/60 italic mt-0.5 break-words">
+                  &ldquo;{feedback.comment}&rdquo;
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

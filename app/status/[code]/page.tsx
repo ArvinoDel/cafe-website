@@ -15,10 +15,13 @@ import {
   AlertCircle,
   X,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
+import OrderFeedbackCard from '@/components/ui/OrderFeedbackCard';
+import { executeReorder } from '@/lib/menu-availability';
 
 type OrderItem = {
   id: string;
@@ -26,6 +29,7 @@ type OrderItem = {
   price: number;
   image_url: string | null;
   quantity: number;
+  note?: string | null;
 };
 
 type Order = {
@@ -72,6 +76,45 @@ export default function OrderStatusPage() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  // "Pesan lagi" state
+  const [reordering, setReordering] = useState(false);
+  const [reorderToast, setReorderToast] = useState<string | null>(null);
+  const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleReorder() {
+    if (!order || reordering) return;
+    setReordering(true);
+    try {
+      const { added, skipped } = await executeReorder(
+        order.items.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
+        order.branch_id || null,
+      );
+
+      let msg = '';
+      if (added === 0) {
+        msg = 'Maaf, menu dari pesanan ini sedang tidak tersedia.';
+      } else if (skipped.length > 0) {
+        msg = `${added} item dimasukkan. Tidak tersedia: ${skipped.join(', ')}`;
+      } else {
+        msg = `${added} item dimasukkan ke keranjang.`;
+      }
+
+      setReorderToast(msg);
+      if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
+
+      if (added > 0) {
+        reorderToastTimer.current = setTimeout(() => router.push('/menu'), 1200);
+      } else {
+        reorderToastTimer.current = setTimeout(() => setReorderToast(null), 3500);
+      }
+    } catch {
+      setReorderToast('Gagal memuat menu. Coba lagi.');
+      reorderToastTimer.current = setTimeout(() => setReorderToast(null), 3500);
+    } finally {
+      setReordering(false);
+    }
+  }
 
   const handleTableScan = useCallback(
     async (scannedTable: string) => {
@@ -450,8 +493,8 @@ export default function OrderStatusPage() {
             Detail Pesanan
           </h2>
           <div className="bg-white rounded-2xl border border-coffee-100/80 divide-y divide-coffee-100/60 overflow-hidden">
-            {order.items.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 p-4">
+            {order.items.map((item, idx) => (
+              <div key={item.id ? `${item.id}-${idx}` : idx} className="flex items-center gap-3 p-4">
                 <div className="w-12 h-12 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
                   {item.image_url && (
                     <img
@@ -463,7 +506,12 @@ export default function OrderStatusPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
-                  <p className="text-charcoal/40 text-xs">Qty {item.quantity}</p>
+                  {item.note && (
+                    <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                      Catatan: {item.note}
+                    </p>
+                  )}
+                  <p className="text-charcoal/40 text-xs mt-0.5">Qty {item.quantity}</p>
                 </div>
                 <span className="text-coffee-700 font-bold text-sm">
                   {formatPrice(item.price * item.quantity)}
@@ -490,6 +538,55 @@ export default function OrderStatusPage() {
         {/* Wi-Fi & Jam Buka card */}
         {order.branch_id && (
           <WifiInfoCard branchId={order.branch_id} />
+        )}
+
+        {/* Thank-you + feedback — shown when completed, hides after submission */}
+        {order.status === 'completed' && (
+          <OrderFeedbackCard orderCode={order.order_code} />
+        )}
+
+        {/* Pesan lagi — shown only when completed */}
+        {order.status === 'completed' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-2xl border border-coffee-100/80 p-5 shadow-soft"
+          >
+            <p className="font-bold text-coffee-900 text-sm mb-1">Mau pesan lagi?</p>
+            <p className="text-xs text-charcoal/50 mb-4">
+              Masukkan menu yang sama ke keranjang dengan harga terkini.
+            </p>
+
+            <AnimatePresence mode="wait">
+              {reorderToast ? (
+                <motion.div
+                  key="toast"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="flex items-center gap-2 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{reorderToast}</span>
+                </motion.div>
+              ) : (
+                <motion.button
+                  key="btn"
+                  type="button"
+                  onClick={handleReorder}
+                  disabled={reordering}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60"
+                >
+                  {reordering ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                  <span>Pesan lagi</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </motion.div>
         )}
       </div>
 

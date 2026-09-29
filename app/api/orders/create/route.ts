@@ -57,6 +57,7 @@ const CreateOrderSchema = z.object({
       z.object({
         id:       z.string().uuid('ID menu tidak valid.'),
         quantity: z.number().int().min(1, 'Jumlah minimum 1.').max(99, 'Jumlah maksimum 99.'),
+        note:     z.string().trim().max(100, 'Catatan per item maksimal 100 karakter.').nullish(),
       }),
     )
     .min(1, 'Pesanan tidak boleh kosong.')
@@ -105,6 +106,7 @@ type OrderItemSnapshot = {
   price: number;
   image_url: string | null;
   quantity: number;
+  note?: string | null;
 };
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -168,14 +170,34 @@ export async function POST(request: NextRequest) {
     resolvedBranchId = branches[0].id as string;
   }
 
-  // 3. Deduplicate item IDs from the request
-  const itemIdSet = new Set<string>(items.map((i) => i.id));
-  const itemIds = Array.from(itemIdSet);
-  const quantityMap = new Map<string, number>();
+  // 3. Consolidate requested items by (id + normalized note)
+  // Two entries with the exact same id and note are summed; entries with different notes remain distinct lines.
+  type ConsolidatedLine = {
+    id: string;
+    quantity: number;
+    note: string | null;
+  };
+
+  const consolidatedMap = new Map<string, ConsolidatedLine>();
   for (const item of items) {
-    // If duplicate ids were submitted, sum their quantities
-    quantityMap.set(item.id, (quantityMap.get(item.id) ?? 0) + item.quantity);
+    const cleanNote = item.note?.trim() || null;
+    const norm = (cleanNote || '').toLowerCase();
+    const lineKey = `${item.id}:::${norm}`;
+
+    const existing = consolidatedMap.get(lineKey);
+    if (existing) {
+      existing.quantity = Math.min(99, existing.quantity + item.quantity);
+    } else {
+      consolidatedMap.set(lineKey, {
+        id: item.id,
+        quantity: item.quantity,
+        note: cleanNote,
+      });
+    }
   }
+
+  const consolidatedLines = Array.from(consolidatedMap.values());
+  const itemIds = Array.from(new Set(consolidatedLines.map((l) => l.id)));
 
   // 4. Load menu items from DB
   const { data: menuItems, error: menuErr } = await supabaseAdmin
@@ -210,8 +232,8 @@ export async function POST(request: NextRequest) {
   const snapshot: OrderItemSnapshot[] = [];
   let subtotal = 0;
 
-  for (const itemId of itemIds) {
-    const menuItem = menuMap.get(itemId);
+  for (const line of consolidatedLines) {
+    const menuItem = menuMap.get(line.id);
     if (!menuItem) {
       return NextResponse.json({ error: 'Salah satu menu tidak ditemukan.' }, { status: 409 });
     }
@@ -224,7 +246,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const branchRow = branchMenuMap.get(itemId);
+    const branchRow = branchMenuMap.get(line.id);
 
     // Check branch-specific availability / enablement
     if (branchRow) {
@@ -244,16 +266,15 @@ export async function POST(request: NextRequest) {
 
     // Server-authoritative price
     const unitPrice = branchRow?.custom_price ?? menuItem.price;
-    const quantity = quantityMap.get(itemId) ?? 1;
-
-    subtotal += unitPrice * quantity;
+    subtotal += unitPrice * line.quantity;
 
     snapshot.push({
       id:        menuItem.id,
       name:      menuItem.name,
       price:     unitPrice,
       image_url: menuItem.image_url,
-      quantity,
+      quantity:  line.quantity,
+      note:      line.note,
     });
   }
 

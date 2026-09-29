@@ -22,13 +22,16 @@ import {
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
+import { getItemLineKey } from '@/lib/item-options';
 
 type CartItem = {
   id: string;
+  lineKey?: string;
   name: string;
   price: number;
   image_url: string | null;
   quantity: number;
+  note?: string | null;
 };
 
 // Shape returned by POST /api/orders/create and stored in localStorage
@@ -105,7 +108,22 @@ function CheckoutPageInner() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CART_KEY);
-      setCart(stored ? JSON.parse(stored) : []);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setCart(
+            parsed.map((item: any) => ({
+              ...item,
+              lineKey: item.lineKey || getItemLineKey(item.id, item.note),
+              note: item.note || undefined,
+            })),
+          );
+        } else {
+          setCart([]);
+        }
+      } else {
+        setCart([]);
+      }
     } catch {
       setCart([]);
     }
@@ -140,9 +158,13 @@ function CheckoutPageInner() {
   }, []);
 
   const updateQuantity = useCallback(
-    (id: string, delta: number) => {
+    (key: string, delta: number) => {
       const next = cart
-        .map((c) => (c.id === id ? { ...c, quantity: c.quantity + delta } : c))
+        .map((c) =>
+          (c.lineKey || c.id) === key
+            ? { ...c, quantity: c.quantity + delta }
+            : c,
+        )
         .filter((c) => c.quantity > 0);
       persistCart(next);
     },
@@ -150,8 +172,8 @@ function CheckoutPageInner() {
   );
 
   const removeItem = useCallback(
-    (id: string) => {
-      persistCart(cart.filter((c) => c.id !== id));
+    (key: string) => {
+      persistCart(cart.filter((c) => (c.lineKey || c.id) !== key));
     },
     [cart, persistCart],
   );
@@ -170,8 +192,12 @@ function CheckoutPageInner() {
         table_number:   tableNumber.trim(),
         payment_method: payment,
         notes:          notes.trim() || undefined,
-        // Only send menu_item id + quantity — server resolves prices
-        items: cart.map((c) => ({ id: c.id, quantity: c.quantity })),
+        // Send menu_item id + quantity + optional note
+        items: cart.map((c) => ({
+          id:       c.id,
+          quantity: c.quantity,
+          note:     c.note?.trim() || undefined,
+        })),
         // Include branch_id only when we have one (may be null for single-branch sites)
         ...(branchId ? { branch_id: branchId } : {}),
       };
@@ -421,53 +447,61 @@ function CheckoutPageInner() {
           </h2>
           <div className="bg-white rounded-2xl border border-coffee-100/80 divide-y divide-coffee-100/60 overflow-hidden">
             <AnimatePresence initial={false}>
-              {cart.map((item) => (
-                <motion.div
-                  key={item.id}
-                  layout
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="flex items-center gap-3 p-4"
-                >
-                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
-                    {item.image_url && (
-                      <img
-                        src={item.image_url}
-                        alt={item.name}
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
-                    <p className="text-coffee-600 text-sm font-bold">{formatPrice(item.price)}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => updateQuantity(item.id, -1)}
-                      className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="font-bold text-coffee-900 w-5 text-center text-sm">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateQuantity(item.id, 1)}
-                      className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
-                      aria-label={`Hapus ${item.name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+              {cart.map((item) => {
+                const itemKey = item.lineKey || item.id;
+                return (
+                  <motion.div
+                    key={itemKey}
+                    layout
+                    initial={{ opacity: 1 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex items-center gap-3 p-4"
+                  >
+                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
+                      {item.image_url && (
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                      {item.note && (
+                        <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                          Catatan: {item.note}
+                        </p>
+                      )}
+                      <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice(item.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateQuantity(itemKey, -1)}
+                        className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="font-bold text-coffee-900 w-5 text-center text-sm">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(itemKey, 1)}
+                        className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => removeItem(itemKey)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        aria-label={`Hapus ${item.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </AnimatePresence>
           </div>
         </motion.section>
