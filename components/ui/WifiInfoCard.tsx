@@ -51,11 +51,15 @@ async function copyToClipboard(text: string): Promise<void> {
 
 interface WifiInfoCardProps {
   branchId?: string | null;
+  defaultOpen?: boolean;
 }
 
-export default function WifiInfoCard({ branchId }: WifiInfoCardProps) {
+export default function WifiInfoCard({
+  branchId,
+  defaultOpen = true,
+}: WifiInfoCardProps) {
   const [info, setInfo] = useState<BranchInfo | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -149,14 +153,21 @@ export default function WifiInfoCard({ branchId }: WifiInfoCardProps) {
               {/* Wi-Fi row */}
               <div className="bg-white rounded-xl px-4 py-3 flex items-center justify-between gap-3 border border-blue-100">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide mb-0.5">
-                    Nama Jaringan
-                  </p>
-                  <p className="text-sm font-bold text-charcoal truncate">{info.wifi_name}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide">
+                      Wi-Fi:
+                    </span>
+                    <span className="text-sm font-extrabold text-charcoal">{info.wifi_name}</span>
+                  </div>
                   {info.wifi_password && (
-                    <p className="text-xs text-charcoal/50 mt-0.5 font-mono">
-                      {info.wifi_password}
-                    </p>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide">
+                        Password:
+                      </span>
+                      <span className="text-xs font-mono font-bold text-blue-900 bg-blue-50 border border-blue-200/60 px-2 py-0.5 rounded">
+                        {info.wifi_password}
+                      </span>
+                    </div>
                   )}
                 </div>
                 {info.wifi_password && (

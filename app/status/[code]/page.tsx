@@ -418,6 +418,11 @@ export default function OrderStatusPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Wi-Fi & Jam Buka — tepat di bawah informasi meja */}
+          <div className="mt-4 pt-3.5 border-t border-coffee-100/70 text-left">
+            <WifiInfoCard branchId={order.branch_id} defaultOpen={true} />
+          </div>
         </motion.div>
 
         {/* Status stepper */}
@@ -535,8 +540,7 @@ export default function OrderStatusPage() {
           </div>
         </div>
 
-        {/* Wi-Fi & Jam Buka card */}
-        <WifiInfoCard branchId={order.branch_id} />
+
 
         {/* Thank-you + feedback — shown when completed, hides after submission */}
         {order.status === 'completed' && (
