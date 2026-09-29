@@ -23,6 +23,7 @@ import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { getItemLineKey } from '@/lib/item-options';
+import { CART_KEY } from '@/lib/cart';
 
 type CartItem = {
   id: string;
@@ -48,7 +49,6 @@ type OrderSnapshot = {
   created_at: string;
 };
 
-const CART_KEY   = 'kopi-nako-cart';
 const TABLE_KEY  = 'kopi-nako-table';
 const BRANCH_KEY = 'kopi-nako-branch';
 

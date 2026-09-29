@@ -87,7 +87,7 @@ export default function OrderStatusPage() {
     setReordering(true);
     try {
       const { added, skipped } = await executeReorder(
-        order.items.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity })),
+        order.items.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity, note: i.note })),
         order.branch_id || null,
       );
 

@@ -10,6 +10,7 @@ import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import ItemNoteModal from '@/components/ui/ItemNoteModal';
 import { getItemLineKey, normalizeNote } from '@/lib/item-options';
+import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 
 type MenuItem = {
@@ -42,7 +43,6 @@ function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
 }
 
-const CART_KEY = 'kopi-nako-cart';
 const TABLE_KEY = 'kopi-nako-table';
 const BRANCH_KEY = 'kopi-nako-branch';
 
@@ -658,7 +658,7 @@ function MenuPageInner() {
                         title="Atur catatan (gula, es, level pedas, dll)"
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Catatan</span>
+                        <span>Catatan</span>
                       </button>
                       <button
                         onClick={() => addToCart(item)}

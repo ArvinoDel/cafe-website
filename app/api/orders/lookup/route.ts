@@ -84,10 +84,12 @@ const SELECT_FIELDS =
 
 // ─── Shared 404 response (same message for invalid format + not found) ────────
 
-const NOT_FOUND = NextResponse.json(
-  { error: 'Pesanan tidak ditemukan.' },
-  { status: 404 },
-);
+function notFound() {
+  return NextResponse.json(
+    { error: 'Pesanan tidak ditemukan.' },
+    { status: 404 },
+  );
+}
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
@@ -145,7 +147,7 @@ export async function GET(request: NextRequest) {
 
   // Reject malformed codes with the same 404 as "not found"
   if (!code || !isValidCodeFormat(code)) {
-    return NOT_FOUND;
+    return notFound();
   }
 
   const { data: order, error } = await supabaseAdmin
@@ -159,7 +161,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!order) {
-    return NOT_FOUND;
+    return notFound();
   }
 
   return NextResponse.json({ order });

@@ -81,10 +81,12 @@ const FeedbackSchema = z.object({
 
 // ─── Shared 404 (same shape for invalid format + not found) ───────────────────
 
-const NOT_FOUND = NextResponse.json(
-  { error: 'Pesanan tidak ditemukan.' },
-  { status: 404 },
-);
+function notFound() {
+  return NextResponse.json(
+    { error: 'Pesanan tidak ditemukan.' },
+    { status: 404 },
+  );
+}
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
@@ -122,7 +124,7 @@ export async function POST(request: NextRequest) {
 
   // Validate code format before hitting DB (same 404 to prevent enumeration)
   if (!isValidCodeFormat(orderCode)) {
-    return NOT_FOUND;
+    return notFound();
   }
 
   const supabaseAdmin = createAdminClient({ env: resolveEnv() });
@@ -141,7 +143,7 @@ export async function POST(request: NextRequest) {
 
   // Generic 404 for unknown codes
   if (!order) {
-    return NOT_FOUND;
+    return notFound();
   }
 
   // Order must be completed
@@ -166,8 +168,9 @@ export async function POST(request: NextRequest) {
       existErr.message?.includes('order_feedback') ||
       existErr.message?.includes('schema cache');
     if (isMissingTable) {
+      console.error('[orders/feedback] Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.');
       return NextResponse.json(
-        { error: 'Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.' },
+        { error: 'Gagal menyimpan ulasan. Coba lagi.' },
         { status: 500 },
       );
     }
@@ -215,8 +218,9 @@ export async function POST(request: NextRequest) {
       insertErr.message?.includes('order_feedback') ||
       insertErr.message?.includes('schema cache');
     if (isMissingTable) {
+      console.error('[orders/feedback] Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.');
       return NextResponse.json(
-        { error: 'Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.' },
+        { error: 'Gagal menyimpan ulasan. Coba lagi.' },
         { status: 500 },
       );
     }

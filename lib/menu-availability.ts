@@ -113,9 +113,8 @@ export async function fetchCurrentAvailableMenu(
 // ─── Cart helpers (shared localStorage keys & cart-item shape) ────────────────
 
 import { getItemLineKey } from '@/lib/item-options';
-
-/** The cart localStorage key — stable across menu/checkout/orders pages. */
-export const CART_KEY = 'kopi-nako-cart';
+import { CART_KEY } from '@/lib/cart';
+export { CART_KEY } from '@/lib/cart';
 
 /**
  * Minimal cart item shape stored in localStorage.
@@ -189,7 +188,7 @@ export async function executeReorder(
       cartMap.set(key, {
         ...existing,
         price: current.price, // always use current price
-        quantity: existing.quantity + orderItem.quantity,
+        quantity: Math.min(99, existing.quantity + orderItem.quantity),
       });
     } else {
       cartMap.set(key, {
@@ -198,7 +197,7 @@ export async function executeReorder(
         name: current.name,
         price: current.price,
         image_url: current.image_url,
-        quantity: orderItem.quantity,
+        quantity: Math.min(99, orderItem.quantity),
         note: orderItem.note ? orderItem.note.trim() : null,
       });
     }
