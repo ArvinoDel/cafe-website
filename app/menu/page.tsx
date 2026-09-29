@@ -522,11 +522,11 @@ function MenuPageInner() {
             </p>
 
             {/* Wi-Fi & Jam Buka card — only shown when a branch is known */}
-            {branchId && (
+            {/* {branchId && (
               <div className="mt-5 max-w-md">
                 <WifiInfoCard branchId={branchId} />
               </div>
-            )}
+            )} */}
           </motion.div>
 
           {/* Search */}
