@@ -161,14 +161,34 @@ export async function POST(request: NextRequest) {
 
   if (existErr) {
     console.error('[orders/feedback] existing check error:', existErr.message);
+    const isMissingTable =
+      existErr.code === 'PGRST205' ||
+      existErr.message?.includes('order_feedback') ||
+      existErr.message?.includes('schema cache');
+    if (isMissingTable) {
+      return NextResponse.json(
+        { error: 'Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.' },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({ error: 'Gagal memeriksa ulasan sebelumnya.' }, { status: 500 });
   }
 
   if (existing) {
-    return NextResponse.json(
-      { error: 'Kamu sudah memberikan ulasan untuk pesanan ini.' },
-      { status: 409 },
-    );
+    const { error: updateErr } = await supabaseAdmin
+      .from('order_feedback')
+      .update({
+        rating,
+        comment: comment?.trim() || null,
+      })
+      .eq('id', existing.id);
+
+    if (updateErr) {
+      console.error('[orders/feedback] update error:', updateErr.message);
+      return NextResponse.json({ error: 'Gagal memperbarui ulasan. Coba lagi.' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
   }
 
   // Insert feedback via service-role client
@@ -188,6 +208,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Kamu sudah memberikan ulasan untuk pesanan ini.' },
         { status: 409 },
+      );
+    }
+    const isMissingTable =
+      insertErr.code === 'PGRST205' ||
+      insertErr.message?.includes('order_feedback') ||
+      insertErr.message?.includes('schema cache');
+    if (isMissingTable) {
+      return NextResponse.json(
+        { error: 'Tabel database order_feedback belum dibuat. Silakan jalankan migration SQL di Supabase.' },
+        { status: 500 },
       );
     }
     console.error('[orders/feedback] insert error:', insertErr.message);

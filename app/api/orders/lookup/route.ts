@@ -80,7 +80,7 @@ function isRateLimited(ip: string): boolean {
 // ─── Projected fields (only what status/orders pages actually use) ────────────
 
 const SELECT_FIELDS =
-  'id, order_code, customer_name, table_number, items, subtotal, total, payment_method, notes, status, created_at';
+  'id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at';
 
 // ─── Shared 404 response (same message for invalid format + not found) ────────
 

@@ -50,7 +50,7 @@ async function copyToClipboard(text: string): Promise<void> {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface WifiInfoCardProps {
-  branchId: string | null;
+  branchId?: string | null;
 }
 
 export default function WifiInfoCard({ branchId }: WifiInfoCardProps) {
@@ -59,15 +59,21 @@ export default function WifiInfoCard({ branchId }: WifiInfoCardProps) {
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch branch info only when we have a branchId
+  // Fetch branch info: uses branchId, or localStorage fallback, or auto-resolves if single branch
   useEffect(() => {
-    if (!branchId) return;
+    let effectiveBranchId = branchId;
+    if (!effectiveBranchId && typeof window !== 'undefined') {
+      effectiveBranchId = localStorage.getItem('kopi-nako-branch');
+    }
 
-    const url = `/api/branch-info?branch_id=${encodeURIComponent(branchId)}`;
+    const url = effectiveBranchId
+      ? `/api/branch-info?branch_id=${encodeURIComponent(effectiveBranchId)}`
+      : '/api/branch-info';
+
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: BranchInfo | null) => {
-        if (data) setInfo(data);
+        if (data && data.wifi_name) setInfo(data);
       })
       .catch(() => {
         /* fail silently — card simply won't render */

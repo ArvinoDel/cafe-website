@@ -74,6 +74,32 @@ export default function OrderFeedbackCard({ orderCode }: OrderFeedbackCardProps)
     }
   }, [stage]);
 
+  async function handleEmojiSelect(rating: 1 | 2 | 3) {
+    setSelectedRating(rating);
+    setErrorMsg(null);
+    setStage('rating-selected');
+
+    try {
+      const res = await fetch('/api/orders/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_code: orderCode,
+          rating,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data?.error || 'Gagal menyimpan rating.');
+      } else {
+        markFeedbackSubmitted(orderCode);
+      }
+    } catch {
+      setErrorMsg('Koneksi bermasalah saat mengirim rating.');
+    }
+  }
+
   async function handleSubmit() {
     if (!selectedRating || stage === 'submitting') return;
     setStage('submitting');
@@ -92,15 +118,8 @@ export default function OrderFeedbackCard({ orderCode }: OrderFeedbackCardProps)
 
       const data = await res.json();
 
-      if (res.status === 409) {
-        // Already submitted from another device / tab
-        markFeedbackSubmitted(orderCode);
-        setStage('already-done');
-        return;
-      }
-
       if (!res.ok) {
-        setErrorMsg(data?.error || 'Gagal mengirim ulasan. Coba lagi.');
+        setErrorMsg(data?.error || 'Gagal mengirim catatan ulasan.');
         setStage('rating-selected');
         return;
       }
@@ -149,11 +168,7 @@ export default function OrderFeedbackCard({ orderCode }: OrderFeedbackCardProps)
           <button
             key={rating}
             type="button"
-            onClick={() => {
-              setSelectedRating(rating);
-              setStage('rating-selected');
-              setErrorMsg(null);
-            }}
+            onClick={() => handleEmojiSelect(rating)}
             className={`
               flex flex-col items-center gap-1.5 flex-1 py-3 rounded-xl
               transition-all duration-150 active:scale-95
@@ -170,6 +185,12 @@ export default function OrderFeedbackCard({ orderCode }: OrderFeedbackCardProps)
           </button>
         ))}
       </div>
+
+      {errorMsg && (
+        <div className="p-3 mb-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+          {errorMsg}
+        </div>
+      )}
 
       {/* Comment + send — revealed after a rating is tapped */}
       <AnimatePresence>
@@ -197,23 +218,28 @@ export default function OrderFeedbackCard({ orderCode }: OrderFeedbackCardProps)
                 </span>
               </div>
 
-              {errorMsg && (
-                <p className="text-xs text-red-600 font-medium">{errorMsg}</p>
-              )}
-
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={stage === 'submitting'}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60"
-              >
-                {stage === 'submitting' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>Kirim Ulasan</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={stage === 'submitting'}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60"
+                >
+                  {stage === 'submitting' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>{comment.trim() ? 'Kirim Catatan' : 'Simpan'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStage('done')}
+                  className="px-4 py-3 rounded-xl bg-coffee-50 text-coffee-800 font-semibold text-xs hover:bg-coffee-100 transition-colors"
+                >
+                  Selesai
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

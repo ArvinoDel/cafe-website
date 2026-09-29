@@ -536,9 +536,7 @@ export default function OrderStatusPage() {
         </div>
 
         {/* Wi-Fi & Jam Buka card */}
-        {order.branch_id && (
-          <WifiInfoCard branchId={order.branch_id} />
-        )}
+        <WifiInfoCard branchId={order.branch_id} />
 
         {/* Thank-you + feedback — shown when completed, hides after submission */}
         {order.status === 'completed' && (
