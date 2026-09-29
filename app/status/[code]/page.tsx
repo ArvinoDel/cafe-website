@@ -419,10 +419,8 @@ export default function OrderStatusPage() {
             )}
           </AnimatePresence>
 
-          {/* Wi-Fi & Jam Buka — tepat di bawah informasi meja */}
-          <div className="mt-4 pt-3.5 border-t border-coffee-100/70 text-left">
-            <WifiInfoCard branchId={order.branch_id} defaultOpen={true} />
-          </div>
+          {/* Wi-Fi Credentials — directly under table info */}
+          <WifiInfoCard branchId={order.branch_id} variant="direct" />
         </motion.div>
 
         {/* Status stepper */}

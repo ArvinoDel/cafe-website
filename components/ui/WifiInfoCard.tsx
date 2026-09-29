@@ -52,11 +52,13 @@ async function copyToClipboard(text: string): Promise<void> {
 interface WifiInfoCardProps {
   branchId?: string | null;
   defaultOpen?: boolean;
+  variant?: 'direct' | 'collapsible';
 }
 
 export default function WifiInfoCard({
   branchId,
   defaultOpen = true,
+  variant = 'direct',
 }: WifiInfoCardProps) {
   const [info, setInfo] = useState<BranchInfo | null>(null);
   const [open, setOpen] = useState(defaultOpen);
@@ -108,6 +110,61 @@ export default function WifiInfoCard({
   if (!info || !info.wifi_name) return null;
 
   const hasHours = Boolean(info.opening_hours);
+
+  // Direct layout: not a dropdown, directly Username / Password with copy button
+  if (variant === 'direct') {
+    return (
+      <div className="w-full max-w-xs mx-auto mt-3 p-3 rounded-xl bg-coffee-50/70 border border-coffee-200/80 text-left">
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="min-w-0 space-y-1 text-xs">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-charcoal/50">Username :</span>
+              <span className="font-bold font-mono text-coffee-950 select-all">
+                {info.wifi_name}
+              </span>
+            </div>
+            {info.wifi_password && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-charcoal/50">Password :</span>
+                <span className="font-bold font-mono text-coffee-950 bg-white/90 px-1.5 py-0.5 rounded border border-coffee-100 select-all">
+                  {info.wifi_password}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {info.wifi_password && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className={`
+                flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold
+                transition-all duration-150 flex-shrink-0 active:scale-95
+                ${
+                  copied
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-coffee-700 hover:bg-coffee-800 text-cream shadow-2xs'
+                }
+              `}
+              aria-label="Salin password Wi-Fi"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Tersalin!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Salin</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
