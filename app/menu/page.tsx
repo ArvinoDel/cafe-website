@@ -9,6 +9,7 @@ import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import ItemNoteModal from '@/components/ui/ItemNoteModal';
+import TableRequestModal from '@/components/ui/TableRequestModal';
 import { getItemLineKey, normalizeNote } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
@@ -997,6 +998,15 @@ function MenuPageInner() {
           }
         }}
       />
+
+      {/* Table service request button & sheet (only when table is known) */}
+      {tableNumber && (
+        <TableRequestModal
+          tableNumber={tableNumber}
+          branchId={branchId}
+          positionClassName="bottom-6 left-4 sm:left-6"
+        />
+      )}
     </div>
   );
 }

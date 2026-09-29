@@ -57,9 +57,9 @@ export async function GET(request: NextRequest) {
 
   const supabaseAdmin = createAdminClient({ env: resolveEnv() });
 
-  // Only select the three fields exposed to guests — never include credentials
+  // Only select the fields exposed to guests — never include sensitive credentials
   // in a broad SELECT *.
-  const SELECT = 'wifi_name, wifi_password, opening_hours';
+  const SELECT = 'wifi_name, wifi_password, opening_hours, est_wait_minutes';
 
   if (branchIdParam) {
     // Explicit branch lookup
@@ -102,11 +102,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { wifi_name, wifi_password, opening_hours } = branches[0] as {
+  const { wifi_name, wifi_password, opening_hours, est_wait_minutes } = branches[0] as {
     wifi_name: string | null;
     wifi_password: string | null;
     opening_hours: string | null;
+    est_wait_minutes: number | null;
   };
 
-  return NextResponse.json({ wifi_name, wifi_password, opening_hours }, { status: 200 });
+  return NextResponse.json({ wifi_name, wifi_password, opening_hours, est_wait_minutes }, { status: 200 });
 }

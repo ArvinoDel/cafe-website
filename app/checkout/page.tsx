@@ -18,6 +18,7 @@ import {
   Camera,
   RefreshCw,
   X,
+  Clock,
 } from 'lucide-react';
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
@@ -80,6 +81,7 @@ function CheckoutPageInner() {
   const [scannerOpen, setScannerOpen] = useState(false);
   // branchId may be null when there is exactly one branch (server resolves it)
   const [branchId, setBranchId]     = useState<string | null>(null);
+  const [estWaitMinutes, setEstWaitMinutes] = useState<number | null>(null);
   const [tableNotice, setTableNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -151,6 +153,30 @@ function CheckoutPageInner() {
     }
     setLoaded(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadWaitTime() {
+      try {
+        const url = branchId
+          ? `/api/branch-info?branch_id=${encodeURIComponent(branchId)}`
+          : '/api/branch-info';
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && typeof data?.est_wait_minutes === 'number' && data.est_wait_minutes > 0) {
+            setEstWaitMinutes(data.est_wait_minutes);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadWaitTime();
+    return () => {
+      active = false;
+    };
+  }, [branchId]);
 
   const persistCart = useCallback((next: CartItem[]) => {
     setCart(next);
@@ -632,7 +658,15 @@ function CheckoutPageInner() {
       <div className="fixed bottom-0 left-0 right-0 bg-cream/95 backdrop-blur-xl border-t border-coffee-100/60 z-40 pb-[max(0px,env(safe-area-inset-bottom))]">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-charcoal/60 text-sm">Total ({itemCount} item)</span>
+            <div>
+              <span className="text-charcoal/60 text-sm block">Total ({itemCount} item)</span>
+              {estWaitMinutes ? (
+                <span className="text-[11px] font-semibold text-coffee-700/90 flex items-center gap-1 mt-0.5">
+                  <Clock className="w-3 h-3 text-coffee-600" />
+                  Perkiraan waktu tunggu ±{estWaitMinutes} menit
+                </span>
+              ) : null}
+            </div>
             <span className="text-xl font-extrabold text-coffee-800">
               {formatPrice(subtotal)}
             </span>

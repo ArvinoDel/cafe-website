@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Wifi,
+  Clock,
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
@@ -32,6 +33,7 @@ type Branch = {
   maps_url: string | null;
   wifi_name: string | null;
   wifi_password: string | null;
+  est_wait_minutes?: number | null;
   created_at: string;
 };
 
@@ -218,6 +220,12 @@ function BranchesContent() {
                           Wi-Fi
                         </span>
                       )}
+                      {branch.est_wait_minutes ? (
+                        <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
+                          <Clock className="w-3 h-3" />
+                          ±{branch.est_wait_minutes} mnt
+                        </span>
+                      ) : null}
                     </div>
                   </motion.div>
                 );
@@ -317,6 +325,11 @@ function BranchFormModal({
   const [mapsUrl, setMapsUrl] = useState(initial?.maps_url ?? '');
   const [wifiName, setWifiName] = useState(initial?.wifi_name ?? '');
   const [wifiPassword, setWifiPassword] = useState(initial?.wifi_password ?? '');
+  const [estWaitMinutes, setEstWaitMinutes] = useState(
+    initial?.est_wait_minutes !== null && initial?.est_wait_minutes !== undefined
+      ? String(initial.est_wait_minutes)
+      : '',
+  );
   const [showWifiPwd, setShowWifiPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +340,8 @@ function BranchFormModal({
     setSaving(true);
     setError(null);
 
+    const parsedWait = estWaitMinutes.trim() ? parseInt(estWaitMinutes.trim(), 10) : null;
+
     const payload = {
       name: name.trim(),
       address: address.trim() || null,
@@ -334,6 +349,7 @@ function BranchFormModal({
       maps_url: mapsUrl.trim() || null,
       wifi_name: wifiName.trim() || null,
       wifi_password: wifiPassword.trim() || null,
+      est_wait_minutes: isNaN(parsedWait as number) ? null : parsedWait,
     };
 
     if (initial) {
@@ -414,6 +430,24 @@ function BranchFormModal({
               placeholder="https://maps.google.com/?q=..."
               className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+              Perkiraan Waktu Tunggu (menit)
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="180"
+              value={estWaitMinutes}
+              onChange={(e) => setEstWaitMinutes(e.target.value)}
+              placeholder="Contoh: 15"
+              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+            />
+            <p className="text-[11px] text-charcoal/40 mt-1">
+              Perkiraan waktu tunggu pesanan pelanggan di halaman status dan checkout.
+            </p>
           </div>
 
           {/* Wi-Fi section */}

@@ -22,6 +22,8 @@ import {
   Volume2,
   VolumeX,
   SmilePlus,
+  BellRing,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createBrowserClient } from '@supabase/ssr';
@@ -75,6 +77,29 @@ const RATING_LABEL: Record<1 | 2 | 3, string> = {
   1: 'Kurang puas',
   2: 'Biasa saja',
   3: 'Puas banget!',
+};
+
+type TableRequestType = 'water' | 'tissue' | 'waiter' | 'bill';
+
+type TableRequest = {
+  id: string;
+  branch_id: string;
+  table_number: string;
+  type: TableRequestType;
+  order_code: string | null;
+  status: 'open' | 'done';
+  created_at: string;
+  done_at: string | null;
+};
+
+const REQUEST_TYPE_INFO: Record<
+  TableRequestType,
+  { label: string; badge: string; icon: string }
+> = {
+  water: { label: 'Air Putih', badge: 'bg-sky-100 text-sky-800 border-sky-200', icon: '💧' },
+  tissue: { label: 'Tisu', badge: 'bg-amber-100 text-amber-800 border-amber-200', icon: '🧻' },
+  waiter: { label: 'Panggil Pelayan', badge: 'bg-purple-100 text-purple-800 border-purple-200', icon: '🙋' },
+  bill: { label: 'Minta Bill', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: '🧾' },
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -188,6 +213,10 @@ export default function AdminDashboard() {
     total: number;
   } | null>(null);
 
+  // Table requests: seated guest assistance
+  const [tableRequests, setTableRequests] = useState<TableRequest[]>([]);
+  const [completingRequestId, setCompletingRequestId] = useState<string | null>(null);
+
   // ── Fetch orders ──────────────────────────────────────────────────────────
 
   const fetchOrders = useCallback(async () => {
@@ -247,6 +276,28 @@ export default function AdminDashboard() {
     setLoading(false);
   }, [profile, selectedBranchId]);
 
+  // ── Fetch table requests ──────────────────────────────────────────────────
+
+  const fetchTableRequests = useCallback(async () => {
+    const sb = supabase.current;
+    let query = sb
+      .from('table_requests')
+      .select('*')
+      .eq('status', 'open')
+      .order('created_at', { ascending: false });
+
+    if (profile.role === 'admin' && profile.branch_id) {
+      query = query.eq('branch_id', profile.branch_id);
+    } else if (profile.role === 'superadmin' && selectedBranchId !== 'all') {
+      query = query.eq('branch_id', selectedBranchId);
+    }
+
+    const { data } = await query;
+    if (data) {
+      setTableRequests(data as TableRequest[]);
+    }
+  }, [profile, selectedBranchId]);
+
   // ── Fetch branches (superadmin only) ─────────────────────────────────────
 
   const fetchBranches = useCallback(async () => {
@@ -272,9 +323,13 @@ export default function AdminDashboard() {
   useEffect(() => {
     // Initial fetch
     fetchOrders();
+    fetchTableRequests();
 
     // Slow fallback poll — realtime is the primary mechanism
-    const pollId = setInterval(fetchOrders, POLL_INTERVAL);
+    const pollId = setInterval(() => {
+      fetchOrders();
+      fetchTableRequests();
+    }, POLL_INTERVAL);
 
     // Capture the client reference so the cleanup closure is stable
     const sb = supabase.current;
@@ -324,10 +379,61 @@ export default function AdminDashboard() {
           setOrders((prev) => prev.filter((o) => o.id !== removed.id));
         },
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'table_requests' },
+        (payload) => {
+          const newReq = payload.new as TableRequest;
+          const isRelevant =
+            profile.role === 'admin'
+              ? newReq.branch_id === profile.branch_id
+              : selectedBranchId === 'all' || newReq.branch_id === selectedBranchId;
+
+          if (isRelevant && newReq.status === 'open') {
+            setTableRequests((prev) => {
+              if (prev.some((r) => r.id === newReq.id)) return prev;
+              return [newReq, ...prev];
+            });
+
+            if (soundEnabledRef.current) {
+              playOrderChime();
+            }
+
+            const label = REQUEST_TYPE_INFO[newReq.type]?.label || newReq.type;
+            toast(`Permintaan Meja ${newReq.table_number}`, {
+              description: `${label}${newReq.order_code ? ` · Pesanan #${newReq.order_code}` : ''}`,
+              duration: 6000,
+            });
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'table_requests' },
+        (payload) => {
+          const updated = payload.new as TableRequest;
+          if (updated.status === 'done') {
+            setTableRequests((prev) => prev.filter((r) => r.id !== updated.id));
+          } else {
+            setTableRequests((prev) =>
+              prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)),
+            );
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'table_requests' },
+        (payload) => {
+          const removed = payload.old as { id: string };
+          setTableRequests((prev) => prev.filter((r) => r.id !== removed.id));
+        },
+      )
       .subscribe((status) => {
         // Re-fetch when the channel reconnects to catch any missed events
         if (status === 'SUBSCRIBED') {
           fetchOrders();
+          fetchTableRequests();
         }
       });
 
@@ -335,7 +441,7 @@ export default function AdminDashboard() {
       clearInterval(pollId);
       sb.removeChannel(channel);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, fetchTableRequests, profile, selectedBranchId]);
   // ── Status update ─────────────────────────────────────────────────────────
 
   async function advanceStatus(orderId: string, nextStatus: OrderStatus) {
@@ -375,6 +481,29 @@ export default function AdminDashboard() {
       await fetchOrders();
       setUpdating(null);
       setDeleteTarget(null);
+    }
+  }
+
+  // ── Complete table request ────────────────────────────────────────────────
+
+  async function completeTableRequest(id: string) {
+    setCompletingRequestId(id);
+    try {
+      const { error } = await supabase.current
+        .from('table_requests')
+        .update({ status: 'done', done_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) {
+        toast.error('Gagal menyelesaikan permintaan.');
+      } else {
+        setTableRequests((prev) => prev.filter((r) => r.id !== id));
+        toast.success('Permintaan meja diselesaikan.');
+      }
+    } catch {
+      toast.error('Terjadi kesalahan.');
+    } finally {
+      setCompletingRequestId(null);
     }
   }
 
@@ -440,6 +569,93 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Table requests card — shown at the top of the dashboard */}
+      {tableRequests.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl border-2 border-amber-300 shadow-soft overflow-hidden"
+        >
+          <div className="bg-amber-50/90 px-4 py-3 border-b border-amber-200/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              </span>
+              <BellRing className="w-4 h-4 text-amber-700" />
+              <h2 className="font-extrabold text-amber-950 text-sm">
+                Permintaan Meja ({tableRequests.length})
+              </h2>
+            </div>
+            <span className="text-xs text-amber-800/70 font-medium hidden sm:inline">
+              Segera layani dan klik Selesai
+            </span>
+          </div>
+
+          <div className="p-3 divide-y divide-coffee-100/60">
+            {tableRequests.map((req) => {
+              const info = REQUEST_TYPE_INFO[req.type] || {
+                label: req.type,
+                badge: 'bg-coffee-100 text-coffee-800 border-coffee-200',
+                icon: '🔔',
+              };
+              const isCompleting = completingRequestId === req.id;
+
+              return (
+                <div
+                  key={req.id}
+                  className="py-2.5 first:pt-1 last:pb-1 flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100/80 border border-amber-200/80 flex flex-col items-center justify-center flex-shrink-0">
+                      <span className="text-[9px] font-bold text-amber-800 uppercase tracking-wider leading-none">
+                        Meja
+                      </span>
+                      <span className="text-base font-extrabold text-amber-950 leading-none mt-0.5">
+                        {req.table_number}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full border ${info.badge}`}
+                        >
+                          <span>{info.icon}</span>
+                          <span>{info.label}</span>
+                        </span>
+                        {req.order_code && (
+                          <span className="text-xs text-charcoal/50 font-mono">
+                            #{req.order_code}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-charcoal/50 mt-0.5 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{relativeTime(req.created_at)}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isCompleting}
+                    onClick={() => completeTableRequest(req.id)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:pointer-events-none flex-shrink-0"
+                  >
+                    {isCompleting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>Selesai</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
       {/* Stats header & Timeframe selector */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-2xl border border-coffee-100/80 p-4">
         <div>
@@ -619,7 +835,11 @@ export default function AdminDashboard() {
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
           <button
-            onClick={() => { setLoading(true); fetchOrders(); }}
+            onClick={() => {
+              setLoading(true);
+              fetchOrders();
+              fetchTableRequests();
+            }}
             className="p-2 rounded-xl hover:bg-coffee-50 text-charcoal/50 hover:text-coffee-700 transition-colors"
             title="Refresh"
           >

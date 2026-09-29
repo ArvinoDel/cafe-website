@@ -16,11 +16,14 @@ import {
   X,
   Loader2,
   RotateCcw,
+  Bell,
+  Clock,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase-client';
+import { playOrderChime, unlockAudio } from '@/lib/audio';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import OrderFeedbackCard from '@/components/ui/OrderFeedbackCard';
+import TableRequestModal from '@/components/ui/TableRequestModal';
 import { executeReorder } from '@/lib/menu-availability';
 
 type OrderItem = {
@@ -54,10 +57,29 @@ const STEPS: { key: Order['status']; label: string; desc: string }[] = [
   { key: 'completed', label: 'Selesai', desc: 'Selamat menikmati!' },
 ];
 
-const POLL_INTERVAL = 6000;
+const BASE_POLL_INTERVAL = 6000;
+const MAX_POLL_INTERVAL  = 30000;
 
 function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
+}
+
+function getEstimatedWaitText(createdAt: string, estMinutes: number): string {
+  const createdMs = new Date(createdAt).getTime();
+  const targetMs = createdMs + estMinutes * 60 * 1000;
+  const now = Date.now();
+
+  if (now >= targetMs) {
+    return 'Sebentar lagi ya, barista sedang menyelesaikan pesananmu ☕';
+  }
+
+  const targetDate = new Date(targetMs);
+  const hhmm = targetDate.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return `Perkiraan siap sekitar ${hhmm} (±${estMinutes} menit)`;
 }
 
 export default function OrderStatusPage() {
@@ -70,6 +92,108 @@ export default function OrderStatusPage() {
   const [notFound, setNotFound] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const isFirstLoad = useRef(true);
+  const currentIntervalRef = useRef(BASE_POLL_INTERVAL);
+  const orderRef = useRef<Order | null>(order);
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+
+  // "Pesanan siap" alert & wait time state
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const soundEnabledRef = useRef(soundEnabled);
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  const [showReadyBanner, setShowReadyBanner] = useState(false);
+  const [estWaitMinutes, setEstWaitMinutes] = useState<number | null>(null);
+  const prevStatusRef = useRef<Order['status'] | null>(null);
+  const [, setTick] = useState(0);
+
+  // Periodic tick so relative wait time refreshes gracefully if deadline passes
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Initialize sound preference from localStorage key 'cafe-ready-alert'
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('cafe-ready-alert');
+      if (stored === 'true') {
+        setSoundEnabled(true);
+      }
+    } catch {}
+  }, []);
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    try {
+      localStorage.setItem('cafe-ready-alert', next ? 'true' : 'false');
+    } catch {}
+    if (next) {
+      unlockAudio();
+    }
+  };
+
+  // Fetch branch info for est_wait_minutes
+  const branchId = order?.branch_id;
+  useEffect(() => {
+    const id = branchId;
+    if (!id) return;
+    let active = true;
+
+    async function loadBranchInfo() {
+      try {
+        const res = await fetch(`/api/branch-info?branch_id=${encodeURIComponent(id as string)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && typeof data?.est_wait_minutes === 'number' && data.est_wait_minutes > 0) {
+            setEstWaitMinutes(data.est_wait_minutes);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    loadBranchInfo();
+    return () => {
+      active = false;
+    };
+  }, [branchId]);
+
+  const triggerReadyAlert = useCallback(() => {
+    // 1. Play soft chime if sound toggle was enabled
+    if (soundEnabledRef.current) {
+      playOrderChime();
+    }
+
+    // 2. Vibration
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([200, 100, 200]);
+      } catch {}
+    }
+
+    // 3. Briefly change document.title until window is focused
+    if (typeof document !== 'undefined') {
+      const originalTitle = document.title;
+      document.title = '🔔 Pesananmu siap!';
+
+      const handleFocus = () => {
+        document.title = originalTitle || 'Status Pesanan';
+        window.removeEventListener('focus', handleFocus);
+      };
+
+      window.addEventListener('focus', handleFocus);
+    }
+
+    // 4. In-page banner
+    setShowReadyBanner(true);
+  }, []);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [isUpdatingTable, setIsUpdatingTable] = useState(false);
   const [tableUpdateNotice, setTableUpdateNotice] = useState<{
@@ -210,47 +334,66 @@ export default function OrderStatusPage() {
     }
 
     try {
-      // 1. Direct query against Supabase orders table
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('order_code', code)
-        .maybeSingle();
-
-      if (data && !error) {
-        setOrder(data as Order);
-        setNotFound(false);
-        setLastChecked(new Date());
-        setLoading(false);
-        isFirstLoad.current = false;
-        return;
-      }
-
-      // 2. Fallback to server lookup API
+      // Server lookup API (direct anon Supabase query removed as anon cannot SELECT orders)
       const res = await fetch(`/api/orders/lookup?code=${encodeURIComponent(code)}`);
-      if (res.ok) {
+
+      if (res.status === 429) {
+        // Back off on HTTP 429: double interval up to 30s. Do NOT treat 429 as "order not found"
+        currentIntervalRef.current = Math.min(MAX_POLL_INTERVAL, currentIntervalRef.current * 2);
+
+        // Fallback to local snapshot if first load to populate initial UI without marking notFound
+        if (isFirstLoad.current) {
+          const local = getLocalOrder();
+          if (local) {
+            setOrder(local);
+            setNotFound(false);
+          }
+        }
+      } else if (res.ok) {
+        // Reset interval to base on success
+        currentIntervalRef.current = BASE_POLL_INTERVAL;
         const json = await res.json();
         if (json?.order) {
-          setOrder(json.order as Order);
+          const newOrder = json.order as Order;
+
+          // Check if polled status transitioned to 'ready' (not when page first loads already ready)
+          if (
+            !isFirstLoad.current &&
+            prevStatusRef.current &&
+            prevStatusRef.current !== 'ready' &&
+            newOrder.status === 'ready'
+          ) {
+            triggerReadyAlert();
+          }
+
+          prevStatusRef.current = newOrder.status;
+          setOrder(newOrder);
           setNotFound(false);
           setLastChecked(new Date());
           setLoading(false);
           isFirstLoad.current = false;
           return;
         }
-      }
-
-      // 3. Fallback to localStorage snapshot
-      const local = getLocalOrder();
-      if (local) {
-        setOrder(local);
-        setNotFound(false);
-      } else if (isFirstLoad.current) {
-        setNotFound(true);
+      } else if (res.status === 404) {
+        // Fallback to localStorage snapshot for order not found
+        const local = getLocalOrder();
+        if (local) {
+          if (prevStatusRef.current === null) {
+            prevStatusRef.current = local.status;
+          }
+          setOrder(local);
+          setNotFound(false);
+        } else if (isFirstLoad.current) {
+          setNotFound(true);
+        }
       }
     } catch {
+      // Network error or unexpected exception
       const local = getLocalOrder();
       if (local) {
+        if (prevStatusRef.current === null) {
+          prevStatusRef.current = local.status;
+        }
         setOrder(local);
         setNotFound(false);
       } else if (isFirstLoad.current) {
@@ -261,13 +404,80 @@ export default function OrderStatusPage() {
     setLastChecked(new Date());
     setLoading(false);
     isFirstLoad.current = false;
-  }, [code, getLocalOrder]);
+  }, [code, getLocalOrder, triggerReadyAlert]);
+
+  const isTerminal = order?.status === 'completed' || order?.status === 'cancelled';
 
   useEffect(() => {
-    fetchOrder();
-    const interval = setInterval(fetchOrder, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchOrder]);
+    if (!code || isTerminal) {
+      return;
+    }
+
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const schedulePoll = (delay: number) => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      timerId = setTimeout(async () => {
+        if (cancelled) return;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          return;
+        }
+
+        await fetchOrder();
+
+        if (cancelled) return;
+        if (orderRef.current?.status === 'completed' || orderRef.current?.status === 'cancelled') {
+          return;
+        }
+
+        schedulePoll(currentIntervalRef.current);
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (orderRef.current?.status === 'completed' || orderRef.current?.status === 'cancelled') {
+          return;
+        }
+        // Tab became visible: fetch immediately and restart scheduled polling
+        if (timerId) clearTimeout(timerId);
+        fetchOrder().then(() => {
+          if (cancelled) return;
+          if (orderRef.current?.status === 'completed' || orderRef.current?.status === 'cancelled') {
+            return;
+          }
+          schedulePoll(currentIntervalRef.current);
+        });
+      } else {
+        // Tab is hidden: pause polling
+        if (timerId) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Initial immediate fetch on mount or code change
+    fetchOrder().then(() => {
+      if (cancelled) return;
+      if (orderRef.current?.status === 'completed' || orderRef.current?.status === 'cancelled') {
+        return;
+      }
+      schedulePoll(currentIntervalRef.current);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [code, isTerminal, fetchOrder]);
 
   const stepIndex = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
 
@@ -346,6 +556,42 @@ export default function OrderStatusPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+        {/* Ready celebration banner */}
+        <AnimatePresence>
+          {(showReadyBanner || order.status === 'ready') && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="bg-emerald-600 text-cream rounded-2xl p-4 shadow-soft flex items-center justify-between gap-3 border border-emerald-500"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0 text-xl">
+                  🔔
+                </div>
+                <div>
+                  <p className="font-extrabold text-sm text-white leading-tight">
+                    Pesananmu siap!
+                  </p>
+                  <p className="text-xs text-emerald-100 mt-0.5">
+                    Silakan ambil di kasir atau tunggu barista mengantarkannya ke Meja {order.table_number}.
+                  </p>
+                </div>
+              </div>
+              {showReadyBanner && (
+                <button
+                  type="button"
+                  onClick={() => setShowReadyBanner(false)}
+                  className="text-white/80 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+                  aria-label="Tutup banner"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Order header card */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -387,6 +633,40 @@ export default function OrderStatusPage() {
               </button>
             )}
           </div>
+
+          {/* Estimated wait time */}
+          {(order.status === 'pending' || order.status === 'preparing') && estWaitMinutes && estWaitMinutes > 0 ? (
+            <div className="mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50/90 border border-amber-200/80 text-amber-900 text-xs font-semibold text-center">
+              <Clock className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
+              <span>{getEstimatedWaitText(order.created_at, estWaitMinutes)}</span>
+            </div>
+          ) : null}
+
+          {/* Sound alert toggle — off by default, unlocks audio context when turned on */}
+          {order.status !== 'completed' && (
+            <div className="mt-4 pt-3.5 border-t border-coffee-100/70 flex items-center justify-between text-xs">
+              <span className="text-charcoal/70 font-semibold flex items-center gap-1.5">
+                <Bell className="w-3.5 h-3.5 text-coffee-700" />
+                <span>Bunyikan saat siap</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={soundEnabled}
+                onClick={toggleSound}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  soundEnabled ? 'bg-coffee-700' : 'bg-coffee-200'
+                }`}
+                title={soundEnabled ? 'Notifikasi suara aktif' : 'Aktifkan suara saat pesanan siap'}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    soundEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
 
           <AnimatePresence>
             {tableUpdateNotice && (
@@ -598,6 +878,14 @@ export default function OrderStatusPage() {
         currentTable={order.table_number}
         title="Pindah Meja Pesanan"
         subtitle={`Pesanan saat ini di Meja ${order.table_number}. Arahkan kamera ke stiker QR meja baru.`}
+      />
+
+      {/* Table service request floating button & bottom sheet */}
+      <TableRequestModal
+        tableNumber={order.table_number}
+        branchId={order.branch_id}
+        orderCode={order.order_code}
+        positionClassName="bottom-6 right-4 sm:right-6"
       />
     </div>
   );

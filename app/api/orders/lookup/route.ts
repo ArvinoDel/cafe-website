@@ -58,23 +58,36 @@ function normalizeCode(raw: string): string {
 // ─── Rate limiting (in-memory, best-effort on serverless) ────────────────────
 
 const RATE_LIMIT_WINDOW_MS = 60_000;  // 60 seconds
-const RATE_LIMIT_MAX       = 60;      // 60 requests per window per IP
+const RATE_LIMIT_IP_MAX    = 300;     // 300 req / min across all devices on shared Wi-Fi
+const RATE_LIMIT_CODE_MAX  = 20;      // 20 req / min per order code (~10-12 req/min under 6s polling)
+const RATE_LIMIT_BATCH_MAX = 60;      // 60 req / min for batch requests per IP
 
 type RateLimitEntry = { count: number; windowStart: number };
 const ipWindowMap = new Map<string, RateLimitEntry>();
+const targetWindowMap = new Map<string, RateLimitEntry>();
 
-function isRateLimited(ip: string): boolean {
-  const now    = Date.now();
-  const entry  = ipWindowMap.get(ip);
-
+function checkRateLimit(map: Map<string, RateLimitEntry>, key: string, max: number, now: number): boolean {
+  const entry = map.get(key);
   if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    ipWindowMap.set(ip, { count: 1, windowStart: now });
+    map.set(key, { count: 1, windowStart: now });
     return false;
   }
 
   entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) return true;
-  return false;
+  return entry.count > max;
+}
+
+function cleanupStaleEntries(now: number) {
+  if (ipWindowMap.size > 1000) {
+    ipWindowMap.forEach((v, k) => {
+      if (now - v.windowStart > RATE_LIMIT_WINDOW_MS) ipWindowMap.delete(k);
+    });
+  }
+  if (targetWindowMap.size > 2000) {
+    targetWindowMap.forEach((v, k) => {
+      if (now - v.windowStart > RATE_LIMIT_WINDOW_MS) targetWindowMap.delete(k);
+    });
+  }
 }
 
 // ─── Projected fields (only what status/orders pages actually use) ────────────
@@ -99,7 +112,11 @@ export async function GET(request: NextRequest) {
     ?? request.headers.get('x-real-ip')
     ?? 'unknown';
 
-  if (isRateLimited(ip)) {
+  const now = Date.now();
+  cleanupStaleEntries(now);
+
+  // 1. Overall per-IP ceiling check (e.g. 300/min) so shared Wi-Fi is not blocked
+  if (checkRateLimit(ipWindowMap, ip, RATE_LIMIT_IP_MAX, now)) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Coba lagi sebentar.' },
       { status: 429 },
@@ -109,6 +126,26 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const codesParam       = searchParams.get('codes');
   const codeParam        = searchParams.get('code');
+
+  // 2. Specific per-(IP + order_code) check for single lookups, or per-IP batch check
+  if (codeParam) {
+    const normalized = normalizeCode(codeParam);
+    const targetKey = `${ip}:${normalized}`;
+    if (checkRateLimit(targetWindowMap, targetKey, RATE_LIMIT_CODE_MAX, now)) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak permintaan untuk pesanan ini. Coba lagi sebentar.' },
+        { status: 429 },
+      );
+    }
+  } else if (codesParam) {
+    const targetKey = `${ip}:batch`;
+    if (checkRateLimit(targetWindowMap, targetKey, RATE_LIMIT_BATCH_MAX, now)) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak permintaan. Coba lagi sebentar.' },
+        { status: 429 },
+      );
+    }
+  }
 
   const env            = resolveEnv();
   const supabaseAdmin  = createAdminClient({ env });
