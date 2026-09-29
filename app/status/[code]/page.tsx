@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase-client';
 import QrScannerModal from '@/components/ui/QrScannerModal';
+import WifiInfoCard from '@/components/ui/WifiInfoCard';
 
 type OrderItem = {
   id: string;
@@ -32,6 +33,7 @@ type Order = {
   order_code: string;
   customer_name: string;
   table_number: string;
+  branch_id: string;
   items: OrderItem[];
   subtotal: number;
   total: number;
@@ -484,6 +486,11 @@ export default function OrderStatusPage() {
             </div>
           </div>
         </div>
+
+        {/* Wi-Fi & Jam Buka card */}
+        {order.branch_id && (
+          <WifiInfoCard branchId={order.branch_id} />
+        )}
       </div>
 
       {/* In-website live camera QR Scanner Modal */}

@@ -7,6 +7,7 @@ import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCir
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
+import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import { useBrand } from '@/components/providers/BrandProvider';
 
 type MenuItem = {
@@ -406,6 +407,13 @@ function MenuPageInner() {
               Scan barcode di meja, pilih menu, bayar dari HP. Pesanan
               langsung dibuat barista dan diantar ke meja kamu.
             </p>
+
+            {/* Wi-Fi & Jam Buka card — only shown when a branch is known */}
+            {branchId && (
+              <div className="mt-5 max-w-md">
+                <WifiInfoCard branchId={branchId} />
+              </div>
+            )}
           </motion.div>
 
           {/* Search */}
