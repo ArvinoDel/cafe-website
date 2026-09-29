@@ -420,7 +420,7 @@ export default function OrderStatusPage() {
           </AnimatePresence>
 
           {/* Wi-Fi Credentials — directly under table info */}
-          <WifiInfoCard branchId={order.branch_id} variant="direct" />
+          <WifiInfoCard branchId={order.branch_id} />
         </motion.div>
 
         {/* Status stepper */}

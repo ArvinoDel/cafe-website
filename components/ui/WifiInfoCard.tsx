@@ -3,25 +3,19 @@
 /**
  * WifiInfoCard
  *
- * A collapsible card displayed on /menu and /status/[code] that shows:
- * - Wi-Fi SSID + a "Salin password" button (uses navigator.clipboard with textarea fallback)
- * - Opening hours
+ * Direct, clean Wi-Fi credentials display shown directly under table information.
+ * Erased all dropdowns / accordions.
+ * Shows:
+ * - Username : wifi_name (copyable)
+ * - Password : wifi_password (with copy button)
+ * - Opening hours (if available)
  *
  * Fetches from GET /api/branch-info?branch_id=<uuid>.
- * The component is fully self-contained: pass `branchId` and let it handle
- * loading, null state, and clipboard state.
- *
- * Returns null when:
- *   - branchId is not provided
- *   - the branch has no wifi_name configured (no unnecessary API call in that case)
- *   - the fetch fails silently
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, Clock, ChevronDown, Copy, Check } from 'lucide-react';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { motion } from 'framer-motion';
+import { Wifi, Clock, Copy, Check } from 'lucide-react';
 
 type BranchInfo = {
   wifi_name: string | null;
@@ -29,14 +23,11 @@ type BranchInfo = {
   opening_hours: string | null;
 };
 
-// ─── Clipboard helper (navigator.clipboard + textarea fallback) ───────────────
-
 async function copyToClipboard(text: string): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
   }
-  // Fallback for older or insecure-context browsers
   const el = document.createElement('textarea');
   el.value = text;
   el.setAttribute('readonly', '');
@@ -47,25 +38,17 @@ async function copyToClipboard(text: string): Promise<void> {
   document.body.removeChild(el);
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 interface WifiInfoCardProps {
   branchId?: string | null;
-  defaultOpen?: boolean;
-  variant?: 'direct' | 'collapsible';
+  className?: string;
+  variant?: string; // Kept for backwards compatibility if callers pass it
 }
 
-export default function WifiInfoCard({
-  branchId,
-  defaultOpen = true,
-  variant = 'direct',
-}: WifiInfoCardProps) {
+export default function WifiInfoCard({ branchId, className = '' }: WifiInfoCardProps) {
   const [info, setInfo] = useState<BranchInfo | null>(null);
-  const [open, setOpen] = useState(defaultOpen);
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<'name' | 'password' | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch branch info: uses branchId, or localStorage fallback, or auto-resolves if single branch
   useEffect(() => {
     let effectiveBranchId = branchId;
     if (!effectiveBranchId && typeof window !== 'undefined') {
@@ -79,194 +62,132 @@ export default function WifiInfoCard({
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: BranchInfo | null) => {
-        if (data && data.wifi_name) setInfo(data);
+        if (data && (data.wifi_name || data.wifi_password)) {
+          setInfo(data);
+        }
       })
       .catch(() => {
-        /* fail silently — card simply won't render */
+        /* fail silently */
       });
   }, [branchId]);
 
-  // Auto-dismiss "copied" indicator after 2 seconds
-  const handleCopy = useCallback(async () => {
-    if (!info?.wifi_password) return;
+  const handleCopy = useCallback(async (text: string | null, key: 'name' | 'password') => {
+    if (!text) return;
     try {
-      await copyToClipboard(info.wifi_password);
-      setCopied(true);
+      await copyToClipboard(text);
+      setCopiedKey(key);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      copyTimerRef.current = setTimeout(() => setCopiedKey(null), 2000);
     } catch {
       /* ignore clipboard errors */
     }
-  }, [info?.wifi_password]);
+  }, []);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
 
-  // Only render when there is at least a wifi_name
-  if (!info || !info.wifi_name) return null;
+  if (!info || (!info.wifi_name && !info.wifi_password)) return null;
 
-  const hasHours = Boolean(info.opening_hours);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className={`w-full max-w-xs sm:max-w-sm mx-auto mt-3.5 p-3 rounded-2xl bg-coffee-50/70 border border-coffee-200/70 text-left shadow-2xs ${className}`}
+    >
+      {/* Header bar */}
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-coffee-200/50">
+        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-coffee-900">
+          <span className="p-1 rounded-md bg-coffee-100 text-coffee-800">
+            <Wifi className="w-3.5 h-3.5" />
+          </span>
+          <span>Wi-Fi Cafe</span>
+        </div>
+        {info.opening_hours && (
+          <div className="inline-flex items-center gap-1 text-[11px] text-charcoal/50 font-medium">
+            <Clock className="w-3 h-3 text-charcoal/40" />
+            <span>{info.opening_hours}</span>
+          </div>
+        )}
+      </div>
 
-  // Direct layout: not a dropdown, directly Username / Password with copy button
-  if (variant === 'direct') {
-    return (
-      <div className="w-full max-w-xs mx-auto mt-3 p-3 rounded-xl bg-coffee-50/70 border border-coffee-200/80 text-left">
-        <div className="flex items-center justify-between gap-2.5">
-          <div className="min-w-0 space-y-1 text-xs">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-semibold text-charcoal/50">Username :</span>
-              <span className="font-bold font-mono text-coffee-950 select-all">
+      {/* Credentials list */}
+      <div className="space-y-1.5 text-xs">
+        {/* Username / SSID */}
+        {info.wifi_name && (
+          <div className="flex items-center justify-between gap-2 bg-white/90 px-2.5 py-1.5 rounded-xl border border-coffee-100/80">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[11px] font-semibold text-charcoal/50 uppercase tracking-wide flex-shrink-0">
+                Username :
+              </span>
+              <span className="font-bold font-mono text-coffee-950 truncate select-all">
                 {info.wifi_name}
               </span>
             </div>
-            {info.wifi_password && (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-semibold text-charcoal/50">Password :</span>
-                <span className="font-bold font-mono text-coffee-950 bg-white/90 px-1.5 py-0.5 rounded border border-coffee-100 select-all">
-                  {info.wifi_password}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {info.wifi_password && (
             <button
               type="button"
-              onClick={handleCopy}
+              onClick={() => handleCopy(info.wifi_name, 'name')}
+              className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+                copiedKey === 'name'
+                  ? 'text-emerald-700 bg-emerald-50'
+                  : 'text-charcoal/40 hover:text-coffee-800 hover:bg-coffee-100/60'
+              }`}
+              title="Salin username Wi-Fi"
+              aria-label="Salin username Wi-Fi"
+            >
+              {copiedKey === 'name' ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Password */}
+        {info.wifi_password && (
+          <div className="flex items-center justify-between gap-2 bg-white/90 px-2.5 py-1.5 rounded-xl border border-coffee-100/80">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[11px] font-semibold text-charcoal/50 uppercase tracking-wide flex-shrink-0">
+                Password :
+              </span>
+              <span className="font-bold font-mono text-coffee-950 px-1.5 py-0.5 rounded bg-coffee-50 border border-coffee-200/50 select-all tracking-wide">
+                {info.wifi_password}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCopy(info.wifi_password, 'password')}
               className={`
-                flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold
+                inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold
                 transition-all duration-150 flex-shrink-0 active:scale-95
                 ${
-                  copied
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  copiedKey === 'password'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
                     : 'bg-coffee-700 hover:bg-coffee-800 text-cream shadow-2xs'
                 }
               `}
+              title="Salin password Wi-Fi"
               aria-label="Salin password Wi-Fi"
             >
-              {copied ? (
+              {copiedKey === 'password' ? (
                 <>
-                  <Check className="w-3.5 h-3.5" />
+                  <Check className="w-3 h-3" />
                   <span>Tersalin!</span>
                 </>
               ) : (
                 <>
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-3 h-3" />
                   <span>Salin</span>
                 </>
               )}
             </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.25, 0.4, 0.25, 1] }}
-      className="rounded-2xl border border-blue-100 bg-blue-50/60 overflow-hidden"
-    >
-      {/* Collapsible header */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
-        aria-expanded={open}
-        aria-controls="wifi-info-body"
-      >
-        <span className="flex items-center gap-2 text-sm font-bold text-blue-800">
-          <Wifi className="w-4 h-4 flex-shrink-0" />
-          Wi-Fi &amp; Jam Buka
-        </span>
-        <motion.span
-          animate={{ rotate: open ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="text-blue-500"
-        >
-          <ChevronDown className="w-4 h-4" />
-        </motion.span>
-      </button>
-
-      {/* Expanded body */}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            id="wifi-info-body"
-            key="wifi-body"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.25, 0.4, 0.25, 1] }}
-            style={{ overflow: 'hidden' }}
-          >
-            <div className="px-4 pb-4 space-y-3">
-              {/* Wi-Fi row */}
-              <div className="bg-white rounded-xl px-4 py-3 flex items-center justify-between gap-3 border border-blue-100">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide">
-                      Wi-Fi:
-                    </span>
-                    <span className="text-sm font-extrabold text-charcoal">{info.wifi_name}</span>
-                  </div>
-                  {info.wifi_password && (
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                      <span className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide">
-                        Password:
-                      </span>
-                      <span className="text-xs font-mono font-bold text-blue-900 bg-blue-50 border border-blue-200/60 px-2 py-0.5 rounded">
-                        {info.wifi_password}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {info.wifi_password && (
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className={`
-                      flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
-                      transition-all duration-200 flex-shrink-0
-                      ${copied
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200 active:scale-95'
-                      }
-                    `}
-                    aria-label="Salin password Wi-Fi"
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Tersalin!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Salin password</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {/* Opening hours row */}
-              {hasHours && (
-                <div className="flex items-start gap-2 px-1">
-                  <Clock className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-charcoal/70">{info.opening_hours}</p>
-                </div>
-              )}
-            </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
