@@ -55,11 +55,12 @@ export default function WifiInfoCard({ branchId, className = '' }: WifiInfoCardP
       effectiveBranchId = localStorage.getItem('kopi-nako-branch');
     }
 
-    const url = effectiveBranchId
-      ? `/api/branch-info?branch_id=${encodeURIComponent(effectiveBranchId)}`
-      : '/api/branch-info';
+    if (!effectiveBranchId) {
+      setInfo(null);
+      return;
+    }
 
-    fetch(url)
+    fetch(`/api/branch-info?branch_id=${encodeURIComponent(effectiveBranchId)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: BranchInfo | null) => {
         if (data && (data.wifi_name || data.wifi_password)) {

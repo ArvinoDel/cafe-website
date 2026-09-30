@@ -155,13 +155,15 @@ function CheckoutPageInner() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (!branchId) {
+      setEstWaitMinutes(null);
+      return;
+    }
+
     let active = true;
-    async function loadWaitTime() {
+    async function loadWaitTime(id: string) {
       try {
-        const url = branchId
-          ? `/api/branch-info?branch_id=${encodeURIComponent(branchId)}`
-          : '/api/branch-info';
-        const res = await fetch(url);
+        const res = await fetch(`/api/branch-info?branch_id=${encodeURIComponent(id)}`);
         if (res.ok) {
           const data = await res.json();
           if (active && typeof data?.est_wait_minutes === 'number' && data.est_wait_minutes > 0) {
@@ -172,7 +174,7 @@ function CheckoutPageInner() {
         // ignore
       }
     }
-    loadWaitTime();
+    loadWaitTime(branchId);
     return () => {
       active = false;
     };
