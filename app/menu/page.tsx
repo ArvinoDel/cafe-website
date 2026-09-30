@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil } from 'lucide-react';
-import { supabase } from '@/lib/supabase-client';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2 } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
@@ -13,18 +12,9 @@ import TableRequestModal from '@/components/ui/TableRequestModal';
 import { getItemLineKey, normalizeNote } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
+import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
 
-type MenuItem = {
-  id: string;
-  name: string;
-  description: string | null;
-  price: number;
-  category: string;
-  image_url: string | null;
-  badge: string | null;
-  is_available: boolean;
-  sort_order: number;
-};
+type MenuItem = BranchMenuItem;
 
 type CartItem = MenuItem & {
   lineKey: string;
@@ -61,6 +51,7 @@ function MenuPageInner() {
   const { brandName } = useBrand();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [menuLoaded, setMenuLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -164,70 +155,42 @@ function MenuPageInner() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    async function fetchMenu() {
-      setLoading(true);
-      if (branchId) {
-        // Fetch branch-specific overrides
-        const [menuRes, branchMenuRes] = await Promise.all([
-          supabase
-            .from('menu_items')
-            .select('*')
-            .order('sort_order', { ascending: true }),
-          supabase
-            .from('branch_menu_items')
-            .select('*')
-            .eq('branch_id', branchId),
-        ]);
-
-        if (menuRes.error) {
-          setError('Gagal memuat menu. Coba lagi nanti.');
-        } else {
-          const rawItems = (menuRes.data || []) as MenuItem[];
-          const branchRows = (branchMenuRes.data || []) as {
-            menu_item_id: string;
-            is_available: boolean;
-            is_enabled: boolean;
-            custom_price: number | null;
-          }[];
-
-          const branchMap = new Map(branchRows.map((r) => [r.menu_item_id, r]));
-
-          const branchItems = rawItems
-            .filter((item) => {
-              const bRow = branchMap.get(item.id);
-              if (bRow) {
-                return bRow.is_enabled && bRow.is_available;
-              }
-              return item.is_available;
-            })
-            .map((item) => {
-              const bRow = branchMap.get(item.id);
-              if (bRow && bRow.custom_price != null) {
-                return { ...item, price: bRow.custom_price };
-              }
-              return item;
-            });
-
-          setItems(branchItems);
-        }
-      } else {
-        const { data, error } = await supabase
-          .from('menu_items')
-          .select('*')
-          .eq('is_available', true)
-          .order('sort_order', { ascending: true });
-
-        if (error) {
-          setError('Gagal memuat menu. Coba lagi nanti.');
-        } else {
-          setItems(data || []);
-        }
+  const fetchMenu = useCallback(
+    async (silent = false) => {
+      if (!silent) {
+        setLoading(true);
       }
-      setLoading(false);
-    }
+      try {
+        const data = await fetchBranchMenu(branchId);
+        setItems(data);
+        setMenuLoaded(true);
+        setError(null);
+      } catch {
+        setError('Gagal memuat menu. Coba lagi nanti.');
+        setMenuLoaded(false);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [branchId],
+  );
+
+  useEffect(() => {
     fetchMenu();
-  }, [branchId]);
+  }, [fetchMenu]);
+
+  // Refetch menu when tab becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchMenu(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchMenu]);
 
   const filteredItems = items.filter((item) => {
     const matchesCategory = activeCategory === 'all' || item.category === activeCategory;
@@ -238,8 +201,40 @@ function MenuPageInner() {
     return matchesCategory && matchesSearch;
   });
 
+  // Sold-out items stay searchable and stay in their category, but are listed after available ones (stable sort)
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    if (a.sold_out === b.sold_out) return 0;
+    return a.sold_out ? 1 : -1;
+  });
+
+  // Mark cart lines whose menu id is sold out OR missing from loaded list as unavailable
+  const isLineUnavailable = useCallback(
+    (itemId: string) => {
+      if (!menuLoaded || loading || Boolean(error)) return false;
+      const menuItem = items.find((i) => i.id === itemId);
+      return !menuItem || menuItem.sold_out;
+    },
+    [menuLoaded, loading, error, items],
+  );
+
+  const hasUnavailableItems =
+    menuLoaded && !loading && !error && cart.some((c) => isLineUnavailable(c.id));
+
+  const removeUnavailableItems = useCallback(() => {
+    setCart((prev) => {
+      const next = prev.filter((c) => !isLineUnavailable(c.id));
+      try {
+        localStorage.setItem(CART_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [isLineUnavailable]);
+
   const addToCartWithNote = useCallback(
     (item: MenuItem, note?: string | null, qty = 1) => {
+      // Defense in depth: refuse sold-out items
+      if (item.sold_out) return;
+
       const cleanNote = normalizeNote(note);
       const lineKey = getItemLineKey(item.id, cleanNote);
 
@@ -272,6 +267,8 @@ function MenuPageInner() {
 
   const addToCart = useCallback(
     (item: MenuItem) => {
+      // Defense in depth: refuse sold-out items
+      if (item.sold_out) return;
       addToCartWithNote(item, null, 1);
     },
     [addToCartWithNote],
@@ -341,6 +338,7 @@ function MenuPageInner() {
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
 
   const goToCheckout = useCallback(() => {
+    if (hasUnavailableItems) return;
     if (!tableNumber) {
       setScannerOpen(true);
       return;
@@ -349,7 +347,7 @@ function MenuPageInner() {
     localStorage.setItem(TABLE_KEY, tableNumber);
     if (branchId) localStorage.setItem(BRANCH_KEY, branchId);
     router.push('/checkout');
-  }, [cart, tableNumber, branchId, router]);
+  }, [cart, tableNumber, branchId, router, hasUnavailableItems]);
 
   return (
     <div className="min-h-screen bg-cream">
@@ -601,19 +599,25 @@ function MenuPageInner() {
             animate="visible"
             className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
           >
-            {filteredItems.map((item) => (
+            {sortedItems.map((item) => (
               <motion.div
                 key={item.id}
                 variants={fadeInUp}
-                whileHover={{ y: -6 }}
-                className="group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 hover:shadow-soft-lg transition-shadow duration-300 flex flex-col"
+                whileHover={item.sold_out ? undefined : { y: -6 }}
+                className={`group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 transition-shadow duration-300 flex flex-col ${
+                  item.sold_out ? 'opacity-75' : 'hover:shadow-soft-lg'
+                }`}
+                aria-disabled={item.sold_out ? true : undefined}
+                aria-label={item.sold_out ? `${item.name}, habis` : undefined}
               >
                 <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
                   {item.image_url ? (
                     <img
                       src={item.image_url}
                       alt={item.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      className={`w-full h-full object-cover transition-transform duration-500 ${
+                        item.sold_out ? 'grayscale contrast-75 opacity-70' : 'group-hover:scale-110'
+                      }`}
                       loading="lazy"
                     />
                   ) : (
@@ -621,7 +625,11 @@ function MenuPageInner() {
                       <QrCode className="w-12 h-12" />
                     </div>
                   )}
-                  {item.badge && (
+                  {item.sold_out ? (
+                    <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold bg-charcoal/85 text-white backdrop-blur-sm shadow-xs border border-white/20 flex items-center gap-1">
+                      Habis
+                    </span>
+                  ) : item.badge ? (
                     <span
                       className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold ${
                         item.badge === 'Bestseller'
@@ -631,45 +639,66 @@ function MenuPageInner() {
                     >
                       {item.badge}
                     </span>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="p-5 flex flex-col flex-1">
-                  <h3 className="font-bold text-coffee-900 text-base leading-snug mb-1">
+                  <h3
+                    className={`font-bold text-base leading-snug mb-1 ${
+                      item.sold_out ? 'text-charcoal/40' : 'text-coffee-900'
+                    }`}
+                  >
                     {item.name}
                   </h3>
-                  <p className="text-sm text-charcoal/50 leading-relaxed mb-4 line-clamp-2 flex-1">
+                  <p
+                    className={`text-sm leading-relaxed mb-4 line-clamp-2 flex-1 ${
+                      item.sold_out ? 'text-charcoal/35' : 'text-charcoal/50'
+                    }`}
+                  >
                     {item.description}
                   </p>
                   <div className="flex items-center justify-between">
-                    <span className="text-lg font-extrabold text-coffee-700">
+                    <span
+                      className={`text-lg font-extrabold ${
+                        item.sold_out ? 'text-charcoal/40' : 'text-coffee-700'
+                      }`}
+                    >
                       {formatPrice(item.price)}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setNoteModalTarget({
-                            item,
-                            initialNote: '',
-                            isEditing: false,
-                          })
-                        }
-                        className="px-2.5 py-1.5 rounded-xl bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700 text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95"
-                        title="Atur catatan (gula, es, level pedas, dll)"
+                    {item.sold_out ? (
+                      <span
+                        className="px-3 py-1.5 rounded-xl bg-charcoal/10 text-charcoal/50 text-xs font-bold cursor-not-allowed select-none"
+                        aria-hidden="true"
                       >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Catatan</span>
-                      </button>
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90"
-                        aria-label={`Add ${item.name} to cart`}
-                        title="Tambah langsung"
-                      >
-                        <Plus className="w-5 h-5" />
-                      </button>
-                    </div>
+                        Habis
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNoteModalTarget({
+                              item,
+                              initialNote: '',
+                              isEditing: false,
+                            })
+                          }
+                          className="px-2.5 py-1.5 rounded-xl bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700 text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95"
+                          title="Atur catatan (gula, es, level pedas, dll)"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Catatan</span>
+                        </button>
+                        <button
+                          onClick={() => addToCart(item)}
+                          className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90"
+                          aria-label={`Add ${item.name} to cart`}
+                          title="Tambah langsung"
+                        >
+                          <Plus className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -727,88 +756,128 @@ function MenuPageInner() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {cart.map((item) => (
-                      <div
-                        key={item.lineKey}
-                        className="flex flex-col gap-2 bg-white rounded-xl p-3 border border-coffee-100/60 shadow-soft"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
-                            {item.image_url && (
-                              <img
-                                src={item.image_url}
-                                alt={item.name}
-                                className="w-full h-full object-cover"
-                              />
+                    {cart.map((item) => {
+                      const unavailable = isLineUnavailable(item.id);
+                      return (
+                        <div
+                          key={item.lineKey}
+                          className={`flex flex-col gap-2 rounded-xl p-3 border shadow-soft transition-colors ${
+                            unavailable
+                              ? 'bg-stone-50 border-stone-200/80'
+                              : 'bg-white border-coffee-100/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
+                              {item.image_url && (
+                                <img
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  className={`w-full h-full object-cover ${
+                                    unavailable ? 'grayscale contrast-75 opacity-70' : ''
+                                  }`}
+                                />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p
+                                  className={`font-semibold text-sm truncate ${
+                                    unavailable ? 'text-charcoal/50' : 'text-coffee-900'
+                                  }`}
+                                >
+                                  {item.name}
+                                </p>
+                                {unavailable && (
+                                  <span className="px-2 py-0.5 rounded-md bg-charcoal/10 text-charcoal/70 border border-charcoal/20 text-[10px] font-bold uppercase tracking-wider">
+                                    Habis
+                                  </span>
+                                )}
+                              </div>
+                              <p
+                                className={`text-sm font-bold ${
+                                  unavailable ? 'text-charcoal/40 line-through' : 'text-coffee-600'
+                                }`}
+                              >
+                                {formatPrice(item.price)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => updateQuantity(item.lineKey, -1)}
+                                className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                                title="Kurangi"
+                              >
+                                <Minus className="w-4 h-4" />
+                              </button>
+                              <span className="font-bold text-coffee-900 w-6 text-center">
+                                {item.quantity}
+                              </span>
+                              <button
+                                onClick={() => updateQuantity(item.lineKey, 1)}
+                                disabled={unavailable}
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                                  unavailable
+                                    ? 'bg-coffee-50/40 text-charcoal/25 cursor-not-allowed'
+                                    : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-100 active:scale-90'
+                                }`}
+                                title={unavailable ? 'Menu habis' : 'Tambah'}
+                              >
+                                <Plus className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Note badge / Add note trigger */}
+                          <div className="flex items-center justify-between pt-1 border-t border-coffee-50 text-xs">
+                            {item.note ? (
+                              <button
+                                type="button"
+                                disabled={unavailable}
+                                onClick={() =>
+                                  setNoteModalTarget({
+                                    item,
+                                    initialNote: item.note || '',
+                                    lineKeyToEdit: item.lineKey,
+                                    isEditing: true,
+                                  })
+                                }
+                                className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-left transition-colors max-w-full ${
+                                  unavailable
+                                    ? 'text-charcoal/40 bg-stone-100 border border-stone-200 cursor-not-allowed'
+                                    : 'text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 border border-amber-200/60'
+                                }`}
+                                title={unavailable ? 'Menu habis' : 'Klik untuk ubah catatan'}
+                              >
+                                <MessageSquare className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                <span className="truncate">{item.note}</span>
+                                {!unavailable && (
+                                  <Pencil className="w-2.5 h-2.5 text-amber-600/70 ml-1 flex-shrink-0" />
+                                )}
+                              </button>
+                            ) : (
+                              !unavailable && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setNoteModalTarget({
+                                      item,
+                                      initialNote: '',
+                                      lineKeyToEdit: item.lineKey,
+                                      isEditing: true,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-coffee-600 hover:text-coffee-800 hover:bg-coffee-50 px-2 py-0.5 rounded transition-colors"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Tambah Catatan (less sugar, es, dll)</span>
+                                </button>
+                              )
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-coffee-900 text-sm truncate">
-                              {item.name}
-                            </p>
-                            <p className="text-coffee-600 text-sm font-bold">
-                              {formatPrice(item.price)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => updateQuantity(item.lineKey, -1)}
-                              className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                            <span className="font-bold text-coffee-900 w-6 text-center">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => updateQuantity(item.lineKey, 1)}
-                              className="w-8 h-8 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                          </div>
                         </div>
-
-                        {/* Note badge / Add note trigger */}
-                        <div className="flex items-center justify-between pt-1 border-t border-coffee-50 text-xs">
-                          {item.note ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setNoteModalTarget({
-                                  item,
-                                  initialNote: item.note || '',
-                                  lineKeyToEdit: item.lineKey,
-                                  isEditing: true,
-                                })
-                              }
-                              className="flex items-center gap-1.5 text-amber-800 bg-amber-50/80 hover:bg-amber-100/80 border border-amber-200/60 rounded-md px-2 py-0.5 text-left transition-colors max-w-full"
-                              title="Klik untuk ubah catatan"
-                            >
-                              <MessageSquare className="w-3 h-3 text-amber-600 flex-shrink-0" />
-                              <span className="truncate">{item.note}</span>
-                              <Pencil className="w-2.5 h-2.5 text-amber-600/70 ml-1 flex-shrink-0" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setNoteModalTarget({
-                                  item,
-                                  initialNote: '',
-                                  lineKeyToEdit: item.lineKey,
-                                  isEditing: true,
-                                })
-                              }
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-coffee-600 hover:text-coffee-800 hover:bg-coffee-50 px-2 py-0.5 rounded transition-colors"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>Tambah Catatan (less sugar, es, dll)</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -822,6 +891,25 @@ function MenuPageInner() {
                       {formatPrice(cartTotal)}
                     </span>
                   </div>
+
+                  {hasUnavailableItems && (
+                    <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs space-y-2.5">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <span className="font-semibold leading-relaxed">
+                          Ada menu yang habis di keranjang. Hapus dulu ya.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={removeUnavailableItems}
+                        className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors active:scale-95 flex items-center justify-center gap-1.5 shadow-2xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus yang habis</span>
+                      </button>
+                    </div>
+                  )}
 
                   {tableNumber ? (
                     <>
@@ -846,7 +934,12 @@ function MenuPageInner() {
                       </div>
                       <button
                         onClick={goToCheckout}
-                        className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95 shadow-soft"
+                        disabled={hasUnavailableItems}
+                        className={`w-full py-4 rounded-xl font-bold transition-colors shadow-soft ${
+                          hasUnavailableItems
+                            ? 'bg-charcoal/20 text-charcoal/40 cursor-not-allowed'
+                            : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
+                        }`}
                       >
                         Pesan Sekarang — {formatPrice(cartTotal)}
                       </button>

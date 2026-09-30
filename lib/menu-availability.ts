@@ -24,6 +24,14 @@ export type AvailableMenuItem = {
   sort_order: number;
 };
 
+/**
+ * Like AvailableMenuItem but includes all non-hidden items (enabled but possibly
+ * out-of-stock). `sold_out = true` means enabled but not currently available.
+ */
+export type BranchMenuItem = AvailableMenuItem & {
+  sold_out: boolean;
+};
+
 /** Minimum shape of an order-item snapshot needed for re-ordering. */
 export type ReorderItem = {
   id: string;
@@ -43,21 +51,26 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-// ─── fetchCurrentAvailableMenu ────────────────────────────────────────────────
+// ─── fetchBranchMenu ─────────────────────────────────────────────────────────
 
 /**
- * Fetches the currently available menu items for a given branch.
- * Mirrors the logic in app/menu/page.tsx → fetchMenu().
+ * Fetches ALL non-hidden menu items for a given branch, tagged with a
+ * `sold_out` boolean.
  *
- * - When branchId is provided: loads menu_items + branch_menu_items and
- *   applies enabled/available/custom-price overrides.
- * - When branchId is omitted: returns globally-available items only.
+ * Semantics:
+ * - Hidden (not returned):  a branch_menu_items row exists AND is_enabled = false.
+ * - Sold out (sold_out=true): enabled but not available:
+ *     • branch context: is_enabled = true AND is_available = false, OR
+ *     • global context: no branch row (or no branchId) AND menu_items.is_available = false.
+ * - Available (sold_out=false): everything else.
  *
- * Returns an empty array on error (callers should degrade gracefully).
+ * custom_price overrides are applied regardless of availability.
+ * Items are returned ordered by sort_order ascending.
+ * Returns an empty array on error.
  */
-export async function fetchCurrentAvailableMenu(
+export async function fetchBranchMenu(
   branchId?: string | null,
-): Promise<AvailableMenuItem[]> {
+): Promise<BranchMenuItem[]> {
   const supabase = getSupabase();
 
   if (branchId) {
@@ -84,30 +97,55 @@ export async function fetchCurrentAvailableMenu(
 
     const branchMap = new Map(branchRows.map((r) => [r.menu_item_id, r]));
 
-    return rawItems
-      .filter((item) => {
-        const bRow = branchMap.get(item.id);
-        if (bRow) return bRow.is_enabled && bRow.is_available;
-        return item.is_available;
-      })
-      .map((item) => {
-        const bRow = branchMap.get(item.id);
-        if (bRow && bRow.custom_price != null) {
-          return { ...item, price: bRow.custom_price };
-        }
-        return item;
+    const result: BranchMenuItem[] = [];
+    for (const item of rawItems) {
+      const bRow = branchMap.get(item.id);
+
+      // Hidden: branch row exists and is_enabled = false → skip entirely
+      if (bRow && !bRow.is_enabled) continue;
+
+      const sold_out = bRow ? !bRow.is_available : !item.is_available;
+      const price = bRow?.custom_price != null ? bRow.custom_price : item.price;
+
+      result.push({
+        ...item,
+        price,
+        is_available: !sold_out,
+        sold_out,
       });
+    }
+    return result;
   }
 
-  // No branch — global availability only
+  // No branch — return all items, tagging unavailable ones as sold out
   const { data, error } = await supabase
     .from('menu_items')
     .select('*')
-    .eq('is_available', true)
     .order('sort_order', { ascending: true });
 
   if (error) return [];
-  return (data || []) as AvailableMenuItem[];
+
+  return ((data || []) as AvailableMenuItem[]).map((item) => ({
+    ...item,
+    sold_out: !item.is_available,
+  }));
+}
+
+// ─── fetchCurrentAvailableMenu ────────────────────────────────────────────────
+
+/**
+ * Returns only currently-available (non-sold-out) menu items.
+ * Implemented as fetchBranchMenu filtered to sold_out === false so the
+ * "Pesan lagi" flow (executeReorder) still has the full non-hidden list
+ * to detect skipped items.
+ *
+ * Returns an empty array on error.
+ */
+export async function fetchCurrentAvailableMenu(
+  branchId?: string | null,
+): Promise<AvailableMenuItem[]> {
+  const items = await fetchBranchMenu(branchId);
+  return items.filter((item) => !item.sold_out);
 }
 
 // ─── Cart helpers (shared localStorage keys & cart-item shape) ────────────────

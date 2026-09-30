@@ -240,6 +240,9 @@ function CheckoutPageInner() {
         // Server returned a structured error — show it inline, keep cart
         setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
         setSubmitting(false);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         return;
       }
 
@@ -272,6 +275,9 @@ function CheckoutPageInner() {
       setOrderCode(order.order_code);
     } catch {
       setSubmitError('Koneksi bermasalah. Periksa internet kamu dan coba lagi.');
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -678,6 +684,11 @@ function CheckoutPageInner() {
           >
             {submitting ? 'Memproses...' : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
           </button>
+          {submitError && (
+            <p className="text-center text-xs text-red-600 font-semibold mt-2">
+              {submitError}
+            </p>
+          )}
           {(!name.trim() || !tableNumber.trim()) && (
             <p className="text-center text-xs mt-2 font-medium">
               {!tableNumber.trim() ? (
