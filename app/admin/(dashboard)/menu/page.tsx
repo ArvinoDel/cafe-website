@@ -94,6 +94,25 @@ function getSupabase() {
   );
 }
 
+async function updateBranchMenuItem(payload: {
+  branch_id: string;
+  menu_item_id: string;
+  is_available?: boolean;
+  is_enabled?: boolean;
+  custom_price?: number | null;
+}) {
+  const res = await fetch('/api/admin/branch-menu', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || 'Gagal menyimpan perubahan menu cabang.');
+  }
+  return data;
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MenuManagementPage() {
@@ -233,18 +252,15 @@ export default function MenuManagementPage() {
         },
       }));
 
-      const { error: err } = await supabase.from('branch_menu_items').upsert(
-        {
+      try {
+        await updateBranchMenuItem({
           branch_id: activeBranch,
           menu_item_id: item.id,
           is_available: nextAvailable,
           is_enabled: existingBranchRow?.is_enabled ?? true,
           custom_price: existingBranchRow?.custom_price ?? null,
-        },
-        { onConflict: 'branch_id,menu_item_id' },
-      );
-
-      if (err) {
+        });
+      } catch (err: any) {
         // Rollback
         setBranchItemMap((prev) => ({
           ...prev,
@@ -253,7 +269,7 @@ export default function MenuManagementPage() {
             is_available: currentAvailable,
           },
         }));
-        setError(err.message);
+        setError(err?.message || 'Gagal mengubah ketersediaan menu di cabang.');
       }
     }
 
@@ -283,18 +299,15 @@ export default function MenuManagementPage() {
       },
     }));
 
-    const { error: err } = await supabase.from('branch_menu_items').upsert(
-      {
+    try {
+      await updateBranchMenuItem({
         branch_id: activeBranch,
         menu_item_id: item.id,
         is_enabled: nextEnabled,
         is_available: existingBranchRow?.is_available ?? item.is_available,
         custom_price: existingBranchRow?.custom_price ?? null,
-      },
-      { onConflict: 'branch_id,menu_item_id' },
-    );
-
-    if (err) {
+      });
+    } catch (err: any) {
       setBranchItemMap((prev) => ({
         ...prev,
         [item.id]: {
@@ -302,7 +315,7 @@ export default function MenuManagementPage() {
           is_enabled: currentEnabled,
         },
       }));
-      setError(err.message);
+      setError(err?.message || 'Gagal mengubah status penyajian menu di cabang.');
     }
   }
 
@@ -1164,19 +1177,16 @@ function BranchPriceModal({
       return;
     }
 
-    const { error: err } = await supabase.from('branch_menu_items').upsert(
-      {
+    try {
+      await updateBranchMenuItem({
         branch_id: branchId,
         menu_item_id: item.id,
         is_available: branchItem?.is_available ?? item.is_available,
         is_enabled: branchItem?.is_enabled ?? true,
         custom_price: priceValue,
-      },
-      { onConflict: 'branch_id,menu_item_id' },
-    );
-
-    if (err) {
-      setError(err.message);
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Gagal menyimpan harga khusus.');
       setSaving(false);
       return;
     }
