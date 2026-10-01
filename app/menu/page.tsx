@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2 } from 'lucide-react';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2, Clock } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
@@ -13,6 +13,8 @@ import { getItemLineKey, normalizeNote } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
+import { useBranchInfo } from '@/lib/branch-info';
+import { roundToFiveMinutes } from '@/lib/wait-time';
 
 type MenuItem = BranchMenuItem;
 
@@ -62,6 +64,11 @@ function MenuPageInner() {
   const [showQrGuide, setShowQrGuide] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [tableChangeNotice, setTableChangeNotice] = useState<string | null>(null);
+
+  // Branch info (wifi, wait time, accepting_orders)
+  const { info: branchInfo, refresh: refreshBranchInfo } = useBranchInfo(branchId);
+  const isPaused = branchInfo?.accepting_orders === false;
+  const pauseMsg = branchInfo?.pause_message || 'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.';
 
   // Note modal state
   const [noteModalTarget, setNoteModalTarget] = useState<{
@@ -191,6 +198,23 @@ function MenuPageInner() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [fetchMenu]);
+
+  // Refresh branch info (accepting_orders) every 60s and on tab visibility
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshBranchInfo();
+    }, 60_000);
+
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') refreshBranchInfo();
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [refreshBranchInfo]);
 
   const filteredItems = items.filter((item) => {
     const matchesCategory = activeCategory === 'all' || item.category === activeCategory;
@@ -339,6 +363,7 @@ function MenuPageInner() {
 
   const goToCheckout = useCallback(() => {
     if (hasUnavailableItems) return;
+    if (isPaused) return;
     if (!tableNumber) {
       setScannerOpen(true);
       return;
@@ -347,7 +372,7 @@ function MenuPageInner() {
     localStorage.setItem(TABLE_KEY, tableNumber);
     if (branchId) localStorage.setItem(BRANCH_KEY, branchId);
     router.push('/checkout');
-  }, [cart, tableNumber, branchId, router, hasUnavailableItems]);
+  }, [cart, tableNumber, branchId, router, hasUnavailableItems, isPaused]);
 
   return (
     <div className="min-h-screen bg-cream">
@@ -474,6 +499,23 @@ function MenuPageInner() {
         </div>
       )}
 
+      {/* Pause banner — ordering temporarily closed */}
+      {isPaused && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-amber-50 border-b-2 border-amber-300 px-4 py-3"
+        >
+          <div className="max-w-7xl mx-auto flex items-start gap-2.5 text-sm text-amber-900">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p>
+              <strong>Pemesanan Sedang Dijeda ☕</strong>{' '}
+              <span className="font-normal">{pauseMsg}</span>
+            </p>
+          </div>
+        </motion.div>
+      )}
+
       {/* Table change toast / notice */}
       <AnimatePresence>
         {tableChangeNotice && (
@@ -519,6 +561,18 @@ function MenuPageInner() {
               Scan barcode di meja, pilih menu, bayar dari HP. Pesanan
               langsung dibuat barista dan diantar ke meja kamu.
             </p>
+
+            {/* Smart queue wait time display */}
+            {branchInfo?.est_wait_minutes && branchInfo.est_wait_minutes > 0 && branchInfo.est_wait_now != null && (
+              <div className="mt-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-coffee-200/80 shadow-2xs text-xs font-semibold text-coffee-900">
+                <Clock className="w-3.5 h-3.5 text-coffee-600 flex-shrink-0" />
+                <span>
+                  {(branchInfo.queue_count ?? 0) > 0
+                    ? `Antrean saat ini: ${branchInfo.queue_count} pesanan · perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                    : `Perkiraan waktu tunggu: ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`}
+                </span>
+              </div>
+            )}
 
             {/* Wi-Fi & Jam Buka card — only shown when a branch is known */}
             {/* {branchId && (
@@ -676,24 +730,35 @@ function MenuPageInner() {
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
+                          disabled={isPaused}
                           onClick={() =>
+                            !isPaused &&
                             setNoteModalTarget({
                               item,
                               initialNote: '',
                               isEditing: false,
                             })
                           }
-                          className="px-2.5 py-1.5 rounded-xl bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700 text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95"
-                          title="Atur catatan (gula, es, level pedas, dll)"
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95 ${
+                            isPaused
+                              ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
+                              : 'bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700'
+                          }`}
+                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Atur catatan (gula, es, level pedas, dll)'}
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
                           <span>Catatan</span>
                         </button>
                         <button
-                          onClick={() => addToCart(item)}
-                          className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90"
-                          aria-label={`Add ${item.name} to cart`}
-                          title="Tambah langsung"
+                          disabled={isPaused}
+                          onClick={() => !isPaused && addToCart(item)}
+                          className={`flex items-center justify-center w-9 h-9 rounded-xl transition-all active:scale-90 ${
+                            isPaused
+                              ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
+                              : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
+                          }`}
+                          aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name} ke keranjang`}
+                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah langsung'}
                         >
                           <Plus className="w-5 h-5" />
                         </button>
@@ -934,14 +999,14 @@ function MenuPageInner() {
                       </div>
                       <button
                         onClick={goToCheckout}
-                        disabled={hasUnavailableItems}
+                        disabled={hasUnavailableItems || isPaused}
                         className={`w-full py-4 rounded-xl font-bold transition-colors shadow-soft ${
-                          hasUnavailableItems
+                          hasUnavailableItems || isPaused
                             ? 'bg-charcoal/20 text-charcoal/40 cursor-not-allowed'
                             : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
                         }`}
                       >
-                        Pesan Sekarang — {formatPrice(cartTotal)}
+                        {isPaused ? 'Pemesanan Sedang Dijeda' : `Pesan Sekarang — ${formatPrice(cartTotal)}`}
                       </button>
                     </>
                   ) : (

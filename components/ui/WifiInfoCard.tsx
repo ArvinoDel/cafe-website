@@ -10,18 +10,13 @@
  * - Password : wifi_password (with copy button)
  * - Opening hours (if available)
  *
- * Fetches from GET /api/branch-info?branch_id=<uuid>.
+ * Fetches from GET /api/branch-info via useBranchInfo (shared cache / deduplication).
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Wifi, Clock, Copy, Check } from 'lucide-react';
-
-type BranchInfo = {
-  wifi_name: string | null;
-  wifi_password: string | null;
-  opening_hours: string | null;
-};
+import { useBranchInfo } from '@/lib/branch-info';
 
 async function copyToClipboard(text: string): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -45,32 +40,11 @@ interface WifiInfoCardProps {
 }
 
 export default function WifiInfoCard({ branchId, className = '' }: WifiInfoCardProps) {
-  const [info, setInfo] = useState<BranchInfo | null>(null);
+  // useBranchInfo handles the localStorage fallback when branchId is null/undefined
+  const { info } = useBranchInfo(branchId);
+
   const [copiedKey, setCopiedKey] = useState<'name' | 'password' | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    let effectiveBranchId = branchId;
-    if (!effectiveBranchId && typeof window !== 'undefined') {
-      effectiveBranchId = localStorage.getItem('kopi-nako-branch');
-    }
-
-    if (!effectiveBranchId) {
-      setInfo(null);
-      return;
-    }
-
-    fetch(`/api/branch-info?branch_id=${encodeURIComponent(effectiveBranchId)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: BranchInfo | null) => {
-        if (data && (data.wifi_name || data.wifi_password)) {
-          setInfo(data);
-        }
-      })
-      .catch(() => {
-        /* fail silently */
-      });
-  }, [branchId]);
 
   const handleCopy = useCallback(async (text: string | null, key: 'name' | 'password') => {
     if (!text) return;
@@ -130,7 +104,7 @@ export default function WifiInfoCard({ branchId, className = '' }: WifiInfoCardP
             </div>
             <button
               type="button"
-              onClick={() => handleCopy(info.wifi_name, 'name')}
+              onClick={() => handleCopy(info.wifi_name ?? null, 'name')}
               className={`p-1 rounded-md transition-colors flex-shrink-0 ${
                 copiedKey === 'name'
                   ? 'text-emerald-700 bg-emerald-50'
@@ -161,7 +135,7 @@ export default function WifiInfoCard({ branchId, className = '' }: WifiInfoCardP
             </div>
             <button
               type="button"
-              onClick={() => handleCopy(info.wifi_password, 'password')}
+              onClick={() => handleCopy(info.wifi_password ?? null, 'password')}
               className={`
                 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold
                 transition-all duration-150 flex-shrink-0 active:scale-95

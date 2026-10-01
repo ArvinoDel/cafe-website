@@ -627,6 +627,17 @@ export default function CustomerOrderHistoryPage() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {(order.status === 'ready' || order.status === 'completed') && (
+                          <button
+                            onClick={() => router.push(`/receipt/${order.order_code}`)}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-coffee-200/90 text-coffee-800 text-xs font-bold hover:bg-coffee-50 transition-all active:scale-95 shadow-2xs"
+                            title="Lihat bukti pesanan"
+                          >
+                            <Receipt className="w-3.5 h-3.5 text-coffee-600" />
+                            <span>Struk</span>
+                          </button>
+                        )}
+
                         {/* Pesan lagi button */}
                         <button
                           onClick={() => handleReorder(order)}

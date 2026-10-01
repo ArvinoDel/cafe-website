@@ -34,6 +34,9 @@ type Branch = {
   wifi_name: string | null;
   wifi_password: string | null;
   est_wait_minutes?: number | null;
+  wait_per_order_minutes?: number | null;
+  accepting_orders?: boolean;
+  pause_message?: string | null;
   created_at: string;
 };
 
@@ -224,6 +227,7 @@ function BranchesContent() {
                         <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
                           <Clock className="w-3 h-3" />
                           ±{branch.est_wait_minutes} mnt
+                          {branch.wait_per_order_minutes ? ` (+${branch.wait_per_order_minutes}m/antrean)` : ''}
                         </span>
                       ) : null}
                     </div>
@@ -330,6 +334,13 @@ function BranchFormModal({
       ? String(initial.est_wait_minutes)
       : '',
   );
+  const [waitPerOrderMinutes, setWaitPerOrderMinutes] = useState(
+    initial?.wait_per_order_minutes !== null && initial?.wait_per_order_minutes !== undefined
+      ? String(initial.wait_per_order_minutes)
+      : '0',
+  );
+  const [acceptingOrders, setAcceptingOrders] = useState(initial?.accepting_orders ?? true);
+  const [pauseMessage, setPauseMessage] = useState(initial?.pause_message ?? '');
   const [showWifiPwd, setShowWifiPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -341,6 +352,8 @@ function BranchFormModal({
     setError(null);
 
     const parsedWait = estWaitMinutes.trim() ? parseInt(estWaitMinutes.trim(), 10) : null;
+    const parsedWaitPerOrder = waitPerOrderMinutes.trim() ? parseInt(waitPerOrderMinutes.trim(), 10) : 0;
+    const safeWaitPerOrder = isNaN(parsedWaitPerOrder) ? 0 : Math.min(30, Math.max(0, parsedWaitPerOrder));
 
     const payload = {
       name: name.trim(),
@@ -350,6 +363,9 @@ function BranchFormModal({
       wifi_name: wifiName.trim() || null,
       wifi_password: wifiPassword.trim() || null,
       est_wait_minutes: isNaN(parsedWait as number) ? null : parsedWait,
+      wait_per_order_minutes: safeWaitPerOrder,
+      accepting_orders: acceptingOrders,
+      pause_message: pauseMessage.trim() || null,
     };
 
     if (initial) {
@@ -434,7 +450,7 @@ function BranchFormModal({
 
           <div>
             <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
-              Perkiraan Waktu Tunggu (menit)
+              Perkiraan Waktu Tunggu Dasar (menit)
             </label>
             <input
               type="number"
@@ -447,6 +463,24 @@ function BranchFormModal({
             />
             <p className="text-[11px] text-charcoal/40 mt-1">
               Perkiraan waktu tunggu pesanan pelanggan di halaman status dan checkout.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+              Tambahan waktu per antrean (menit)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="30"
+              value={waitPerOrderMinutes}
+              onChange={(e) => setWaitPerOrderMinutes(e.target.value)}
+              placeholder="0"
+              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+            />
+            <p className="text-[11px] text-charcoal/40 mt-1">
+              0 = waktu tetap (tidak bertambah sesuai antrean). Maksimal 30 menit.
             </p>
           </div>
 
@@ -492,6 +526,55 @@ function BranchFormModal({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Status: accepting orders */}
+          <div className="pt-1 border-t border-coffee-50">
+            <p className="text-xs font-bold text-charcoal/40 uppercase tracking-wide mb-3">
+              Status Pemesanan
+            </p>
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-coffee-50/60 border border-coffee-100">
+              <div>
+                <p className="text-sm font-semibold text-coffee-900">
+                  {acceptingOrders ? 'Menerima pesanan' : 'Pemesanan dijeda'}
+                </p>
+                <p className="text-[11px] text-charcoal/50 mt-0.5">
+                  {acceptingOrders
+                    ? 'Tamu dapat memesan secara normal.'
+                    : 'Tamu tidak dapat membuat pesanan baru.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAcceptingOrders((v) => !v)}
+                aria-pressed={acceptingOrders}
+                aria-label={acceptingOrders ? 'Jeda pemesanan' : 'Buka pemesanan'}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 focus:outline-none ${
+                  acceptingOrders ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    acceptingOrders ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            {!acceptingOrders && (
+              <div className="mt-2">
+                <label className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+                  Pesan Jeda (maks 120 karakter, opsional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={pauseMessage}
+                  onChange={(e) => setPauseMessage(e.target.value)}
+                  placeholder="Contoh: Kami sedang persiapan, akan kembali pukul 10.00"
+                  className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                />
+              </div>
+            )}
           </div>
           <div className="flex gap-2 pt-1">
             <button

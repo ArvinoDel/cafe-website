@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-server';
 import type { SupabaseEnv } from '@supabase/server';
+import { computeWaitMinutes } from '@/lib/wait-time';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
 
@@ -201,5 +202,35 @@ export async function GET(request: NextRequest) {
     return notFound();
   }
 
-  return NextResponse.json({ order });
+  let waitMinutesRemaining: number | null = null;
+
+  if (order.branch_id && (order.status === 'pending' || order.status === 'preparing')) {
+    const { data: branch } = await supabaseAdmin
+      .from('branches')
+      .select('est_wait_minutes, wait_per_order_minutes')
+      .eq('id', order.branch_id)
+      .maybeSingle();
+
+    if (branch?.est_wait_minutes && branch.est_wait_minutes > 0) {
+      const { count: aheadCount } = await supabaseAdmin
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('branch_id', order.branch_id)
+        .in('status', ['pending', 'preparing'])
+        .lt('created_at', order.created_at);
+
+      const totalWait = computeWaitMinutes({
+        base: branch.est_wait_minutes,
+        perOrder: branch.wait_per_order_minutes ?? 0,
+        ahead: aheadCount ?? 0,
+      });
+
+      if (totalWait != null) {
+        const elapsed = Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000);
+        waitMinutesRemaining = totalWait - elapsed;
+      }
+    }
+  }
+
+  return NextResponse.json({ order, wait_minutes_remaining: waitMinutesRemaining });
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useBranchInfo } from '@/lib/branch-info';
+import { roundToFiveMinutes } from '@/lib/wait-time';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -91,6 +93,7 @@ export default function OrderStatusPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [waitMinutesRemaining, setWaitMinutesRemaining] = useState<number | null>(null);
   const isFirstLoad = useRef(true);
   const currentIntervalRef = useRef(BASE_POLL_INTERVAL);
   const orderRef = useRef<Order | null>(order);
@@ -107,7 +110,6 @@ export default function OrderStatusPage() {
   }, [soundEnabled]);
 
   const [showReadyBanner, setShowReadyBanner] = useState(false);
-  const [estWaitMinutes, setEstWaitMinutes] = useState<number | null>(null);
   const prevStatusRef = useRef<Order['status'] | null>(null);
   const [, setTick] = useState(0);
 
@@ -138,32 +140,13 @@ export default function OrderStatusPage() {
     }
   };
 
-  // Fetch branch info for est_wait_minutes
+  // Fetch branch info for est_wait_minutes — shared cache via useBranchInfo
   const branchId = order?.branch_id;
-  useEffect(() => {
-    const id = branchId;
-    if (!id) return;
-    let active = true;
-
-    async function loadBranchInfo() {
-      try {
-        const res = await fetch(`/api/branch-info?branch_id=${encodeURIComponent(id as string)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active && typeof data?.est_wait_minutes === 'number' && data.est_wait_minutes > 0) {
-            setEstWaitMinutes(data.est_wait_minutes);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    loadBranchInfo();
-    return () => {
-      active = false;
-    };
-  }, [branchId]);
+  const { info: branchInfo } = useBranchInfo(branchId);
+  const estWaitMinutes =
+    typeof branchInfo?.est_wait_minutes === 'number' && branchInfo.est_wait_minutes > 0
+      ? branchInfo.est_wait_minutes
+      : null;
 
   const triggerReadyAlert = useCallback(() => {
     // 1. Play soft chime if sound toggle was enabled
@@ -368,6 +351,9 @@ export default function OrderStatusPage() {
 
           prevStatusRef.current = newOrder.status;
           setOrder(newOrder);
+          setWaitMinutesRemaining(
+            typeof json.wait_minutes_remaining === 'number' ? json.wait_minutes_remaining : null,
+          );
           setNotFound(false);
           setLastChecked(new Date());
           setLoading(false);
@@ -638,7 +624,13 @@ export default function OrderStatusPage() {
           {(order.status === 'pending' || order.status === 'preparing') && estWaitMinutes && estWaitMinutes > 0 ? (
             <div className="mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50/90 border border-amber-200/80 text-amber-900 text-xs font-semibold text-center">
               <Clock className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
-              <span>{getEstimatedWaitText(order.created_at, estWaitMinutes)}</span>
+              <span>
+                {(branchInfo?.wait_per_order_minutes ?? 0) > 0 && waitMinutesRemaining !== null
+                  ? waitMinutesRemaining > 0
+                    ? `Perkiraan siap ±${roundToFiveMinutes(waitMinutesRemaining)} menit lagi`
+                    : 'Sebentar lagi ya, barista sedang menyelesaikan pesananmu ☕'
+                  : getEstimatedWaitText(order.created_at, estWaitMinutes)}
+              </span>
             </div>
           ) : null}
 
@@ -816,6 +808,19 @@ export default function OrderStatusPage() {
               </span>
             </div>
           </div>
+
+          {(order.status === 'ready' || order.status === 'completed') && (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => router.push(`/receipt/${order.order_code}`)}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-coffee-200/80 text-coffee-800 text-xs sm:text-sm font-bold hover:bg-coffee-50 transition-colors shadow-2xs active:scale-95"
+              >
+                <Receipt className="w-4 h-4 text-coffee-600" />
+                <span>Lihat Bukti Pesanan</span>
+              </button>
+            </div>
+          )}
         </div>
 
 

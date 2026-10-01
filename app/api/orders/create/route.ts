@@ -20,7 +20,7 @@
  * Success response (201):
  *   { order: { order_code, status, items, subtotal, total, created_at, ... } }
  *
- * Error responses: 400 (validation), 409 (unavailable item), 500 (server).
+ * Error responses: 400 (validation), 409 (unavailable item or ORDERS_PAUSED), 500 (server).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -135,22 +135,36 @@ export async function POST(request: NextRequest) {
   let resolvedBranchId: string;
 
   if (clientBranchId) {
-    // Validate provided branch_id exists
+    // Validate provided branch_id exists and load pause status
     const { data: branch, error: branchErr } = await supabaseAdmin
       .from('branches')
-      .select('id')
+      .select('id, accepting_orders, pause_message')
       .eq('id', clientBranchId)
       .maybeSingle();
 
     if (branchErr || !branch) {
       return NextResponse.json({ error: 'Cabang tidak ditemukan.' }, { status: 400 });
     }
+
+    // Guard: branch is paused
+    if (branch.accepting_orders === false) {
+      return NextResponse.json(
+        {
+          error:
+            (branch.pause_message as string | null) ||
+            'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
+          code: 'ORDERS_PAUSED',
+        },
+        { status: 409 },
+      );
+    }
+
     resolvedBranchId = branch.id as string;
   } else {
     // Auto-resolve: only works when there is exactly one branch
     const { data: branches, error: branchListErr } = await supabaseAdmin
       .from('branches')
-      .select('id');
+      .select('id, accepting_orders, pause_message');
 
     if (branchListErr) {
       return NextResponse.json({ error: 'Gagal memverifikasi cabang.' }, { status: 500 });
@@ -167,7 +181,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    resolvedBranchId = branches[0].id as string;
+    const singleBranch = branches[0];
+
+    // Guard: branch is paused
+    if (singleBranch.accepting_orders === false) {
+      return NextResponse.json(
+        {
+          error:
+            (singleBranch.pause_message as string | null) ||
+            'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
+          code: 'ORDERS_PAUSED',
+        },
+        { status: 409 },
+      );
+    }
+
+    resolvedBranchId = singleBranch.id as string;
   }
 
   // 3. Consolidate requested items by (id + normalized note)

@@ -24,6 +24,8 @@ import {
   SmilePlus,
   BellRing,
   Check,
+  PauseCircle,
+  PlayCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createBrowserClient } from '@supabase/ssr';
@@ -217,6 +219,14 @@ export default function AdminDashboard() {
   const [tableRequests, setTableRequests] = useState<TableRequest[]>([]);
   const [completingRequestId, setCompletingRequestId] = useState<string | null>(null);
 
+  // ── Pause ordering state ──────────────────────────────────────────────────
+  // Tracks accepting_orders + pause_message for the "active" branch:
+  //   - admin: always their own branch
+  //   - superadmin: the currently selected branch (when not 'all')
+  const [pauseAccepting, setPauseAccepting] = useState<boolean | null>(null); // null = loading
+  const [pauseMessage, setPauseMessage] = useState('');
+  const [pauseSaving, setPauseSaving] = useState(false);
+
   // ── Fetch orders ──────────────────────────────────────────────────────────
 
   const fetchOrders = useCallback(async () => {
@@ -306,11 +316,76 @@ export default function AdminDashboard() {
     if (data) setBranches(data as Branch[]);
   }, [profile.role]);
 
+  // ── Fetch pause status for the active branch ──────────────────────────────
+
+  const fetchPauseStatus = useCallback(async () => {
+    // Determine which branch to load pause state for
+    let targetBranchId: string | null = null;
+    if (profile.role === 'admin') {
+      targetBranchId = profile.branch_id;
+    } else if (profile.role === 'superadmin' && selectedBranchId !== 'all') {
+      targetBranchId = selectedBranchId;
+    }
+
+    if (!targetBranchId) {
+      setPauseAccepting(null);
+      return;
+    }
+
+    const { data } = await supabase.current
+      .from('branches')
+      .select('accepting_orders, pause_message')
+      .eq('id', targetBranchId)
+      .maybeSingle();
+
+    if (data) {
+      setPauseAccepting(data.accepting_orders as boolean);
+      setPauseMessage(data.pause_message ?? '');
+    }
+  }, [profile, selectedBranchId]);
+
+  // ── Commit pause toggle to server ─────────────────────────────────────────
+
+  async function savePauseStatus(accepting: boolean, message: string) {
+    const targetBranchId =
+      profile.role === 'admin' ? profile.branch_id : selectedBranchId !== 'all' ? selectedBranchId : null;
+    if (!targetBranchId) return;
+
+    setPauseSaving(true);
+    try {
+      const res = await fetch('/api/admin/branch-accepting-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch_id: targetBranchId,
+          accepting_orders: accepting,
+          pause_message: message.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error || 'Gagal memperbarui status pesanan.');
+        return;
+      }
+      setPauseAccepting(accepting);
+      toast.success(accepting ? 'Pesanan dibuka kembali.' : 'Pemesanan dijeda.');
+    } catch {
+      toast.error('Terjadi kesalahan. Coba lagi.');
+    } finally {
+      setPauseSaving(false);
+    }
+  }
+
   // ── Polling + Realtime ────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchBranches();
   }, [fetchBranches]);
+
+  // Fetch pause status whenever the active branch changes
+  useEffect(() => {
+    fetchPauseStatus();
+  }, [fetchPauseStatus]);
 
   // Read sound preference from localStorage on mount
   useEffect(() => {
@@ -567,8 +642,97 @@ export default function AdminDashboard() {
     };
   }, [pendingCount]);
 
+  // Whether to show pause control:
+  // admin: always; superadmin: only when a specific branch is selected
+  const showPauseControl =
+    profile.role === 'admin' ||
+    (profile.role === 'superadmin' && selectedBranchId !== 'all');
+
   return (
     <div className="space-y-6">
+
+      {/* ── Pause ordering panel ─────────────────────────────────────────── */}
+      {showPauseControl && pauseAccepting !== null && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl border-2 overflow-hidden transition-colors ${
+            pauseAccepting
+              ? 'bg-white border-coffee-100/80'
+              : 'bg-amber-50 border-amber-300'
+          }`}
+        >
+          {/* Banner when paused */}
+          {!pauseAccepting && (
+            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-amber-100/80 border-b border-amber-300/60">
+              <PauseCircle className="w-4 h-4 text-amber-700 flex-shrink-0" />
+              <p className="text-sm font-bold text-amber-900">
+                Pemesanan Dijeda
+                {pauseMessage && (
+                  <span className="font-normal"> · {pauseMessage}</span>
+                )}
+              </p>
+            </div>
+          )}
+
+          <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            {/* Toggle row */}
+            <div className="flex items-center gap-3 flex-1">
+              {pauseAccepting ? (
+                <PlayCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              ) : (
+                <PauseCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <p className="text-sm font-bold text-coffee-900">
+                  {pauseAccepting ? 'Terima Pesanan' : 'Terima Pesanan'}
+                </p>
+                <p className="text-[11px] text-charcoal/50">
+                  {pauseAccepting
+                    ? 'Pesanan kamu sedang dibuka. Tamu bisa memesan.'
+                    : 'Pemesanan sedang dijeda. Tamu tidak dapat memesan.'}
+                </p>
+              </div>
+              {/* Toggle switch */}
+              <button
+                type="button"
+                disabled={pauseSaving}
+                onClick={() => savePauseStatus(!pauseAccepting, pauseMessage)}
+                aria-pressed={pauseAccepting}
+                aria-label={pauseAccepting ? 'Jeda pemesanan' : 'Buka pemesanan'}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-coffee-400 disabled:opacity-60 ${
+                  pauseAccepting ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    pauseAccepting ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Pause message input (shown when paused or when admin is about to pause) */}
+            <div className="flex-1 max-w-xs flex items-center gap-2">
+              <input
+                type="text"
+                maxLength={120}
+                value={pauseMessage}
+                onChange={(e) => setPauseMessage(e.target.value)}
+                onBlur={() => {
+                  // Auto-save message when field loses focus (only when already paused)
+                  if (!pauseAccepting) {
+                    savePauseStatus(false, pauseMessage);
+                  }
+                }}
+                placeholder="Pesan untuk tamu (opsional, maks 120 karakter)"
+                className="w-full px-3 py-1.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-xs focus:outline-none focus:border-coffee-400 transition-colors"
+              />
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Table requests card — shown at the top of the dashboard */}
       {tableRequests.length > 0 && (
         <motion.div

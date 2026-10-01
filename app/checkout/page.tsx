@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useBranchInfo } from '@/lib/branch-info';
+import { roundToFiveMinutes } from '@/lib/wait-time';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -81,7 +83,7 @@ function CheckoutPageInner() {
   const [scannerOpen, setScannerOpen] = useState(false);
   // branchId may be null when there is exactly one branch (server resolves it)
   const [branchId, setBranchId]     = useState<string | null>(null);
-  const [estWaitMinutes, setEstWaitMinutes] = useState<number | null>(null);
+  // Branch info is fetched via shared helper (cache + dedup); estWaitMinutes derived below
   const [tableNotice, setTableNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -154,31 +156,32 @@ function CheckoutPageInner() {
     setLoaded(true);
   }, [searchParams]);
 
-  useEffect(() => {
-    if (!branchId) {
-      setEstWaitMinutes(null);
-      return;
-    }
+  const { info: branchInfo, refresh: refreshBranchInfo } = useBranchInfo(branchId);
+  const estWaitMinutes =
+    typeof branchInfo?.est_wait_minutes === 'number' && branchInfo.est_wait_minutes > 0
+      ? branchInfo.est_wait_minutes
+      : null;
+  const isPaused = branchInfo?.accepting_orders === false;
+  const pauseMsg =
+    branchInfo?.pause_message ||
+    'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.';
 
-    let active = true;
-    async function loadWaitTime(id: string) {
-      try {
-        const res = await fetch(`/api/branch-info?branch_id=${encodeURIComponent(id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active && typeof data?.est_wait_minutes === 'number' && data.est_wait_minutes > 0) {
-            setEstWaitMinutes(data.est_wait_minutes);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-    loadWaitTime(branchId);
-    return () => {
-      active = false;
+  // Refresh branch info every 60s and on tab visibility (ordering-pause check)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshBranchInfo();
+    }, 60_000);
+
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') refreshBranchInfo();
     };
-  }, [branchId]);
+    document.addEventListener('visibilitychange', handleVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [refreshBranchInfo]);
 
   const persistCart = useCallback((next: CartItem[]) => {
     setCart(next);
@@ -239,6 +242,10 @@ function CheckoutPageInner() {
       const data = await res.json();
 
       if (!res.ok || !data?.order) {
+        // Handle ORDERS_PAUSED race condition — refresh branch info to show banner
+        if (res.status === 409 && data?.code === 'ORDERS_PAUSED') {
+          refreshBranchInfo();
+        }
         // Server returned a structured error — show it inline, keep cart
         setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
         setSubmitting(false);
@@ -421,6 +428,23 @@ function CheckoutPageInner() {
                   <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Menu
                 </button>
               </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Pause ordering banner */}
+        {isPaused && (
+          <motion.div
+            key="pause-banner"
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 flex items-start gap-3 text-amber-900"
+          >
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="text-xs sm:text-sm space-y-1">
+              <p className="font-bold">Pemesanan Sedang Dijeda ☕</p>
+              <p className="text-amber-800/90 leading-relaxed">{pauseMsg}</p>
             </div>
           </motion.div>
         )}
@@ -671,7 +695,11 @@ function CheckoutPageInner() {
               {estWaitMinutes ? (
                 <span className="text-[11px] font-semibold text-coffee-700/90 flex items-center gap-1 mt-0.5">
                   <Clock className="w-3 h-3 text-coffee-600" />
-                  Perkiraan waktu tunggu ±{estWaitMinutes} menit
+                  {branchInfo?.est_wait_now != null
+                    ? (branchInfo.queue_count ?? 0) > 0
+                      ? `Antrean saat ini: ${branchInfo.queue_count} pesanan · perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                      : `Perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                    : `Perkiraan waktu tunggu ±${estWaitMinutes} menit`}
                 </span>
               ) : null}
             </div>
@@ -681,10 +709,16 @@ function CheckoutPageInner() {
           </div>
           <button
             onClick={handleConfirm}
-            disabled={submitting || !name.trim() || !tableNumber.trim()}
-            className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft"
+            disabled={submitting || !name.trim() || !tableNumber.trim() || isPaused}
+            className={`w-full py-4 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft ${
+              isPaused ? 'bg-amber-500 text-white' : 'bg-coffee-700 text-cream hover:bg-coffee-800'
+            }`}
           >
-            {submitting ? 'Memproses...' : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
+            {submitting
+              ? 'Memproses...'
+              : isPaused
+                ? 'Pemesanan Sedang Dijeda'
+                : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
           </button>
           {submitError && (
             <p className="text-center text-xs text-red-600 font-semibold mt-2">
