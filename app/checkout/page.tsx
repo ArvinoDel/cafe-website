@@ -143,13 +143,12 @@ function CheckoutPageInner() {
   }, []);
 
   useEffect(() => {
-    // Restore group session from localStorage if ?group= param is present
+    // Restore group session from localStorage if ?group= param is present or if active session exists
     const groupCode = searchParams.get('group');
-    if (groupCode) {
-      const existing = getLocalGroupSession();
-      if (existing && existing.code === groupCode) {
-        setGroupSession(existing);
-      }
+    const existingGroup = getLocalGroupSession();
+    if (existingGroup && (!groupCode || existingGroup.code === groupCode)) {
+      setGroupSession(existingGroup);
+      setName(existingGroup.name);
     }
 
     try {
@@ -268,6 +267,10 @@ function CheckoutPageInner() {
     // Group order path
     if (isGroupMode && groupSession) {
       if (submitting) return;
+      if (!groupCart || groupCart.items.length === 0) {
+        setSubmitError('Keranjang bersama masih kosong. Silakan pilih menu bersama temanmu terlebih dahulu.');
+        return;
+      }
       setSubmitting(true);
       setSubmitError(null);
       try {
@@ -645,66 +648,134 @@ function CheckoutPageInner() {
         {/* Order items */}
         <motion.section variants={fadeInUp} initial="hidden" animate="visible">
           <h2 className="text-sm font-bold text-coffee-900 uppercase tracking-wide mb-3">
-            Pesananmu
+            {isGroupMode ? 'Rincian Pesanan Bareng' : 'Pesananmu'}
           </h2>
           <div className="bg-white rounded-2xl border border-coffee-100/80 divide-y divide-coffee-100/60 overflow-hidden">
-            <AnimatePresence initial={false}>
-              {cart.map((item) => {
-                const itemKey = item.lineKey || item.id;
-                return (
-                  <motion.div
-                    key={itemKey}
-                    layout
-                    initial={{ opacity: 1 }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="flex items-center gap-3 p-4"
+            {isGroupMode && groupCart ? (
+              groupCart.items.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="w-12 h-12 rounded-xl bg-coffee-50 flex items-center justify-center mx-auto mb-3">
+                    <ShoppingBag className="w-6 h-6 text-coffee-300" />
+                  </div>
+                  <p className="text-sm font-semibold text-coffee-900">Keranjang bersama masih kosong</p>
+                  <p className="text-xs text-charcoal/50 mt-1">
+                    Belum ada menu yang dipilih olehmu atau teman satu mejamu.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/menu?group=${encodeURIComponent(groupCart.code)}`)}
+                    className="mt-4 px-4 py-2 rounded-xl bg-coffee-700 text-cream text-xs font-bold hover:bg-coffee-800 transition-colors active:scale-95"
                   >
-                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
-                      {item.image_url && (
-                        <img
-                          src={item.image_url}
-                          alt={item.name}
-                          className="w-full h-full object-cover"
-                        />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
-                      {item.note && (
-                        <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
-                          Catatan: {item.note}
-                        </p>
-                      )}
-                      <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice(item.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => updateQuantity(itemKey, -1)}
-                        className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="font-bold text-coffee-900 w-5 text-center text-sm">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => updateQuantity(itemKey, 1)}
-                        className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => removeItem(itemKey)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
-                        aria-label={`Hapus ${item.name}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
+                    Pilih Menu Bersama
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 space-y-4">
+                  {groupCart.members.map((member) => {
+                    const memberItems = groupCart.items.filter((i) => i.member_id === member.id);
+                    if (memberItems.length === 0) return null;
+                    return (
+                      <div key={member.id} className="space-y-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-coffee-50 rounded-xl text-xs font-bold text-coffee-900 border border-coffee-200/50">
+                          {member.is_host && <Crown className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />}
+                          <span>{member.name} {member.id === groupSession?.member_id && '(Kamu)'}</span>
+                          <span className="text-[11px] font-normal text-charcoal/50 ml-auto">
+                            {memberItems.reduce((s, i) => s + i.quantity, 0)} item · {formatPrice(memberItems.reduce((s, i) => s + (i.effective_price || i.price) * i.quantity, 0))}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-coffee-50">
+                          {memberItems.map((item) => (
+                            <div key={item.id} className="flex items-center gap-3 py-2.5 px-1">
+                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
+                                {item.image_url && (
+                                  <img
+                                    src={item.image_url}
+                                    alt={item.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                                {item.note && (
+                                  <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                                    Catatan: {item.note}
+                                  </p>
+                                )}
+                                <p className="text-coffee-600 text-xs font-bold mt-0.5">
+                                  {formatPrice(item.effective_price || item.price)} × {item.quantity}
+                                </p>
+                              </div>
+                              <span className="font-bold text-coffee-900 text-sm">
+                                {formatPrice((item.effective_price || item.price) * item.quantity)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              <AnimatePresence initial={false}>
+                {cart.map((item) => {
+                  const itemKey = item.lineKey || item.id;
+                  return (
+                    <motion.div
+                      key={itemKey}
+                      layout
+                      initial={{ opacity: 1 }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="flex items-center gap-3 p-4"
+                    >
+                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
+                        {item.image_url && (
+                          <img
+                            src={item.image_url}
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                        {item.note && (
+                          <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                            Catatan: {item.note}
+                          </p>
+                        )}
+                        <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice(item.price)}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQuantity(itemKey, -1)}
+                          className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="font-bold text-coffee-900 w-5 text-center text-sm">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => updateQuantity(itemKey, 1)}
+                          className="w-7 h-7 rounded-lg bg-coffee-50 text-coffee-700 flex items-center justify-center hover:bg-coffee-100 transition-colors active:scale-90"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => removeItem(itemKey)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          aria-label={`Hapus ${item.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            )}
           </div>
         </motion.section>
 
@@ -876,7 +947,9 @@ function CheckoutPageInner() {
             disabled={
               submitting ||
               isPaused ||
-              (isGroupMode ? !groupSession : (!name.trim() || !tableNumber.trim()))
+              (isGroupMode
+                ? !groupSession || !groupCart || groupCart.items.length === 0
+                : (!name.trim() || !tableNumber.trim() || cart.length === 0))
             }
             className={`w-full py-4 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft ${
               isPaused ? 'bg-amber-500 text-white' : 'bg-coffee-700 text-cream hover:bg-coffee-800'
@@ -893,6 +966,11 @@ function CheckoutPageInner() {
           {submitError && (
             <p className="text-center text-xs text-red-600 font-semibold mt-2">
               {submitError}
+            </p>
+          )}
+          {isGroupMode && groupCart && groupCart.items.length === 0 && (
+            <p className="text-center text-xs text-amber-700 font-semibold mt-2">
+              Keranjang bersama masih kosong. Tambahkan menu terlebih dahulu sebelum konfirmasi.
             </p>
           )}
           {!isGroupMode && (!name.trim() || !tableNumber.trim()) && (

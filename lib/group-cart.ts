@@ -105,6 +105,66 @@ export function getLastDisplayName(): string {
   }
 }
 
+// ─── Item mutation helpers ───────────────────────────────────────────────────
+
+export async function setGroupCartItem(
+  code: string,
+  memberToken: string,
+  menuItemId: string,
+  quantity: number,
+  note?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`/api/group-carts/${encodeURIComponent(code)}/items`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-member-token': memberToken,
+      },
+      body: JSON.stringify({
+        action: 'set',
+        menu_item_id: menuItemId,
+        quantity,
+        note: note ?? null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.error || 'Gagal mengubah item.' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Koneksi bermasalah.' };
+  }
+}
+
+export async function removeGroupCartItem(
+  code: string,
+  memberToken: string,
+  itemId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`/api/group-carts/${encodeURIComponent(code)}/items`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-member-token': memberToken,
+      },
+      body: JSON.stringify({
+        action: 'remove',
+        item_id: itemId,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.error || 'Gagal menghapus item.' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Koneksi bermasalah.' };
+  }
+}
+
 // ─── Polling hook ─────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 4_000;
