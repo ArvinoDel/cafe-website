@@ -10,8 +10,8 @@
  * - On success, saves the session to localStorage and redirects to /menu?group=CODE
  */
 
-import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Users, Coffee, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import {
@@ -20,26 +20,35 @@ import {
   getLastDisplayName,
 } from '@/lib/group-cart';
 
-type PageParams = { code: string };
+type PageProps = {
+  params?: { code: string };
+};
 
-export default function GroupJoinPage({ params }: { params: Promise<PageParams> }) {
-  const { code } = use(params);
+export default function GroupJoinPage({ params }: PageProps) {
   const router = useRouter();
+  const nextParams = useParams();
+  const rawCode = params?.code || (nextParams?.code as string) || '';
+  const code = typeof rawCode === 'string' ? rawCode.toUpperCase() : '';
 
-  const [name, setName]           = useState('');
-  const [joining, setJoining]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const [mounted, setMounted]     = useState(false);
+  const [name, setName]               = useState('');
+  const [joining, setJoining]         = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [mounted, setMounted]         = useState(false);
 
   // Hydrate after mount to avoid SSR mismatch
   useEffect(() => {
     setMounted(true);
-    // If user already belongs to this cart, skip the form
+    if (!code) return;
+
+    // If user already belongs to this cart, skip the form and redirect directly
     const existing = getLocalGroupSession();
-    if (existing && existing.code === code) {
+    if (existing && existing.code?.toUpperCase() === code) {
+      setRedirecting(true);
       router.replace(`/menu?group=${encodeURIComponent(code)}`);
       return;
     }
+
     // Pre-fill last used name
     const last = getLastDisplayName();
     if (last) setName(last);
@@ -88,8 +97,17 @@ export default function GroupJoinPage({ params }: { params: Promise<PageParams> 
     }
   };
 
-  if (!mounted) {
-    return <div className="min-h-screen bg-cream" />;
+  if (!mounted || redirecting) {
+    return (
+      <div className="min-h-screen bg-cream flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-coffee-700" />
+        {redirecting && (
+          <p className="text-sm font-medium text-coffee-800">
+            Kamu sudah di sesi ini, mengalihkan ke menu...
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
