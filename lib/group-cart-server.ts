@@ -229,7 +229,10 @@ export async function findActiveCart(
     .maybeSingle();
 
   if (error) {
-    console.error('[group-cart] findActiveCart error:', error.message);
+    console.error('[group-cart] findActiveCart error:', error);
+    if ((error as { code?: string }).code === 'PGRST205' || error.message?.includes('schema cache')) {
+      return { res: err500('Tabel database group_carts belum dibuat di Supabase. Silakan jalankan migrasi database terlebih dahulu.') };
+    }
     return { res: err500('Gagal memuat keranjang bersama.') };
   }
   if (!data) return { res: err404('Keranjang bersama tidak ditemukan.') };
@@ -260,7 +263,10 @@ export async function findCart(
     .maybeSingle();
 
   if (error) {
-    console.error('[group-cart] findCart error:', error.message);
+    console.error('[group-cart] findCart error:', error);
+    if ((error as { code?: string }).code === 'PGRST205' || error.message?.includes('schema cache')) {
+      return { res: err500('Tabel database group_carts belum dibuat di Supabase. Silakan jalankan migrasi database terlebih dahulu.') };
+    }
     return { res: err500('Gagal memuat keranjang bersama.') };
   }
   if (!data) return { res: err410('Keranjang bersama tidak ditemukan.') };
