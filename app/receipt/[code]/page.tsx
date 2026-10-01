@@ -24,6 +24,7 @@ type OrderItem = {
   image_url: string | null;
   quantity: number;
   note?: string | null;
+  added_by?: string | null;
 };
 
 type Order = {
@@ -345,6 +346,11 @@ export default function ReceiptPage() {
                 <p className="font-bold text-coffee-900">
                   <span>{item.quantity}x</span> {item.name}
                 </p>
+                {item.added_by && (
+                  <p className="text-[10px] text-coffee-700 font-semibold mt-0.5">
+                    — {item.added_by}
+                  </p>
+                )}
                 {item.note && (
                   <p className="text-[11px] text-amber-900 bg-amber-50/70 border border-amber-200/50 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                     Catatan: {item.note}

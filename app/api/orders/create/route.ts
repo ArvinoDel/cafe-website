@@ -7,25 +7,36 @@
  * The client must NOT send prices, subtotal, total, or status — those are
  * all computed/enforced here.
  *
- * Request body:
+ * Request body (solo order):
  *   {
  *     customer_name: string,
  *     table_number:  string,
  *     branch_id?:    string (UUID — omit if site has exactly one branch),
  *     payment_method:'cash' | 'qris',
  *     notes?:        string,
- *     items: Array<{ id: string, quantity: number }>
+ *     items: Array<{ id: string, quantity: number, note?: string | null }>
+ *   }
+ *
+ * Request body (group order — items array is ignored):
+ *   {
+ *     customer_name?:     string (falls back to host name from cart),
+ *     payment_method:     'cash' | 'qris',
+ *     notes?:             string,
+ *     group_cart_code:    string,
+ *     member_token:       string  (must belong to the HOST)
  *   }
  *
  * Success response (201):
  *   { order: { order_code, status, items, subtotal, total, created_at, ... } }
  *
- * Error responses: 400 (validation), 409 (unavailable item or ORDERS_PAUSED), 500 (server).
+ * Error responses: 400 (validation), 409 (unavailable item, ORDERS_PAUSED, or
+ *   cart already submitted), 410 (cart expired/closed), 500 (server).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
+import { priceOrderLines, pricingLinesFromGroupItems } from '@/lib/order-pricing';
 import type { SupabaseEnv } from '@supabase/server';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
@@ -47,11 +58,12 @@ function resolveEnv(): Partial<SupabaseEnv> {
 // ─── Zod schema ──────────────────────────────────────────────────────────────
 
 const CreateOrderSchema = z.object({
-  customer_name:  z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(100, 'Nama terlalu panjang.'),
-  table_number:   z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.'),
+  customer_name:  z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(100, 'Nama terlalu panjang.').optional(),
+  table_number:   z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.').optional(),
   branch_id:      z.string().uuid('Branch ID tidak valid.').optional(),
   payment_method: z.enum(['cash', 'qris'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
   notes:          z.string().trim().max(500, 'Catatan terlalu panjang.').optional(),
+  // Solo order items — required unless group_cart_code is present
   items: z
     .array(
       z.object({
@@ -61,7 +73,11 @@ const CreateOrderSchema = z.object({
       }),
     )
     .min(1, 'Pesanan tidak boleh kosong.')
-    .max(50, 'Terlalu banyak item dalam satu pesanan.'),
+    .max(50, 'Terlalu banyak item dalam satu pesanan.')
+    .optional(),
+  // Group order fields — when present, items array is ignored
+  group_cart_code: z.string().min(1).max(10).optional(),
+  member_token:    z.string().min(1).optional(),
 });
 
 // ─── Code generator ──────────────────────────────────────────────────────────
@@ -82,32 +98,108 @@ function generateCode(): string {
   return code;
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Branch resolver (shared between solo and group flows) ───────────────────
 
-type MenuItem = {
-  id: string;
-  name: string;
-  price: number;
-  image_url: string | null;
-  is_available: boolean;
-};
+type BranchRow = { id: string; accepting_orders: boolean | null; pause_message: string | null };
+type AdminClient = { from: (table: string) => any };
 
-type BranchMenuItem = {
-  menu_item_id: string;
-  is_available: boolean;
-  is_enabled: boolean;
-  custom_price: number | null;
-};
+async function resolveBranch(
+  supabaseAdmin: AdminClient,
+  clientBranchId: string | undefined,
+): Promise<{ branch: BranchRow } | { response: NextResponse }> {
+  if (clientBranchId) {
+    // Validate provided branch_id exists and load pause status
+    let { data: branchRaw, error: branchErr } = await supabaseAdmin
+      .from('branches')
+      .select('id, accepting_orders, pause_message')
+      .eq('id', clientBranchId)
+      .maybeSingle();
 
-// The shape stored in orders.items — must stay compatible with status/orders/admin pages
-type OrderItemSnapshot = {
-  id: string;
-  name: string;
-  price: number;
-  image_url: string | null;
-  quantity: number;
-  note?: string | null;
-};
+    if (branchErr && (branchErr as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin
+        .from('branches')
+        .select('id')
+        .eq('id', clientBranchId)
+        .maybeSingle();
+      branchRaw = fallback.data
+        ? ({ id: fallback.data.id, accepting_orders: true, pause_message: null } as BranchRow)
+        : null;
+      branchErr = fallback.error;
+    }
+
+    if (branchErr || !branchRaw) {
+      return { response: NextResponse.json({ error: 'Cabang tidak ditemukan.' }, { status: 400 }) };
+    }
+
+    const branch = branchRaw as BranchRow;
+
+    // Guard: branch is paused
+    if (branch.accepting_orders === false) {
+      return {
+        response: NextResponse.json(
+          {
+            error: branch.pause_message ||
+              'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
+            code: 'ORDERS_PAUSED',
+          },
+          { status: 409 },
+        ),
+      };
+    }
+
+    return { branch };
+  } else {
+    // Auto-resolve: only works when there is exactly one branch
+    let { data: branchesRaw, error: branchListErr } = await supabaseAdmin
+      .from('branches')
+      .select('id, accepting_orders, pause_message');
+
+    if (branchListErr && (branchListErr as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin.from('branches').select('id');
+      branchesRaw = fallback.data
+        ? fallback.data.map((b: { id: string }) => ({ id: b.id, accepting_orders: true, pause_message: null } as BranchRow))
+        : null;
+      branchListErr = fallback.error;
+    }
+
+    if (branchListErr) {
+      return { response: NextResponse.json({ error: 'Gagal memverifikasi cabang.' }, { status: 500 }) };
+    }
+
+    const branches = (branchesRaw ?? []) as BranchRow[];
+
+    if (branches.length === 0) {
+      return { response: NextResponse.json({ error: 'Tidak ada cabang yang terdaftar.' }, { status: 400 }) };
+    }
+
+    if (branches.length > 1) {
+      return {
+        response: NextResponse.json(
+          { error: 'Cabang tidak dapat ditentukan secara otomatis. Silakan scan QR meja terlebih dahulu.' },
+          { status: 400 },
+        ),
+      };
+    }
+
+    const singleBranch = branches[0];
+
+    // Guard: branch is paused
+    if (singleBranch.accepting_orders === false) {
+      return {
+        response: NextResponse.json(
+          {
+            error: singleBranch.pause_message ||
+              'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
+            code: 'ORDERS_PAUSED',
+          },
+          { status: 409 },
+        ),
+      };
+    }
+
+    return { branch: singleBranch };
+  }
+}
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
@@ -126,100 +218,210 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: firstError }, { status: 400 });
   }
 
-  const { customer_name, table_number, branch_id: clientBranchId, payment_method, notes, items } = parsed.data;
+  const { customer_name, table_number, branch_id: clientBranchId, payment_method, notes, items, group_cart_code, member_token } = parsed.data;
+
+  const isGroupOrder = !!group_cart_code && !!member_token;
+
+  // Extra validation for solo path
+  if (!isGroupOrder) {
+    if (!customer_name) {
+      return NextResponse.json({ error: 'Nama pemesan wajib diisi.' }, { status: 400 });
+    }
+    if (!table_number) {
+      return NextResponse.json({ error: 'Nomor meja wajib diisi.' }, { status: 400 });
+    }
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'Pesanan tidak boleh kosong.' }, { status: 400 });
+    }
+  }
 
   const env = resolveEnv();
   const supabaseAdmin = createAdminClient({ env });
 
-  // 2. Resolve branch
-  let resolvedBranchId: string;
-
-  if (clientBranchId) {
-    // Validate provided branch_id exists and load pause status
-    let { data: branch, error: branchErr } = await supabaseAdmin
-      .from('branches')
-      .select('id, accepting_orders, pause_message')
-      .eq('id', clientBranchId)
+  // ─── GROUP ORDER FLOW ─────────────────────────────────────────────────────
+  if (isGroupOrder) {
+    // 2a. Load the group cart and verify the token is the host's
+    const { data: cartRow, error: cartErr } = await supabaseAdmin
+      .from('group_carts')
+      .select('id, status, expires_at, branch_id, table_number, host_member_id, version')
+      .eq('code', group_cart_code!)
       .maybeSingle();
 
-    if (branchErr && (branchErr as { code?: string }).code === '42703') {
-      const fallback = await supabaseAdmin
-        .from('branches')
-        .select('id')
-        .eq('id', clientBranchId)
-        .maybeSingle();
-      branch = fallback.data
-        ? ({ id: fallback.data.id, accepting_orders: true, pause_message: null } as any)
-        : null;
-      branchErr = fallback.error;
+    if (cartErr) {
+      console.error('[orders/create] group cart lookup error:', cartErr.message);
+      return NextResponse.json({ error: 'Gagal memuat keranjang bersama.' }, { status: 500 });
     }
 
-    if (branchErr || !branch) {
-      return NextResponse.json({ error: 'Cabang tidak ditemukan.' }, { status: 400 });
+    if (!cartRow) {
+      return NextResponse.json({ error: 'Keranjang bersama tidak ditemukan.' }, { status: 410 });
     }
 
-    // Guard: branch is paused
-    if (branch.accepting_orders === false) {
+    if (cartRow.status !== 'open') {
       return NextResponse.json(
-        {
-          error:
-            (branch.pause_message as string | null) ||
-            'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
-          code: 'ORDERS_PAUSED',
-        },
+        { error: 'Pesanan bareng sudah dikirim atau ditutup.' },
         { status: 409 },
       );
     }
 
-    resolvedBranchId = branch.id as string;
-  } else {
-    // Auto-resolve: only works when there is exactly one branch
-    let { data: branches, error: branchListErr } = await supabaseAdmin
-      .from('branches')
-      .select('id, accepting_orders, pause_message');
-
-    if (branchListErr && (branchListErr as { code?: string }).code === '42703') {
-      const fallback = await supabaseAdmin
-        .from('branches')
-        .select('id');
-      branches = fallback.data
-        ? fallback.data.map((b) => ({ id: b.id, accepting_orders: true, pause_message: null } as any))
-        : null;
-      branchListErr = fallback.error;
-    }
-
-    if (branchListErr) {
-      return NextResponse.json({ error: 'Gagal memverifikasi cabang.' }, { status: 500 });
-    }
-
-    if (!branches || branches.length === 0) {
-      return NextResponse.json({ error: 'Tidak ada cabang yang terdaftar.' }, { status: 400 });
-    }
-
-    if (branches.length > 1) {
+    if (new Date(cartRow.expires_at) < new Date()) {
       return NextResponse.json(
-        { error: 'Cabang tidak dapat ditentukan secara otomatis. Silakan scan QR meja terlebih dahulu.' },
-        { status: 400 },
+        { error: 'Keranjang bersama sudah kedaluwarsa.' },
+        { status: 410 },
       );
     }
 
-    const singleBranch = branches[0];
+    // Verify token belongs to the host member
+    const { data: hostMember, error: memberErr } = await supabaseAdmin
+      .from('group_cart_members')
+      .select('id, name')
+      .eq('cart_id', cartRow.id)
+      .eq('token', member_token!)
+      .maybeSingle();
 
-    // Guard: branch is paused
-    if (singleBranch.accepting_orders === false) {
+    if (memberErr) {
+      console.error('[orders/create] host member lookup error:', memberErr.message);
+      return NextResponse.json({ error: 'Gagal memverifikasi anggota.' }, { status: 500 });
+    }
+
+    if (!hostMember) {
+      return NextResponse.json({ error: 'Token tidak valid.' }, { status: 403 });
+    }
+
+    if (hostMember.id !== cartRow.host_member_id) {
       return NextResponse.json(
-        {
-          error:
-            (singleBranch.pause_message as string | null) ||
-            'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
-          code: 'ORDERS_PAUSED',
-        },
+        { error: 'Hanya host yang dapat mengirim pesanan bersama.' },
+        { status: 403 },
+      );
+    }
+
+    // 2b. Verify branch is not paused
+    const branchResult = await resolveBranch(supabaseAdmin, cartRow.branch_id);
+    if ('response' in branchResult) return branchResult.response;
+
+    // 2c. Load all group cart items with member names
+    const { data: groupItems, error: itemsErr } = await supabaseAdmin
+      .from('group_cart_items')
+      .select(`
+        id,
+        menu_item_id,
+        quantity,
+        note,
+        member_id,
+        group_cart_members!inner(name)
+      `)
+      .eq('cart_id', cartRow.id);
+
+    if (itemsErr) {
+      console.error('[orders/create] group items fetch error:', itemsErr.message);
+      return NextResponse.json({ error: 'Gagal memuat item keranjang bersama.' }, { status: 500 });
+    }
+
+    if (!groupItems || groupItems.length === 0) {
+      return NextResponse.json({ error: 'Keranjang bersama masih kosong.' }, { status: 400 });
+    }
+
+    // 2d. Price the items using the shared helper
+    const pricingLines = pricingLinesFromGroupItems(
+      (groupItems as any[]).map((r) => ({ menu_item_id: r.menu_item_id, quantity: r.quantity, note: r.note ?? null }))
+    );
+    const pricingResult = await priceOrderLines(supabaseAdmin as any, cartRow.branch_id, pricingLines);
+
+    if ('error' in pricingResult) {
+      return NextResponse.json(
+        { error: pricingResult.error.message, code: pricingResult.error.code },
+        { status: pricingResult.error.status },
+      );
+    }
+
+    // Attach added_by to each snapshot item
+    // groupItems is ordered the same as pricingLines/snapshot
+    const snapshotWithAttribution = pricingResult.snapshot.map((snap, i) => ({
+      ...snap,
+      added_by: (groupItems[i] as any)?.group_cart_members?.name ?? undefined,
+    }));
+
+    // 2e. Atomically claim the cart (prevent double-submission)
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from('group_carts')
+      .update({ status: 'submitted', submitted_at: new Date().toISOString() })
+      .eq('id', cartRow.id)
+      .eq('status', 'open')
+      .gt('expires_at', new Date().toISOString())
+      .select('id')
+      .maybeSingle();
+
+    if (claimErr) {
+      console.error('[orders/create] cart claim error:', claimErr.message);
+      return NextResponse.json({ error: 'Gagal mengunci keranjang bersama.' }, { status: 500 });
+    }
+
+    if (!claimed) {
+      return NextResponse.json(
+        { error: 'Pesanan bareng sudah dikirim atau ditutup.' },
         { status: 409 },
       );
     }
 
-    resolvedBranchId = singleBranch.id as string;
+    // 2f. Insert the order
+    const resolvedCustomerName = customer_name?.trim() || hostMember.name;
+    const { subtotal, total } = pricingResult;
+
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const orderCode = generateCode();
+
+      const { data: inserted, error: insertErr } = await supabaseAdmin
+        .from('orders')
+        .insert({
+          order_code:     orderCode,
+          customer_name:  resolvedCustomerName,
+          table_number:   cartRow.table_number,
+          branch_id:      cartRow.branch_id,
+          items:          snapshotWithAttribution,
+          subtotal,
+          total,
+          payment_method,
+          notes:          notes?.trim() || null,
+          status:         'pending',
+        })
+        .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
+        .single();
+
+      if (insertErr) {
+        const pgCode = (insertErr as unknown as { code?: string }).code;
+        if (pgCode === '23505' && attempt < MAX_RETRIES) continue;
+
+        // Rollback the cart claim so the host can retry
+        await supabaseAdmin
+          .from('group_carts')
+          .update({ status: 'open', submitted_at: null })
+          .eq('id', cartRow.id);
+
+        console.error('[orders/create] group order insert error:', insertErr.message);
+        return NextResponse.json(
+          { error: 'Gagal menyimpan pesanan. Silakan coba lagi.' },
+          { status: 500 },
+        );
+      }
+
+      // 2g. Store order_code on the cart and bump version
+      await supabaseAdmin
+        .from('group_carts')
+        .update({ order_code: orderCode, version: cartRow.version + 1 })
+        .eq('id', cartRow.id);
+
+      return NextResponse.json({ order: inserted }, { status: 201 });
+    }
+
+    return NextResponse.json({ error: 'Gagal membuat kode pesanan. Silakan coba lagi.' }, { status: 500 });
   }
+
+  // ─── SOLO ORDER FLOW ──────────────────────────────────────────────────────
+
+  // 2. Resolve branch
+  const branchResult = await resolveBranch(supabaseAdmin, clientBranchId);
+  if ('response' in branchResult) return branchResult.response;
+  const resolvedBranchId = branchResult.branch.id;
 
   // 3. Consolidate requested items by (id + normalized note)
   // Two entries with the exact same id and note are summed; entries with different notes remain distinct lines.
@@ -230,7 +432,7 @@ export async function POST(request: NextRequest) {
   };
 
   const consolidatedMap = new Map<string, ConsolidatedLine>();
-  for (const item of items) {
+  for (const item of items!) {
     const cleanNote = item.note?.trim() || null;
     const norm = (cleanNote || '').toLowerCase();
     const lineKey = `${item.id}:::${norm}`;
@@ -248,89 +450,18 @@ export async function POST(request: NextRequest) {
   }
 
   const consolidatedLines = Array.from(consolidatedMap.values());
-  const itemIds = Array.from(new Set(consolidatedLines.map((l) => l.id)));
 
-  // 4. Load menu items from DB
-  const { data: menuItems, error: menuErr } = await supabaseAdmin
-    .from('menu_items')
-    .select('id, name, price, image_url, is_available')
-    .in('id', itemIds);
+  // 4–6. Validate items and build snapshot via shared helper
+  const pricingResult = await priceOrderLines(supabaseAdmin as any, resolvedBranchId, consolidatedLines);
 
-  if (menuErr) {
-    return NextResponse.json({ error: 'Gagal memuat data menu.' }, { status: 500 });
+  if ('error' in pricingResult) {
+    return NextResponse.json(
+      { error: pricingResult.error.message, code: pricingResult.error.code },
+      { status: pricingResult.error.status },
+    );
   }
 
-  const menuMap = new Map<string, MenuItem>(
-    (menuItems ?? []).map((m) => [m.id as string, m as MenuItem]),
-  );
-
-  // 5. Load branch-specific overrides
-  const { data: branchMenuRows, error: branchMenuErr } = await supabaseAdmin
-    .from('branch_menu_items')
-    .select('menu_item_id, is_available, is_enabled, custom_price')
-    .eq('branch_id', resolvedBranchId)
-    .in('menu_item_id', itemIds);
-
-  if (branchMenuErr) {
-    return NextResponse.json({ error: 'Gagal memuat ketersediaan menu di cabang.' }, { status: 500 });
-  }
-
-  const branchMenuMap = new Map<string, BranchMenuItem>(
-    (branchMenuRows ?? []).map((r) => [r.menu_item_id as string, r as BranchMenuItem]),
-  );
-
-  // 6. Validate each requested item and build snapshot
-  const snapshot: OrderItemSnapshot[] = [];
-  let subtotal = 0;
-
-  for (const line of consolidatedLines) {
-    const menuItem = menuMap.get(line.id);
-    if (!menuItem) {
-      return NextResponse.json({ error: 'Salah satu menu tidak ditemukan.' }, { status: 409 });
-    }
-
-    // Check global availability
-    if (!menuItem.is_available) {
-      return NextResponse.json(
-        { error: `Menu "${menuItem.name}" sedang tidak tersedia.` },
-        { status: 409 },
-      );
-    }
-
-    const branchRow = branchMenuMap.get(line.id);
-
-    // Check branch-specific availability / enablement
-    if (branchRow) {
-      if (!branchRow.is_enabled) {
-        return NextResponse.json(
-          { error: `Menu "${menuItem.name}" tidak tersedia di cabang ini.` },
-          { status: 409 },
-        );
-      }
-      if (!branchRow.is_available) {
-        return NextResponse.json(
-          { error: `Menu "${menuItem.name}" sedang habis di cabang ini.` },
-          { status: 409 },
-        );
-      }
-    }
-
-    // Server-authoritative price
-    const unitPrice = branchRow?.custom_price ?? menuItem.price;
-    subtotal += unitPrice * line.quantity;
-
-    snapshot.push({
-      id:        menuItem.id,
-      name:      menuItem.name,
-      price:     unitPrice,
-      image_url: menuItem.image_url,
-      quantity:  line.quantity,
-      note:      line.note,
-    });
-  }
-
-  // total = subtotal for now; a single place to add tax/service charge later
-  const total = subtotal;
+  const { snapshot, subtotal, total } = pricingResult;
 
   // 7. Generate order code and insert (retry up to 3 times on unique violation)
   const MAX_RETRIES = 3;
@@ -341,8 +472,8 @@ export async function POST(request: NextRequest) {
       .from('orders')
       .insert({
         order_code:     orderCode,
-        customer_name,
-        table_number,
+        customer_name:  customer_name!,
+        table_number:   table_number!,
         branch_id:      resolvedBranchId,
         items:          snapshot,
         subtotal,

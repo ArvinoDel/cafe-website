@@ -43,6 +43,7 @@ type OrderItem = {
   price: number;
   quantity: number;
   note?: string | null;
+  added_by?: string | null;
 };
 
 type Order = {
@@ -1279,11 +1280,16 @@ const OrderCard = forwardRef<
         <div className="space-y-1.5">
           {order.items.map((item, i) => (
             <div key={i} className="text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-charcoal/80">
-                  {item.quantity}× {item.name}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-charcoal/80 flex items-center gap-1.5 min-w-0">
+                  {item.quantity}&times; {item.name}
+                  {item.added_by && (
+                    <span className="inline-flex items-center gap-0.5 shrink-0 px-1.5 py-0.5 rounded-full bg-coffee-100 text-coffee-700 text-[10px] font-semibold border border-coffee-200/70">
+                      {item.added_by}
+                    </span>
+                  )}
                 </span>
-                <span className="text-coffee-700 font-semibold text-xs">
+                <span className="text-coffee-700 font-semibold text-xs shrink-0">
                   {formatPrice(item.price * item.quantity)}
                 </span>
               </div>

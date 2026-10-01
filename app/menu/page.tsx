@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2, Clock } from 'lucide-react';
+import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2, Clock, Users, Copy, Share2, Loader2, UserCheck, UserMinus, Crown, LogOut } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
@@ -15,6 +16,16 @@ import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
 import { useBranchInfo } from '@/lib/branch-info';
 import { roundToFiveMinutes } from '@/lib/wait-time';
+import {
+  useGroupCart,
+  getLocalGroupSession,
+  saveLocalGroupSession,
+  clearLocalGroupSession,
+  getLastDisplayName,
+  type LocalGroupSession,
+  type GroupCartState,
+} from '@/lib/group-cart';
+import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 
 type MenuItem = BranchMenuItem;
 
@@ -36,8 +47,8 @@ function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
 }
 
-const TABLE_KEY = 'kopi-nako-table';
-const BRANCH_KEY = 'kopi-nako-branch';
+const TABLE_KEY = STORAGE_TABLE_KEY;
+const BRANCH_KEY = STORAGE_BRANCH_KEY;
 
 export default function MenuPage() {
   return (
@@ -78,6 +89,41 @@ function MenuPageInner() {
     lineKeyToEdit?: string;
     isEditing: boolean;
   } | null>(null);
+
+  // ── Group cart (Pesan Bareng) state ──────────────────────────────────────────
+  // Local session loaded from localStorage on mount
+  const [groupSession, setGroupSession] = useState<LocalGroupSession | null>(null);
+  // Whether the invite / share sheet is open
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
+  // Whether the member list sheet is open
+  const [memberSheetOpen, setMemberSheetOpen] = useState(false);
+  // Name input for creating a new group cart
+  const [createGroupName, setCreateGroupName] = useState('');
+  // Whether the "start group" sheet is open
+  const [startGroupSheetOpen, setStartGroupSheetOpen] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [createGroupError, setCreateGroupError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [leavingGroup, setLeavingGroup] = useState(false);
+
+  // Poll the live cart state (only when in group mode)
+  const { cart: groupCart, loading: groupLoading, error: groupError, refresh: refreshGroupCart } = useGroupCart(
+    groupSession?.code ?? null,
+    groupSession,
+    { enabled: !!groupSession },
+  );
+
+  // Active group session code (from URL or localStorage)
+  const [groupCodeFromUrl, setGroupCodeFromUrl] = useState<string | null>(null);
+
+  // Are we in group mode?
+  const isGroupMode = !!groupSession;
+  // Is the current user the host?
+  const iAmHost = isGroupMode && !!groupCart?.members.find(
+    (m) => m.id === groupSession?.member_id && m.is_host,
+  );
+  // My member record from live cart
+  const myMember = groupCart?.members.find((m) => m.id === groupSession?.member_id);
 
   // Restore cart from localStorage on mount (with lineKey backward compatibility)
   useEffect(() => {
@@ -216,7 +262,166 @@ function MenuPageInner() {
     };
   }, [refreshBranchInfo]);
 
+  // ── Group cart: restore session from localStorage + ?group= URL param ─────────
+  useEffect(() => {
+    const fromUrl = searchParams.get('group');
+    if (fromUrl) {
+      setGroupCodeFromUrl(fromUrl);
+      const existing = getLocalGroupSession();
+      if (existing && existing.code === fromUrl) {
+        setGroupSession(existing);
+      } else {
+        // Redirect to join page — they haven't joined yet
+        router.replace(`/group/${encodeURIComponent(fromUrl)}`);
+      }
+    } else {
+      // No group param — check localStorage for an active session
+      const existing = getLocalGroupSession();
+      if (existing) {
+        setGroupSession(existing);
+      }
+    }
+    // Pre-fill create-group name from last used display name
+    setCreateGroupName(getLastDisplayName());
+  }, [searchParams, router]);
+
+  // Auto-redirect when submitted → status page for the new order
+  useEffect(() => {
+    if (groupCart?.status === 'submitted' && groupCart.order_code) {
+      router.push(`/status/${groupCart.order_code}`);
+    }
+  }, [groupCart?.status, groupCart?.order_code, router]);
+
+  // ── Group actions ─────────────────────────────────────────────────────────────
+
+  const handleCreateGroup = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = createGroupName.trim();
+    if (!trimmed || !tableNumber) return;
+    setCreatingGroup(true);
+    setCreateGroupError(null);
+    try {
+      const res = await fetch('/api/group-carts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table_number: tableNumber,
+          branch_id: branchId ?? undefined,
+          name: trimmed,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateGroupError(data?.error ?? 'Gagal membuat sesi grup.');
+        setCreatingGroup(false);
+        return;
+      }
+      const session: LocalGroupSession = {
+        code: data.code,
+        member_id: data.member_id,
+        member_token: data.member_token,
+        name: trimmed,
+      };
+      saveLocalGroupSession(session);
+      setGroupSession(session);
+      setStartGroupSheetOpen(false);
+      setInviteSheetOpen(true);
+      router.replace(`/menu?group=${encodeURIComponent(data.code)}`);
+    } catch {
+      setCreateGroupError('Koneksi bermasalah. Coba lagi ya.');
+    } finally {
+      setCreatingGroup(false);
+    }
+  }, [createGroupName, tableNumber, branchId, router]);
+
+  const handleLeaveGroup = useCallback(async () => {
+    if (!groupSession || iAmHost) return;
+    setLeavingGroup(true);
+    try {
+      await fetch(`/api/group-carts/${encodeURIComponent(groupSession.code)}/leave`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-member-token': groupSession.member_token,
+        },
+      });
+    } finally {
+      clearLocalGroupSession();
+      setGroupSession(null);
+      router.replace('/menu');
+      setLeavingGroup(false);
+    }
+  }, [groupSession, iAmHost, router]);
+
+  const handleCancelGroup = useCallback(async () => {
+    if (!groupSession || !iAmHost) return;
+    try {
+      await fetch(`/api/group-carts/${encodeURIComponent(groupSession.code)}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-member-token': groupSession.member_token,
+        },
+      });
+    } finally {
+      clearLocalGroupSession();
+      setGroupSession(null);
+      router.replace('/menu');
+    }
+  }, [groupSession, iAmHost, router]);
+
+  const handleToggleReady = useCallback(async (isReady: boolean) => {
+    if (!groupSession) return;
+    await fetch(`/api/group-carts/${encodeURIComponent(groupSession.code)}/ready`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-member-token': groupSession.member_token,
+      },
+      body: JSON.stringify({ is_ready: isReady }),
+    });
+    refreshGroupCart();
+  }, [groupSession, refreshGroupCart]);
+
+  const handleKickMember = useCallback(async (memberId: string) => {
+    if (!groupSession || !iAmHost) return;
+    await fetch(`/api/group-carts/${encodeURIComponent(groupSession.code)}/kick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-member-token': groupSession.member_token,
+      },
+      body: JSON.stringify({ member_id: memberId }),
+    });
+    refreshGroupCart();
+  }, [groupSession, iAmHost, refreshGroupCart]);
+
+  const handleCopyInvite = useCallback(() => {
+    if (!groupSession) return;
+    const link = `${window.location.origin}/group/${groupSession.code}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [groupSession]);
+
+  const handleShareInvite = useCallback(() => {
+    if (!groupSession) return;
+    const link = `${window.location.origin}/group/${groupSession.code}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Pesan Bareng Yuk!', url: link }).catch(() => {});
+    } else {
+      handleCopyInvite();
+    }
+  }, [groupSession, handleCopyInvite]);
+
+  // Compute invite URL
+  const inviteUrl = groupSession
+    ? (typeof window !== 'undefined' ? `${window.location.origin}/group/${groupSession.code}` : '')
+    : '';
+
   const filteredItems = items.filter((item) => {
+
     const matchesCategory = activeCategory === 'all' || item.category === activeCategory;
     const matchesSearch =
       searchQuery === '' ||
@@ -423,6 +628,35 @@ function MenuPageInner() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Pesan Bareng button */}
+              {tableNumber && !isGroupMode && (
+                <button
+                  type="button"
+                  onClick={() => setStartGroupSheetOpen(true)}
+                  className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-coffee-50 border border-coffee-200/70 text-coffee-800 hover:bg-coffee-100/70 transition-colors active:scale-95"
+                  title="Pesan bareng teman di meja yang sama"
+                  aria-label="Pesan Bareng"
+                >
+                  <Users className="w-4 h-4 text-coffee-700" />
+                  <span className="hidden sm:inline text-xs font-bold text-coffee-900">Pesan Bareng</span>
+                </button>
+              )}
+
+              {/* Group mode: show member count */}
+              {isGroupMode && (
+                <button
+                  type="button"
+                  onClick={() => setMemberSheetOpen(true)}
+                  className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-coffee-700/10 border border-coffee-700/30 text-coffee-800 hover:bg-coffee-700/20 transition-colors active:scale-95"
+                  title="Lihat anggota grup"
+                >
+                  <Users className="w-4 h-4 text-coffee-700" />
+                  <span className="text-xs font-bold text-coffee-900">
+                    {groupCart?.members.length ?? '\u2026'}
+                  </span>
+                </button>
+              )}
+
               <button
                 onClick={() => router.push('/orders')}
                 className="flex items-center justify-center gap-1.5 px-3 h-10 rounded-xl bg-coffee-50 border border-coffee-200/70 text-coffee-800 hover:bg-coffee-100/70 transition-colors active:scale-95"
@@ -449,6 +683,83 @@ function MenuPageInner() {
           </div>
         </div>
       </div>
+
+
+      {/* Group mode banner */}
+      <AnimatePresence>
+        {isGroupMode && groupCart && (
+          <motion.div
+            key="group-banner"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-coffee-700 text-cream overflow-hidden"
+          >
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Users className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="font-semibold truncate">
+                  Pesan Bareng &middot; {groupCart.members.length} orang &middot;&nbsp;
+                  {groupCart.members.every((m) => m.is_ready) && groupCart.members.length > 1
+                    ? <span className="text-green-300 font-bold">Semua siap!</span>
+                    : <span>{groupCart.members.filter((m) => m.is_ready).length} siap</span>
+                  }
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Toggle ready */}
+                <button
+                  type="button"
+                  onClick={() => handleToggleReady(!(myMember?.is_ready))}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
+                    myMember?.is_ready
+                      ? 'bg-green-400/20 text-green-200 border border-green-400/40 hover:bg-green-400/30'
+                      : 'bg-cream/15 text-cream border border-cream/30 hover:bg-cream/25'
+                  }`}
+                  title={myMember?.is_ready ? 'Batalkan siap' : 'Tandai siap pesan'}
+                >
+                  <UserCheck className="w-3 h-3" />
+                  {myMember?.is_ready ? 'Siap' : 'Belum siap'}
+                </button>
+                {/* Invite */}
+                <button
+                  type="button"
+                  onClick={() => setInviteSheetOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream/15 hover:bg-cream/25 text-cream border border-cream/30 font-bold text-[11px] transition-colors"
+                >
+                  <Share2 className="w-3 h-3" />
+                  Ajak
+                </button>
+                {/* Members */}
+                <button
+                  type="button"
+                  onClick={() => setMemberSheetOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream/15 hover:bg-cream/25 text-cream border border-cream/30 font-bold text-[11px] transition-colors"
+                >
+                  <Users className="w-3 h-3" />
+                  Anggota
+                </button>
+                {/* Checkout group */}
+                {iAmHost && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      params.set('group', groupSession!.code);
+                      if (tableNumber) params.set('table', tableNumber);
+                      if (branchId) params.set('branch', branchId!);
+                      router.push(`/checkout?${params.toString()}`);
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream text-coffee-800 font-bold text-[11px] hover:bg-cream/90 transition-colors active:scale-95"
+                  >
+                    Checkout
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Table status banner */}
       {tableNumber ? (
@@ -1170,6 +1481,311 @@ function MenuPageInner() {
           positionClassName="bottom-6 left-4 sm:left-6"
         />
       )}
+
+      {/* ── START GROUP SHEET ─────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {startGroupSheetOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setStartGroupSheetOpen(false)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl shadow-soft-xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-w-lg mx-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-coffee-700/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-coffee-700" />
+                  </div>
+                  <h2 className="font-extrabold text-coffee-900 text-lg">Pesan Bareng</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStartGroupSheetOpen(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-coffee-50 flex items-center justify-center text-coffee-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {!tableNumber && (
+                <div className="mb-4 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span>Scan QR code meja dulu sebelum bikin sesi pesan bareng ya.</span>
+                </div>
+              )}
+
+              <p className="text-sm text-charcoal/60 mb-5 leading-relaxed">
+                Buat sesi pesan bareng untuk mejamu. Temanmu bisa join pakai link yang kamu bagikan dan pilih menunya masing-masing!
+              </p>
+
+              <form onSubmit={handleCreateGroup} className="space-y-4">
+                <div>
+                  <label htmlFor="create-group-name" className="block text-xs font-semibold text-charcoal/50 mb-1.5">
+                    Namamu
+                  </label>
+                  <input
+                    id="create-group-name"
+                    type="text"
+                    value={createGroupName}
+                    onChange={(e) => setCreateGroupName(e.target.value)}
+                    placeholder="Masukkan namamu"
+                    maxLength={30}
+                    className="w-full px-4 py-3.5 rounded-xl bg-white border border-coffee-200 text-charcoal text-sm placeholder:text-charcoal/40 focus:outline-none focus:border-coffee-500 transition-colors"
+                    disabled={creatingGroup}
+                  />
+                </div>
+
+                {createGroupError && (
+                  <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs">
+                    <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <span>{createGroupError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={creatingGroup || !createGroupName.trim() || !tableNumber}
+                  className="w-full py-4 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft flex items-center justify-center gap-2"
+                >
+                  {creatingGroup ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Membuat sesi...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Users className="w-4 h-4" />
+                      <span>Buat Sesi Pesan Bareng</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── INVITE SHEET ──────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {inviteSheetOpen && groupSession && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setInviteSheetOpen(false)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl shadow-soft-xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-w-lg mx-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-coffee-700/10 flex items-center justify-center">
+                    <Share2 className="w-5 h-5 text-coffee-700" />
+                  </div>
+                  <h2 className="font-extrabold text-coffee-900 text-lg">Ajak Temanmu</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInviteSheetOpen(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-coffee-50 flex items-center justify-center text-coffee-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-sm text-charcoal/60 mb-4 leading-relaxed">
+                Bagikan QR code atau link berikut ke teman di mejamu. Mereka bisa scan/klik untuk langsung pilih menu!
+              </p>
+
+              {/* QR Code */}
+              {inviteUrl && (
+                <div className="flex justify-center mb-5">
+                  <div className="p-4 bg-white rounded-2xl border border-coffee-100 shadow-soft">
+                    <QRCodeSVG
+                      value={inviteUrl}
+                      size={160}
+                      bgColor="#ffffff"
+                      fgColor="#3b1f0a"
+                      level="M"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Invite code */}
+              <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-coffee-50 border border-coffee-200/80 mb-4">
+                <div>
+                  <p className="text-[11px] text-charcoal/50 font-medium">Kode undangan</p>
+                  <p className="font-extrabold text-coffee-900 text-lg tracking-widest">{groupSession.code}</p>
+                </div>
+                <span className="text-[11px] text-coffee-600/70 font-medium">atau bagikan link:</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyInvite}
+                  className="flex items-center justify-center gap-2 py-3.5 rounded-xl border border-coffee-200 bg-white text-coffee-800 font-bold text-sm hover:bg-coffee-50 transition-colors active:scale-95"
+                >
+                  {copied ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Tersalin!' : 'Salin Link'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareInvite}
+                  className="flex items-center justify-center gap-2 py-3.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Bagikan
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── MEMBER SHEET ──────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {memberSheetOpen && groupSession && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMemberSheetOpen(false)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl shadow-soft-xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-w-lg mx-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-coffee-700/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-coffee-700" />
+                  </div>
+                  <h2 className="font-extrabold text-coffee-900 text-lg">Anggota Grup</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMemberSheetOpen(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-coffee-50 flex items-center justify-center text-coffee-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {groupCart ? (
+                <div className="space-y-2 mb-5 max-h-64 overflow-y-auto">
+                  {groupCart.members.map((member) => (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between px-4 py-3 rounded-xl bg-white border border-coffee-100"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          member.id === groupSession.member_id
+                            ? 'bg-coffee-700 text-cream'
+                            : 'bg-coffee-100 text-coffee-800'
+                        }`}>
+                          {member.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-coffee-900 text-sm">
+                            {member.name}
+                            {member.id === groupSession.member_id && (
+                              <span className="ml-1.5 text-[10px] text-coffee-600/70 font-medium">(kamu)</span>
+                            )}
+                          </p>
+                          <div className="flex items-center gap-1.5">
+                            {member.is_host && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/70 rounded px-1.5 py-0.5">
+                                <Crown className="w-2.5 h-2.5" /> Host
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              member.is_ready
+                                ? 'bg-green-50 text-green-700 border border-green-200/70'
+                                : 'bg-coffee-50 text-coffee-600 border border-coffee-200/70'
+                            }`}>
+                              {member.is_ready ? '✓ Siap' : 'Pilih menu'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Host can kick non-host members */}
+                      {iAmHost && !member.is_host && (
+                        <button
+                          type="button"
+                          onClick={() => handleKickMember(member.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title={`Keluarkan ${member.name}`}
+                        >
+                          <UserMinus className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-coffee-400 animate-spin" />
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => { setMemberSheetOpen(false); setInviteSheetOpen(true); }}
+                  className="w-full py-3 rounded-xl bg-coffee-50 border border-coffee-200 text-coffee-800 font-bold text-sm hover:bg-coffee-100 transition-colors active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Ajak Teman Lagi
+                </button>
+                {iAmHost ? (
+                  <button
+                    type="button"
+                    onClick={() => { setMemberSheetOpen(false); handleCancelGroup(); }}
+                    className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-bold text-sm hover:bg-red-50 transition-colors active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Batalkan Sesi
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setMemberSheetOpen(false); handleLeaveGroup(); }}
+                    disabled={leavingGroup}
+                    className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-bold text-sm hover:bg-red-50 transition-colors active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {leavingGroup ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+                    Keluar dari Grup
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

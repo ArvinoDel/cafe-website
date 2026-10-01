@@ -35,6 +35,7 @@ type OrderItem = {
   image_url: string | null;
   quantity: number;
   note?: string | null;
+  added_by?: string | null;
 };
 
 type Order = {
@@ -780,7 +781,14 @@ export default function OrderStatusPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                    {item.added_by && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-coffee-100 text-coffee-700 text-[10px] font-semibold border border-coffee-200/70 shrink-0">
+                        {item.added_by}
+                      </span>
+                    )}
+                  </div>
                   {item.note && (
                     <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                       Catatan: {item.note}

@@ -21,12 +21,20 @@ import {
   RefreshCw,
   X,
   Clock,
+  Users,
+  Crown,
 } from 'lucide-react';
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { getItemLineKey } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
+import {
+  getLocalGroupSession,
+  useGroupCart,
+  type LocalGroupSession,
+} from '@/lib/group-cart';
+import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 
 type CartItem = {
   id: string;
@@ -52,8 +60,8 @@ type OrderSnapshot = {
   created_at: string;
 };
 
-const TABLE_KEY  = 'kopi-nako-table';
-const BRANCH_KEY = 'kopi-nako-branch';
+const TABLE_KEY  = STORAGE_TABLE_KEY;
+const BRANCH_KEY = STORAGE_BRANCH_KEY;
 
 function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
@@ -86,6 +94,31 @@ function CheckoutPageInner() {
   // Branch info is fetched via shared helper (cache + dedup); estWaitMinutes derived below
   const [tableNotice, setTableNotice] = useState<string | null>(null);
 
+  // ── Group mode ────────────────────────────────────────────────────────────
+  const [groupSession, setGroupSession] = useState<LocalGroupSession | null>(null);
+  const isGroupMode = !!groupSession;
+
+  // Poll group cart state when in group mode
+  const { cart: groupCart } = useGroupCart(
+    groupSession?.code ?? null,
+    groupSession,
+    { enabled: isGroupMode },
+  );
+
+  // Auto-redirect all members to status page when group cart is submitted
+  useEffect(() => {
+    if (groupCart?.status === 'submitted' && groupCart.order_code) {
+      router.replace(`/status/${groupCart.order_code}`);
+    }
+  }, [groupCart?.status, groupCart?.order_code, router]);
+
+  // Cancel / kicked detection
+  useEffect(() => {
+    if (groupCart?.status === 'cancelled') {
+      router.replace('/menu');
+    }
+  }, [groupCart?.status, router]);
+
   useEffect(() => {
     if (!tableNotice) return;
     const timer = setTimeout(() => {
@@ -110,6 +143,15 @@ function CheckoutPageInner() {
   }, []);
 
   useEffect(() => {
+    // Restore group session from localStorage if ?group= param is present
+    const groupCode = searchParams.get('group');
+    if (groupCode) {
+      const existing = getLocalGroupSession();
+      if (existing && existing.code === groupCode) {
+        setGroupSession(existing);
+      }
+    }
+
     try {
       const stored = localStorage.getItem(CART_KEY);
       if (stored) {
@@ -153,6 +195,16 @@ function CheckoutPageInner() {
       const storedBranch = localStorage.getItem(BRANCH_KEY);
       if (storedBranch) setBranchId(storedBranch);
     }
+
+    // Pre-fill name from group session
+    const groupCodeParam = searchParams.get('group');
+    if (groupCodeParam) {
+      const existing = getLocalGroupSession();
+      if (existing?.code === groupCodeParam) {
+        setName(existing.name);
+      }
+    }
+
     setLoaded(true);
   }, [searchParams]);
 
@@ -213,6 +265,59 @@ function CheckoutPageInner() {
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
   const handleConfirm = async () => {
+    // Group order path
+    if (isGroupMode && groupSession) {
+      if (submitting) return;
+      setSubmitting(true);
+      setSubmitError(null);
+      try {
+        const resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+        const payload = {
+          customer_name: name.trim() || groupSession.name,
+          payment_method: payment,
+          notes: notes.trim() || undefined,
+          group_cart_code: groupSession.code,
+          member_token: groupSession.member_token,
+          ...(resolvedBranch ? { branch_id: resolvedBranch } : {}),
+        };
+
+        const res = await fetch('/api/orders/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data?.order) {
+          if (res.status === 409 && data?.code === 'ORDERS_PAUSED') refreshBranchInfo();
+          setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
+          setSubmitting(false);
+          if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        const order: OrderSnapshot = data.order;
+        try {
+          saveOrderToHistory(order.order_code);
+          const snapshot = { ...order };
+          localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(snapshot));
+          localStorage.setItem('kopi-nako-last-order', JSON.stringify(snapshot));
+        } catch {}
+
+        // Don't clear group session here — the polling hook will catch status=submitted
+        setOrderTotal(order.total);
+        setOrderCode(order.order_code);
+      } catch {
+        setSubmitError('Koneksi bermasalah. Periksa internet kamu dan coba lagi.');
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Solo order path (unchanged)
     if (submitting || cart.length === 0 || !name.trim() || !tableNumber.trim()) return;
     setSubmitting(true);
     setSubmitError(null);
@@ -355,8 +460,8 @@ function CheckoutPageInner() {
     );
   }
 
-  // ── Empty cart state ─────────────────────────────────────────────────────────
-  if (cart.length === 0) {
+  // ── Empty cart state (solo mode only; group mode always has a cart) ──────────
+  if (!isGroupMode && cart.length === 0) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center px-4">
         <div className="text-center">
@@ -399,8 +504,46 @@ function CheckoutPageInner() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
-        {/* Missing table alert */}
-        {!tableNumber && (
+
+        {/* Group mode banner */}
+        {isGroupMode && groupCart && (
+          <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="p-4 rounded-2xl bg-coffee-700/5 border border-coffee-700/20 flex items-start gap-3"
+          >
+            <Users className="w-5 h-5 text-coffee-700 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-coffee-900 text-sm">Pesan Bareng — {groupCart.members.length} orang</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {groupCart.members.map((m) => (
+                  <span
+                    key={m.id}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                      m.id === groupSession?.member_id
+                        ? 'bg-coffee-700 text-cream border-coffee-700'
+                        : m.is_ready
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-coffee-50 text-coffee-700 border-coffee-200'
+                    }`}
+                  >
+                    {m.is_host && <Crown className="w-2.5 h-2.5" />}
+                    {m.name}
+                    {m.is_ready && m.id !== groupSession?.member_id && ' ✓'}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-charcoal/50 mt-2">
+                Total gabungan: <strong className="text-coffee-700">{formatPrice(groupCart.total)}</strong>
+                {' · '}{groupCart.items.length} item
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Missing table alert — not shown in group mode */}
+        {!tableNumber && !isGroupMode && (
           <motion.div
             variants={fadeInUp}
             initial="hidden"
@@ -692,25 +835,49 @@ function CheckoutPageInner() {
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <span className="text-charcoal/60 text-sm block">Total ({itemCount} item)</span>
-              {estWaitMinutes ? (
-                <span className="text-[11px] font-semibold text-coffee-700/90 flex items-center gap-1 mt-0.5">
-                  <Clock className="w-3 h-3 text-coffee-600" />
-                  {branchInfo?.est_wait_now != null
-                    ? (branchInfo.queue_count ?? 0) > 0
-                      ? `Antrean saat ini: ${branchInfo.queue_count} pesanan · perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
-                      : `Perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
-                    : `Perkiraan waktu tunggu ±${estWaitMinutes} menit`}
-                </span>
-              ) : null}
+              {isGroupMode && groupCart ? (
+                <>
+                  <span className="text-charcoal/60 text-sm block">
+                    Total bareng ({groupCart.items.reduce((s, i) => s + i.quantity, 0)} item)
+                  </span>
+                  {estWaitMinutes ? (
+                    <span className="text-[11px] font-semibold text-coffee-700/90 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3 text-coffee-600" />
+                      {branchInfo?.est_wait_now != null
+                        ? (branchInfo.queue_count ?? 0) > 0
+                          ? `Antrean: ${branchInfo.queue_count} pesanan · ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                          : `Perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                        : `Perkiraan waktu tunggu ±${estWaitMinutes} menit`}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span className="text-charcoal/60 text-sm block">Total ({itemCount} item)</span>
+                  {estWaitMinutes ? (
+                    <span className="text-[11px] font-semibold text-coffee-700/90 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3 text-coffee-600" />
+                      {branchInfo?.est_wait_now != null
+                        ? (branchInfo.queue_count ?? 0) > 0
+                          ? `Antrean saat ini: ${branchInfo.queue_count} pesanan · perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                          : `Perkiraan ±${roundToFiveMinutes(branchInfo.est_wait_now)} menit`
+                        : `Perkiraan waktu tunggu ±${estWaitMinutes} menit`}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </div>
             <span className="text-xl font-extrabold text-coffee-800">
-              {formatPrice(subtotal)}
+              {isGroupMode && groupCart ? formatPrice(groupCart.total) : formatPrice(subtotal)}
             </span>
           </div>
           <button
             onClick={handleConfirm}
-            disabled={submitting || !name.trim() || !tableNumber.trim() || isPaused}
+            disabled={
+              submitting ||
+              isPaused ||
+              (isGroupMode ? !groupSession : (!name.trim() || !tableNumber.trim()))
+            }
             className={`w-full py-4 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft ${
               isPaused ? 'bg-amber-500 text-white' : 'bg-coffee-700 text-cream hover:bg-coffee-800'
             }`}
@@ -719,14 +886,16 @@ function CheckoutPageInner() {
               ? 'Memproses...'
               : isPaused
                 ? 'Pemesanan Sedang Dijeda'
-                : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
+                : isGroupMode && groupCart
+                  ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
+                  : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
           </button>
           {submitError && (
             <p className="text-center text-xs text-red-600 font-semibold mt-2">
               {submitError}
             </p>
           )}
-          {(!name.trim() || !tableNumber.trim()) && (
+          {!isGroupMode && (!name.trim() || !tableNumber.trim()) && (
             <p className="text-center text-xs mt-2 font-medium">
               {!tableNumber.trim() ? (
                 <button
