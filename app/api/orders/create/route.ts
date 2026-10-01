@@ -136,11 +136,23 @@ export async function POST(request: NextRequest) {
 
   if (clientBranchId) {
     // Validate provided branch_id exists and load pause status
-    const { data: branch, error: branchErr } = await supabaseAdmin
+    let { data: branch, error: branchErr } = await supabaseAdmin
       .from('branches')
       .select('id, accepting_orders, pause_message')
       .eq('id', clientBranchId)
       .maybeSingle();
+
+    if (branchErr && (branchErr as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin
+        .from('branches')
+        .select('id')
+        .eq('id', clientBranchId)
+        .maybeSingle();
+      branch = fallback.data
+        ? ({ id: fallback.data.id, accepting_orders: true, pause_message: null } as any)
+        : null;
+      branchErr = fallback.error;
+    }
 
     if (branchErr || !branch) {
       return NextResponse.json({ error: 'Cabang tidak ditemukan.' }, { status: 400 });
@@ -162,9 +174,19 @@ export async function POST(request: NextRequest) {
     resolvedBranchId = branch.id as string;
   } else {
     // Auto-resolve: only works when there is exactly one branch
-    const { data: branches, error: branchListErr } = await supabaseAdmin
+    let { data: branches, error: branchListErr } = await supabaseAdmin
       .from('branches')
       .select('id, accepting_orders, pause_message');
+
+    if (branchListErr && (branchListErr as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin
+        .from('branches')
+        .select('id');
+      branches = fallback.data
+        ? fallback.data.map((b) => ({ id: b.id, accepting_orders: true, pause_message: null } as any))
+        : null;
+      branchListErr = fallback.error;
+    }
 
     if (branchListErr) {
       return NextResponse.json({ error: 'Gagal memverifikasi cabang.' }, { status: 500 });

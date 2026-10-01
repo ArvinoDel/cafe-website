@@ -218,6 +218,7 @@ function CheckoutPageInner() {
     setSubmitError(null);
 
     try {
+      const resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
       const payload = {
         customer_name:  name.trim(),
         table_number:   tableNumber.trim(),
@@ -230,7 +231,7 @@ function CheckoutPageInner() {
           note:     c.note?.trim() || undefined,
         })),
         // Include branch_id only when we have one (may be null for single-branch sites)
-        ...(branchId ? { branch_id: branchId } : {}),
+        ...(resolvedBranch ? { branch_id: resolvedBranch } : {}),
       };
 
       const res = await fetch('/api/orders/create', {

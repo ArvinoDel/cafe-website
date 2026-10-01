@@ -371,7 +371,12 @@ function MenuPageInner() {
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
     localStorage.setItem(TABLE_KEY, tableNumber);
     if (branchId) localStorage.setItem(BRANCH_KEY, branchId);
-    router.push('/checkout');
+
+    const params = new URLSearchParams();
+    if (tableNumber) params.set('table', tableNumber);
+    if (branchId) params.set('branch', branchId);
+    const qs = params.toString();
+    router.push(qs ? `/checkout?${qs}` : '/checkout');
   }, [cart, tableNumber, branchId, router, hasUnavailableItems, isPaused]);
 
   return (

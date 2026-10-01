@@ -60,7 +60,8 @@ export async function GET(request: NextRequest) {
 
   // Only select the fields exposed to guests — never include sensitive credentials
   // in a broad SELECT *.
-  const SELECT = 'id, name, address, wifi_name, wifi_password, opening_hours, est_wait_minutes, accepting_orders, pause_message, wait_per_order_minutes';
+  const FULL_SELECT = 'id, name, address, wifi_name, wifi_password, opening_hours, est_wait_minutes, accepting_orders, pause_message, wait_per_order_minutes';
+  const BASE_SELECT = 'id, name, address, wifi_name, wifi_password, opening_hours, est_wait_minutes';
 
   type BranchRecord = {
     id: string;
@@ -70,8 +71,8 @@ export async function GET(request: NextRequest) {
     wifi_password: string | null;
     opening_hours: string | null;
     est_wait_minutes: number | null;
-    accepting_orders: boolean;
-    pause_message: string | null;
+    accepting_orders?: boolean;
+    pause_message?: string | null;
     wait_per_order_minutes?: number | null;
   };
 
@@ -79,11 +80,23 @@ export async function GET(request: NextRequest) {
 
   if (branchIdParam) {
     // Explicit branch lookup
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from('branches')
-      .select(SELECT)
+      .select(FULL_SELECT)
       .eq('id', branchIdParam)
       .maybeSingle();
+
+    if (error && (error as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin
+        .from('branches')
+        .select(BASE_SELECT)
+        .eq('id', branchIdParam)
+        .maybeSingle();
+      data = fallback.data
+        ? ({ ...fallback.data, accepting_orders: true, pause_message: null, wait_per_order_minutes: 0 } as any)
+        : null;
+      error = fallback.error;
+    }
 
     if (error) {
       return NextResponse.json({ error: 'Gagal memuat info cabang.' }, { status: 500 });
@@ -95,9 +108,19 @@ export async function GET(request: NextRequest) {
     branch = data as unknown as BranchRecord;
   } else {
     // Auto-resolve: valid only when there is exactly one branch
-    const { data: branches, error: listErr } = await supabaseAdmin
+    let { data: branches, error: listErr } = await supabaseAdmin
       .from('branches')
-      .select(SELECT);
+      .select(FULL_SELECT);
+
+    if (listErr && (listErr as { code?: string }).code === '42703') {
+      const fallback = await supabaseAdmin
+        .from('branches')
+        .select(BASE_SELECT);
+      branches = fallback.data
+        ? fallback.data.map((b) => ({ ...b, accepting_orders: true, pause_message: null, wait_per_order_minutes: 0 } as any))
+        : null;
+      listErr = fallback.error;
+    }
 
     if (listErr) {
       return NextResponse.json({ error: 'Gagal memuat info cabang.' }, { status: 500 });

@@ -205,11 +205,22 @@ export async function GET(request: NextRequest) {
   let waitMinutesRemaining: number | null = null;
 
   if (order.branch_id && (order.status === 'pending' || order.status === 'preparing')) {
-    const { data: branch } = await supabaseAdmin
+    let { data: branch, error: branchErr } = await supabaseAdmin
       .from('branches')
       .select('est_wait_minutes, wait_per_order_minutes')
       .eq('id', order.branch_id)
       .maybeSingle();
+
+    if (branchErr && (branchErr as { code?: string }).code === '42703') {
+      const fb = await supabaseAdmin
+        .from('branches')
+        .select('est_wait_minutes')
+        .eq('id', order.branch_id)
+        .maybeSingle();
+      if (fb.data) {
+        branch = { est_wait_minutes: fb.data.est_wait_minutes, wait_per_order_minutes: 0 } as any;
+      }
+    }
 
     if (branch?.est_wait_minutes && branch.est_wait_minutes > 0) {
       const { count: aheadCount } = await supabaseAdmin
