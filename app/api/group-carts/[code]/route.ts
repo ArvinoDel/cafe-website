@@ -20,9 +20,9 @@ import {
   checkGroupRateLimit,
   findCart,
   requireMemberToken,
-  auditCartItems,
   err500,
 } from '@/lib/group-cart-server';
+import { evaluatePriceLines } from '@/lib/order-pricing';
 
 export async function GET(
   request: NextRequest,
@@ -86,9 +86,9 @@ export async function GET(
   const rawMembers = (membersRaw ?? []) as RawMember[];
   const memberNameMap = new Map<string, string>(rawMembers.map((m) => [m.id, m.name]));
 
-  // Price + availability check (non-fatal on sold-out)
-  const auditedItems = await auditCartItems(
-    supabaseAdmin,
+  // Price + availability check (non-fatal on sold-out) via shared read-only function
+  const evalResult = await evaluatePriceLines(
+    supabaseAdmin as any,
     cart.branch_id,
     rawItems.map((r) => ({
       id:           r.id,
@@ -99,6 +99,21 @@ export async function GET(
       note:         r.note,
     })),
   );
+
+  const auditedItems = 'error' in evalResult ? [] : evalResult.lines.map((line) => ({
+    id:              line.id,
+    member_id:       line.member_id,
+    member_name:     line.member_name ?? '',
+    menu_item_id:    line.menu_item_id,
+    name:            line.name,
+    image_url:       line.image_url,
+    unit_price:      line.unit_price,
+    price:           line.unit_price,
+    effective_price: line.unit_price,
+    quantity:        line.quantity,
+    note:            line.note,
+    sold_out:        line.sold_out,
+  }));
 
   // Compute totals
   const per_member_totals: Record<string, number> = {};

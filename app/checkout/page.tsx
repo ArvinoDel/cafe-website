@@ -32,9 +32,15 @@ import { CART_KEY } from '@/lib/cart';
 import {
   getLocalGroupSession,
   useGroupCart,
+  clearLocalGroupSession,
   type LocalGroupSession,
 } from '@/lib/group-cart';
-import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
+import {
+  TABLE_KEY as STORAGE_TABLE_KEY,
+  BRANCH_KEY as STORAGE_BRANCH_KEY,
+  ORDER_SNAPSHOT_PREFIX,
+  LAST_ORDER_KEY,
+} from '@/lib/storage-keys';
 
 type CartItem = {
   id: string;
@@ -110,8 +116,17 @@ function CheckoutPageInner() {
 
   // Auto-redirect all members to status page when group cart is submitted
   useEffect(() => {
-    if (groupCart?.status === 'submitted' && groupCart.order_code) {
-      router.replace(`/status/${groupCart.order_code}`);
+    if (!groupCart) return;
+    if (groupCart.status === 'submitted') {
+      if (groupCart.order_code) {
+        router.replace(`/status/${groupCart.order_code}`);
+      } else {
+        // Cart is stuck submitted with no order (checkout failed mid-way).
+        // Clear the stale session so the user can start fresh.
+        clearLocalGroupSession();
+        setGroupSession(null);
+        setSubmitError('Sesi pesanan bareng telah berakhir. Silakan mulai sesi baru dari menu.');
+      }
     }
   }, [groupCart?.status, groupCart?.order_code, router]);
 
@@ -307,8 +322,8 @@ function CheckoutPageInner() {
         try {
           saveOrderToHistory(order.order_code);
           const snapshot = { ...order };
-          localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(snapshot));
-          localStorage.setItem('kopi-nako-last-order', JSON.stringify(snapshot));
+          localStorage.setItem(ORDER_SNAPSHOT_PREFIX + order.order_code, JSON.stringify(snapshot));
+          localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(snapshot));
         } catch {}
 
         // Don't clear group session here — the polling hook will catch status=submitted
@@ -383,8 +398,8 @@ function CheckoutPageInner() {
           status:         order.status,
           created_at:     order.created_at,
         };
-        localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(snapshot));
-        localStorage.setItem('kopi-nako-last-order', JSON.stringify(snapshot));
+        localStorage.setItem(ORDER_SNAPSHOT_PREFIX + order.order_code, JSON.stringify(snapshot));
+        localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(snapshot));
         saveOrderToHistory(order.order_code);
       } catch {
         // Ignore storage errors — order is already saved server-side

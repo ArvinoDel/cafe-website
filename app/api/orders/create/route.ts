@@ -36,7 +36,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
-import { priceOrderLines, pricingLinesFromGroupItems } from '@/lib/order-pricing';
+import { priceOrderLines, pricingLinesFromGroupItems, evaluatePriceLines } from '@/lib/order-pricing';
 import type { SupabaseEnv } from '@supabase/server';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
@@ -362,6 +362,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Bump version right after cart is claimed as submitted
+    await (supabaseAdmin as any).rpc('bump_group_cart_version', { p_cart_id: cartRow.id });
+
     // 2f. Insert the order
     const resolvedCustomerName = customer_name?.trim() || hostMember.name;
     const { subtotal, total } = pricingResult;
@@ -396,6 +399,7 @@ export async function POST(request: NextRequest) {
           .from('group_carts')
           .update({ status: 'open', submitted_at: null })
           .eq('id', cartRow.id);
+        await (supabaseAdmin as any).rpc('bump_group_cart_version', { p_cart_id: cartRow.id });
 
         console.error('[orders/create] group order insert error:', insertErr.message);
         return NextResponse.json(
@@ -404,11 +408,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // 2g. Store order_code on the cart and bump version
+      // 2g. Store order_code on the cart and bump version atomically
       await supabaseAdmin
         .from('group_carts')
-        .update({ order_code: orderCode, version: cartRow.version + 1 })
+        .update({ order_code: orderCode })
         .eq('id', cartRow.id);
+      await (supabaseAdmin as any).rpc('bump_group_cart_version', { p_cart_id: cartRow.id });
 
       return NextResponse.json({ order: inserted }, { status: 201 });
     }

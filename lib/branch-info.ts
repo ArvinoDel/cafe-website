@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { BRANCH_KEY, LEGACY_BRANCH_KEY } from '@/lib/storage-keys';
 
 // ─── Type ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ export type UseBranchInfoResult = {
  *
  * React hook that returns branch info for the given branch ID.
  *
- * If `branchId` is undefined/null, the hook reads `localStorage.getItem('kopi-nako-branch')`
+ * If `branchId` is undefined/null, the hook reads `localStorage.getItem(BRANCH_KEY)`
  * on mount (matching the previous WifiInfoCard behaviour) and uses that as the key.
  * This means callers that don't yet have the branch ID available can pass null and
  * still get data once localStorage is available client-side.
@@ -137,7 +138,7 @@ export function useBranchInfo(branchId?: string | null): UseBranchInfoResult {
     const fromProp = branchIdRef.current;
     if (fromProp) return fromProp;
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('kopi-nako-branch');
+      return localStorage.getItem(BRANCH_KEY) || localStorage.getItem(LEGACY_BRANCH_KEY);
     }
     return null;
   }, []);

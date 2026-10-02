@@ -87,7 +87,7 @@ export async function POST(
   }
 
   // Bump cart version so existing members see the new joiner
-  await bumpVersion(supabaseAdmin, cart.id, cart.version);
+  await bumpVersion(supabaseAdmin, cart.id);
 
   return NextResponse.json(
     { member_id: member.id, member_token: memberToken },

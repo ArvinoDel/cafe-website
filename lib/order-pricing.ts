@@ -74,23 +74,162 @@ export type PricingSuccess = {
   total: number;
 };
 
-// ─── Main helper ──────────────────────────────────────────────────────────────
+// ─── Main read-only helper ───────────────────────────────────────────────────
+
+export type PricingLineInput = {
+  id?: string;
+  menu_item_id?: string;
+  quantity?: number;
+  note?: string | null;
+  [key: string]: any;
+};
+
+export type EvaluatedPriceLine<T extends PricingLineInput = PricingLineInput> = T & {
+  menu_item_id: string;
+  name: string;
+  image_url: string | null;
+  unit_price: number;
+  sold_out: boolean;
+  sold_out_reason: string | null;
+};
+
+/**
+ * evaluatePriceLines (also exported as auditPriceLines)
+ *
+ * Read-only function that resolves menu item data and branch overrides from DB,
+ * and returns per-line unit_price and sold_out status without throwing or erroring
+ * on sold-out items.
+ *
+ * Rules:
+ *   - Missing menu item: sold_out = true, unit_price = 0
+ *   - menuItem.is_available === false: sold_out = true
+ *   - branchRow.is_enabled === false: sold_out = true
+ *   - branchRow.is_available === false: sold_out = true
+ *   - unit_price: branchRow.custom_price ?? menuItem.price
+ */
+export async function evaluatePriceLines<T extends PricingLineInput>(
+  supabaseAdmin: AnySupabaseClient,
+  branchId: string,
+  lines: T[],
+): Promise<
+  | { error: { status: number; message: string } }
+  | { lines: EvaluatedPriceLine<T>[] }
+> {
+  if (lines.length === 0) {
+    return { lines: [] };
+  }
+
+  const itemIds = Array.from(
+    new Set(lines.map((l) => (l.menu_item_id || l.id || '').trim()).filter(Boolean)),
+  );
+
+  const [menuRes, branchRes] = await Promise.all([
+    supabaseAdmin
+      .from('menu_items')
+      .select('id, name, price, image_url, is_available')
+      .in('id', itemIds),
+    supabaseAdmin
+      .from('branch_menu_items')
+      .select('menu_item_id, is_available, is_enabled, custom_price')
+      .eq('branch_id', branchId)
+      .in('menu_item_id', itemIds),
+  ]);
+
+  if (menuRes.error) {
+    console.error('[order-pricing] menu fetch error:', menuRes.error);
+    return { error: { status: 500, message: 'Gagal memuat data menu.' } };
+  }
+  if (branchRes.error) {
+    console.error('[order-pricing] branch menu fetch error:', branchRes.error);
+    return { error: { status: 500, message: 'Gagal memuat ketersediaan menu di cabang.' } };
+  }
+
+  const menuMap = new Map<string, MenuItem>(
+    (menuRes.data ?? []).map((m: MenuItem) => [m.id, m]),
+  );
+  const branchMap = new Map<string, BranchMenuItem>(
+    (branchRes.data ?? []).map((b: BranchMenuItem) => [b.menu_item_id, b]),
+  );
+
+  const evaluated = lines.map((line) => {
+    const menuItemId = line.menu_item_id || line.id || '';
+    const menuItem = menuMap.get(menuItemId);
+    const branchRow = branchMap.get(menuItemId);
+
+    if (!menuItem) {
+      return {
+        ...line,
+        menu_item_id: menuItemId,
+        name: '(Menu tidak tersedia)',
+        image_url: null,
+        unit_price: 0,
+        sold_out: true,
+        sold_out_reason: 'Salah satu menu tidak ditemukan.',
+      };
+    }
+
+    const unitPrice = branchRow?.custom_price ?? menuItem.price;
+
+    if (!menuItem.is_available) {
+      return {
+        ...line,
+        menu_item_id: menuItemId,
+        name: menuItem.name,
+        image_url: menuItem.image_url,
+        unit_price: unitPrice,
+        sold_out: true,
+        sold_out_reason: `Menu "${menuItem.name}" sedang tidak tersedia.`,
+      };
+    }
+
+    if (branchRow) {
+      if (!branchRow.is_enabled) {
+        return {
+          ...line,
+          menu_item_id: menuItemId,
+          name: menuItem.name,
+          image_url: menuItem.image_url,
+          unit_price: unitPrice,
+          sold_out: true,
+          sold_out_reason: `Menu "${menuItem.name}" tidak tersedia di cabang ini.`,
+        };
+      }
+      if (!branchRow.is_available) {
+        return {
+          ...line,
+          menu_item_id: menuItemId,
+          name: menuItem.name,
+          image_url: menuItem.image_url,
+          unit_price: unitPrice,
+          sold_out: true,
+          sold_out_reason: `Menu "${menuItem.name}" sedang habis di cabang ini.`,
+        };
+      }
+    }
+
+    return {
+      ...line,
+      menu_item_id: menuItemId,
+      name: menuItem.name,
+      image_url: menuItem.image_url,
+      unit_price: unitPrice,
+      sold_out: false,
+      sold_out_reason: null,
+    };
+  });
+
+  return { lines: evaluated };
+}
+
+/** Alias for evaluatePriceLines */
+export const auditPriceLines = evaluatePriceLines;
 
 /**
  * priceOrderLines
  *
- * Given an already-consolidated list of lines (each with a unique id+note key),
- * fetches menu item data and branch overrides from the DB, validates
- * availability, applies custom prices, and returns the authoritative snapshot.
- *
- * Error messages are identical to those in the original orders/create route so
- * the behaviour visible to clients stays unchanged.
- *
- * @param supabaseAdmin  Service-role Supabase client.
- * @param branchId       Resolved branch UUID.
- * @param lines          Consolidated lines (duplicates already merged by caller).
- *
- * @returns PricingError | PricingSuccess
+ * Given an already-consolidated list of lines, calls evaluatePriceLines to
+ * check availability and prices against the DB, returning a 409 error on
+ * any sold-out/unavailable item, or building the authoritative snapshot on success.
  */
 export async function priceOrderLines(
   supabaseAdmin: AnySupabaseClient,
@@ -103,99 +242,36 @@ export async function priceOrderLines(
     };
   }
 
-  const itemIds = Array.from(new Set(lines.map((l) => l.id)));
-
-  // ── Step 1: Load menu items ─────────────────────────────────────────────────
-  const { data: menuItems, error: menuErr } = await supabaseAdmin
-    .from('menu_items')
-    .select('id, name, price, image_url, is_available')
-    .in('id', itemIds);
-
-  if (menuErr) {
-    return { error: { status: 500, message: 'Gagal memuat data menu.' } };
+  const evalResult = await evaluatePriceLines(supabaseAdmin, branchId, lines);
+  if ('error' in evalResult) {
+    return { error: evalResult.error };
   }
 
-  const menuMap = new Map<string, MenuItem>(
-    (menuItems ?? []).map((m: MenuItem) => [m.id, m]),
-  );
-
-  // ── Step 2: Load branch-specific overrides ──────────────────────────────────
-  const { data: branchMenuRows, error: branchMenuErr } = await supabaseAdmin
-    .from('branch_menu_items')
-    .select('menu_item_id, is_available, is_enabled, custom_price')
-    .eq('branch_id', branchId)
-    .in('menu_item_id', itemIds);
-
-  if (branchMenuErr) {
-    return {
-      error: { status: 500, message: 'Gagal memuat ketersediaan menu di cabang.' },
-    };
-  }
-
-  const branchMenuMap = new Map<string, BranchMenuItem>(
-    (branchMenuRows ?? []).map((r: BranchMenuItem) => [r.menu_item_id, r]),
-  );
-
-  // ── Step 3: Validate each line and build snapshot ───────────────────────────
   const snapshot: OrderItemSnapshot[] = [];
   let subtotal = 0;
 
-  for (const line of lines) {
-    const menuItem = menuMap.get(line.id);
-    if (!menuItem) {
-      return {
-        error: { status: 409, message: 'Salah satu menu tidak ditemukan.' },
-      };
-    }
-
-    // Global availability
-    if (!menuItem.is_available) {
+  for (const line of evalResult.lines) {
+    if (line.sold_out) {
       return {
         error: {
           status: 409,
-          message: `Menu "${menuItem.name}" sedang tidak tersedia.`,
+          message: line.sold_out_reason || `Menu "${line.name}" sedang tidak tersedia.`,
         },
       };
     }
 
-    const branchRow = branchMenuMap.get(line.id);
-
-    // Branch-specific availability / enablement
-    if (branchRow) {
-      if (!branchRow.is_enabled) {
-        return {
-          error: {
-            status: 409,
-            message: `Menu "${menuItem.name}" tidak tersedia di cabang ini.`,
-          },
-        };
-      }
-      if (!branchRow.is_available) {
-        return {
-          error: {
-            status: 409,
-            message: `Menu "${menuItem.name}" sedang habis di cabang ini.`,
-          },
-        };
-      }
-    }
-
-    // Server-authoritative price (custom override wins)
-    const unitPrice = branchRow?.custom_price ?? menuItem.price;
-    subtotal += unitPrice * line.quantity;
-
+    subtotal += line.unit_price * line.quantity;
     snapshot.push({
-      id:        menuItem.id,
-      name:      menuItem.name,
-      price:     unitPrice,
-      image_url: menuItem.image_url,
+      id:        line.menu_item_id,
+      name:      line.name,
+      price:     line.unit_price,
+      image_url: line.image_url,
       quantity:  line.quantity,
       note:      line.note,
     });
   }
 
-  const total = subtotal; // room for future tax/service-charge
-
+  const total = subtotal;
   return { snapshot, subtotal, total };
 }
 

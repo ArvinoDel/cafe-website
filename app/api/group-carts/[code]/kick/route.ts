@@ -98,6 +98,6 @@ export async function POST(
     return err500('Gagal mengeluarkan anggota. Silakan coba lagi.');
   }
 
-  await bumpVersion(supabaseAdmin, cart.id, cart.version);
+  await bumpVersion(supabaseAdmin, cart.id);
   return NextResponse.json({ ok: true });
 }

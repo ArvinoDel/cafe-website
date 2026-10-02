@@ -5,7 +5,16 @@
  * Persists order codes in localStorage and migrates any legacy order snapshots.
  */
 
-export const ORDER_HISTORY_KEY = 'kopi-nako-customer-history';
+import {
+  ORDER_HISTORY_KEY,
+  ORDER_SNAPSHOT_PREFIX,
+  LAST_ORDER_KEY,
+  LEGACY_ORDER_HISTORY_KEYS,
+  LEGACY_ORDER_SNAPSHOT_PREFIX,
+  LEGACY_LAST_ORDER_KEY,
+} from '@/lib/storage-keys';
+
+export { ORDER_HISTORY_KEY };
 
 export type StoredOrderRef = {
   code: string;
@@ -14,7 +23,7 @@ export type StoredOrderRef = {
 
 /**
  * Get list of order codes stored on this device.
- * Automatically checks legacy keys (kopi-nako-order-*, kopi-nako-last-order)
+ * Automatically checks current and legacy keys
  * to ensure no past orders are missed.
  */
 export function getStoredOrderCodes(): string[] {
@@ -23,18 +32,25 @@ export function getStoredOrderCodes(): string[] {
   const foundCodes = new Set<string>();
 
   try {
-    // 1. Read main history array
-    const raw = localStorage.getItem(ORDER_HISTORY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((item) => {
-          const code = typeof item === 'string' ? item : item?.code;
-          if (code && typeof code === 'string') {
-            foundCodes.add(code.trim().toUpperCase());
-          }
-        });
-      }
+    // 1. Read main history array (current key and legacy keys)
+    const readHistory = (raw: string | null) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item) => {
+            const code = typeof item === 'string' ? item : item?.code;
+            if (code && typeof code === 'string') {
+              foundCodes.add(code.trim().toUpperCase());
+            }
+          });
+        }
+      } catch {}
+    };
+
+    readHistory(localStorage.getItem(ORDER_HISTORY_KEY));
+    for (const legKey of LEGACY_ORDER_HISTORY_KEYS) {
+      readHistory(localStorage.getItem(legKey));
     }
 
     // 2. Scan for individual order snapshots
@@ -42,10 +58,13 @@ export function getStoredOrderCodes(): string[] {
       const key = localStorage.key(i);
       if (!key) continue;
 
-      if (key.startsWith('kopi-nako-order-')) {
-        const code = key.replace('kopi-nako-order-', '').trim().toUpperCase();
+      if (key.startsWith(ORDER_SNAPSHOT_PREFIX)) {
+        const code = key.replace(ORDER_SNAPSHOT_PREFIX, '').trim().toUpperCase();
         if (code) foundCodes.add(code);
-      } else if (key === 'kopi-nako-last-order') {
+      } else if (key.startsWith(LEGACY_ORDER_SNAPSHOT_PREFIX)) {
+        const code = key.replace(LEGACY_ORDER_SNAPSHOT_PREFIX, '').trim().toUpperCase();
+        if (code) foundCodes.add(code);
+      } else if (key === LAST_ORDER_KEY || key === LEGACY_LAST_ORDER_KEY) {
         try {
           const val = JSON.parse(localStorage.getItem(key) || '{}');
           if (val?.order_code) {
@@ -92,7 +111,8 @@ export function removeOrderFromHistory(code: string): string[] {
     const existing = getStoredOrderCodes();
     const updated = existing.filter((c) => c !== cleanCode);
     localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(updated));
-    localStorage.removeItem('kopi-nako-order-' + cleanCode);
+    localStorage.removeItem(ORDER_SNAPSHOT_PREFIX + cleanCode);
+    localStorage.removeItem(LEGACY_ORDER_SNAPSHOT_PREFIX + cleanCode);
     return updated;
   } catch {
     return [];
@@ -106,9 +126,16 @@ export function clearAllOrderHistory(): void {
   if (typeof window === 'undefined') return;
   try {
     const codes = getStoredOrderCodes();
-    codes.forEach((c) => localStorage.removeItem('kopi-nako-order-' + c));
+    codes.forEach((c) => {
+      localStorage.removeItem(ORDER_SNAPSHOT_PREFIX + c);
+      localStorage.removeItem(LEGACY_ORDER_SNAPSHOT_PREFIX + c);
+    });
     localStorage.removeItem(ORDER_HISTORY_KEY);
-    localStorage.removeItem('kopi-nako-last-order');
+    for (const legKey of LEGACY_ORDER_HISTORY_KEYS) {
+      localStorage.removeItem(legKey);
+    }
+    localStorage.removeItem(LAST_ORDER_KEY);
+    localStorage.removeItem(LEGACY_LAST_ORDER_KEY);
   } catch {
     // ignore
   }

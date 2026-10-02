@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Menu, X, Coffee, Camera } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { useBrand } from '@/components/providers/BrandProvider';
+import { TABLE_KEY, BRANCH_KEY, LEGACY_TABLE_KEY, LEGACY_BRANCH_KEY } from '@/lib/storage-keys';
 
 const navLinks = [
   { label: 'Home', href: '#home' },
@@ -32,7 +33,7 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('kopi-nako-table') || localStorage.getItem('cafe-table');
+      const stored = localStorage.getItem(TABLE_KEY) || localStorage.getItem(LEGACY_TABLE_KEY);
       if (stored) setCurrentTable(stored);
     }
   }, [scannerOpen]);
@@ -51,11 +52,9 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
   }, []);
 
   const handleScanSuccess = (table: string, branchId: string | null) => {
-    localStorage.setItem('cafe-table', table);
-    localStorage.setItem('kopi-nako-table', table);
+    localStorage.setItem(TABLE_KEY, table);
     if (branchId) {
-      localStorage.setItem('cafe-branch', branchId);
-      localStorage.setItem('kopi-nako-branch', branchId);
+      localStorage.setItem(BRANCH_KEY, branchId);
     }
     const url = branchId ? `/menu?table=${table}&branch=${branchId}` : `/menu?table=${table}`;
     router.push(url);

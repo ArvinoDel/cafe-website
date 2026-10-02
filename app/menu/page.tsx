@@ -115,6 +115,9 @@ function MenuPageInner() {
     { enabled: !!groupSession },
   );
 
+  // Error shown as a toast when a group cart mutation fails (e.g. 410 Gone)
+  const [groupCartMutationError, setGroupCartMutationError] = useState<string | null>(null);
+
   // Active group session code (from URL or localStorage)
   const [groupCodeFromUrl, setGroupCodeFromUrl] = useState<string | null>(null);
 
@@ -289,8 +292,26 @@ function MenuPageInner() {
 
   // Auto-redirect when submitted → status page for the new order
   useEffect(() => {
-    if (groupCart?.status === 'submitted' && groupCart.order_code) {
-      router.push(`/status/${groupCart.order_code}`);
+    if (!groupCart) return;
+    if (groupCart.status === 'submitted') {
+      if (groupCart.order_code) {
+        // Happy path: order was created — go to status page
+        router.push(`/status/${groupCart.order_code}`);
+      } else {
+        // Unhappy path: cart is stuck submitted with no order (checkout failed).
+        // Clear the stale session so the user can start a fresh group cart.
+        clearLocalGroupSession();
+        setGroupSession(null);
+        setGroupCartMutationError(
+          'Sesi Pesan Bareng sebelumnya telah berakhir. Silakan mulai sesi baru.',
+        );
+        router.replace('/menu');
+      }
+    }
+    if (groupCart.status === 'cancelled') {
+      clearLocalGroupSession();
+      setGroupSession(null);
+      router.replace('/menu');
     }
   }, [groupCart?.status, groupCart?.order_code, router]);
 
@@ -500,8 +521,18 @@ function MenuPageInner() {
           item.id,
           newQty,
           cleanNote
-        ).then(() => {
-          refreshGroupCart();
+        ).then((result) => {
+          if (!result.ok) {
+            // 410 = cart expired / submitted / cancelled — clear stale session
+            if (result.error?.includes('dikirim') || result.error?.includes('kedaluwarsa') || result.error?.includes('dibatalkan')) {
+              clearLocalGroupSession();
+              setGroupSession(null);
+              router.replace('/menu');
+            }
+            setGroupCartMutationError(result.error ?? 'Gagal menambahkan item ke keranjang bersama.');
+          } else {
+            refreshGroupCart();
+          }
         });
         return;
       }
@@ -558,16 +589,29 @@ function MenuPageInner() {
               target.menu_item_id,
               0,
               target.note
-            ).then(() => {
-              refreshGroupCart();
+            ).then((result) => {
+              if (!result.ok) {
+                if (result.error?.includes('dikirim') || result.error?.includes('kedaluwarsa') || result.error?.includes('dibatalkan')) {
+                  clearLocalGroupSession();
+                  setGroupSession(null);
+                  router.replace('/menu');
+                }
+                setGroupCartMutationError(result.error ?? 'Gagal menghapus item.');
+              } else {
+                refreshGroupCart();
+              }
             });
           } else if (iAmHost) {
             removeGroupCartItem(
               groupSession.code,
               groupSession.member_token,
               target.id
-            ).then(() => {
-              refreshGroupCart();
+            ).then((result) => {
+              if (!result.ok) {
+                setGroupCartMutationError(result.error ?? 'Gagal menghapus item.');
+              } else {
+                refreshGroupCart();
+              }
             });
           }
         }
@@ -601,8 +645,17 @@ function MenuPageInner() {
             target.menu_item_id,
             newQty,
             target.note
-          ).then(() => {
-            refreshGroupCart();
+          ).then((result) => {
+            if (!result.ok) {
+              if (result.error?.includes('dikirim') || result.error?.includes('kedaluwarsa') || result.error?.includes('dibatalkan')) {
+                clearLocalGroupSession();
+                setGroupSession(null);
+                router.replace('/menu');
+              }
+              setGroupCartMutationError(result.error ?? 'Gagal mengubah jumlah item.');
+            } else {
+              refreshGroupCart();
+            }
           });
         }
         return;
@@ -984,6 +1037,33 @@ function MenuPageInner() {
                 type="button"
                 onClick={() => setTableChangeNotice(null)}
                 className="text-emerald-700 hover:text-emerald-950 p-1 flex-shrink-0"
+                aria-label="Tutup notifikasi"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Group cart mutation error toast (e.g. 410 expired / stuck session) */}
+      <AnimatePresence>
+        {groupCartMutationError && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-red-50 border-b border-red-200 px-4 py-2.5 text-red-900 text-xs sm:text-sm overflow-hidden"
+          >
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="font-semibold">{groupCartMutationError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGroupCartMutationError(null)}
+                className="text-red-600 hover:text-red-900 p-1 flex-shrink-0"
                 aria-label="Tutup notifikasi"
               >
                 <X className="w-4 h-4" />

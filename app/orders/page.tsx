@@ -28,6 +28,7 @@ import {
   removeOrderFromHistory,
   clearAllOrderHistory,
 } from '@/lib/order-history';
+import { ORDER_SNAPSHOT_PREFIX, LEGACY_ORDER_SNAPSHOT_PREFIX } from '@/lib/storage-keys';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useBrand } from '@/components/providers/BrandProvider';
@@ -182,7 +183,9 @@ export default function CustomerOrderHistoryPage() {
       const localOrders: CustomerOrder[] = [];
       targetCodes.forEach((c) => {
         try {
-          const raw = localStorage.getItem('kopi-nako-order-' + c);
+          const raw =
+            localStorage.getItem(ORDER_SNAPSHOT_PREFIX + c) ||
+            localStorage.getItem(LEGACY_ORDER_SNAPSHOT_PREFIX + c);
           if (raw) {
             const parsed = JSON.parse(raw);
             if (parsed?.order_code) localOrders.push(parsed);

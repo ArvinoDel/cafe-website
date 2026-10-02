@@ -27,6 +27,16 @@ import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import OrderFeedbackCard from '@/components/ui/OrderFeedbackCard';
 import TableRequestModal from '@/components/ui/TableRequestModal';
 import { executeReorder } from '@/lib/menu-availability';
+import { saveOrderToHistory } from '@/lib/order-history';
+import { clearLocalGroupSession } from '@/lib/group-cart';
+import {
+  TABLE_KEY,
+  ORDER_SNAPSHOT_PREFIX,
+  LAST_ORDER_KEY,
+  LEGACY_TABLE_KEY,
+  LEGACY_ORDER_SNAPSHOT_PREFIX,
+  LEGACY_LAST_ORDER_KEY,
+} from '@/lib/storage-keys';
 
 type OrderItem = {
   id: string;
@@ -118,6 +128,11 @@ export default function OrderStatusPage() {
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 30000);
     return () => clearInterval(timer);
+  }, []);
+
+  // When arriving on status page after group submission, clear the group cart key
+  useEffect(() => {
+    clearLocalGroupSession();
   }, []);
 
   // Initialize sound preference from localStorage key 'cafe-ready-alert'
@@ -260,19 +275,23 @@ export default function OrderStatusPage() {
 
         // Update localStorage
         try {
-          localStorage.setItem('kopi-nako-table', scannedTable);
-          const stored = localStorage.getItem('kopi-nako-order-' + order.order_code);
+          localStorage.setItem(TABLE_KEY, scannedTable);
+          const stored =
+            localStorage.getItem(ORDER_SNAPSHOT_PREFIX + order.order_code) ||
+            localStorage.getItem(LEGACY_ORDER_SNAPSHOT_PREFIX + order.order_code);
           if (stored) {
             const parsed = JSON.parse(stored);
             parsed.table_number = scannedTable;
-            localStorage.setItem('kopi-nako-order-' + order.order_code, JSON.stringify(parsed));
+            localStorage.setItem(ORDER_SNAPSHOT_PREFIX + order.order_code, JSON.stringify(parsed));
           }
-          const lastOrder = localStorage.getItem('kopi-nako-last-order');
+          const lastOrder =
+            localStorage.getItem(LAST_ORDER_KEY) ||
+            localStorage.getItem(LEGACY_LAST_ORDER_KEY);
           if (lastOrder) {
             const parsed = JSON.parse(lastOrder);
             if (parsed?.order_code === order.order_code) {
               parsed.table_number = scannedTable;
-              localStorage.setItem('kopi-nako-last-order', JSON.stringify(parsed));
+              localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(parsed));
             }
           }
         } catch {}
@@ -296,8 +315,10 @@ export default function OrderStatusPage() {
   const getLocalOrder = useCallback((): Order | null => {
     try {
       const stored =
-        localStorage.getItem('kopi-nako-order-' + code) ||
-        localStorage.getItem('kopi-nako-last-order');
+        localStorage.getItem(ORDER_SNAPSHOT_PREFIX + code) ||
+        localStorage.getItem(LEGACY_ORDER_SNAPSHOT_PREFIX + code) ||
+        localStorage.getItem(LAST_ORDER_KEY) ||
+        localStorage.getItem(LEGACY_LAST_ORDER_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && (parsed.order_code === code || !code)) {
@@ -339,6 +360,25 @@ export default function OrderStatusPage() {
         const json = await res.json();
         if (json?.order) {
           const newOrder = json.order as Order;
+
+          // Save order history entry and order snapshot so /orders works for all members (including non-host members)
+          try {
+            saveOrderToHistory(newOrder.order_code);
+            const snapshot = {
+              order_code:     newOrder.order_code,
+              customer_name:  newOrder.customer_name,
+              table_number:   newOrder.table_number,
+              items:          newOrder.items,
+              subtotal:       newOrder.subtotal,
+              total:          newOrder.total,
+              payment_method: newOrder.payment_method,
+              notes:          newOrder.notes,
+              status:         newOrder.status,
+              created_at:     newOrder.created_at,
+            };
+            localStorage.setItem(ORDER_SNAPSHOT_PREFIX + newOrder.order_code, JSON.stringify(snapshot));
+            localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(snapshot));
+          } catch {}
 
           // Check if polled status transitioned to 'ready' (not when page first loads already ready)
           if (

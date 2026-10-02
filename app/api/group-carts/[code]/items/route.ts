@@ -94,7 +94,7 @@ export async function POST(
       return err500('Gagal menghapus item.');
     }
 
-    await bumpVersion(supabaseAdmin, cart.id, cart.version);
+    await bumpVersion(supabaseAdmin, cart.id);
     return NextResponse.json({ ok: true });
   }
 
@@ -131,7 +131,7 @@ export async function POST(
       console.error('[group-carts/items] delete error:', delErr.message);
       return err500('Gagal menghapus item.');
     }
-    await bumpVersion(supabaseAdmin, cart.id, cart.version);
+    await bumpVersion(supabaseAdmin, cart.id);
     return NextResponse.json({ ok: true });
   }
 
@@ -193,6 +193,6 @@ export async function POST(
     }
   }
 
-  await bumpVersion(supabaseAdmin, cart.id, cart.version);
+  await bumpVersion(supabaseAdmin, cart.id);
   return NextResponse.json({ ok: true });
 }

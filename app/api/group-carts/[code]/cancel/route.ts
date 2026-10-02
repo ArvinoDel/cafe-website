@@ -55,7 +55,7 @@ export async function POST(
   }
 
   // Bump version so all pollers immediately see the 'cancelled' status
-  await bumpVersion(supabaseAdmin, cart.id, cart.version);
+  await bumpVersion(supabaseAdmin, cart.id);
 
   return NextResponse.json({ ok: true });
 }

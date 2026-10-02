@@ -32,6 +32,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { playOrderChime, unlockAudio } from '@/lib/audio';
+import { SOUND_KEY, LEGACY_SOUND_KEY } from '@/lib/storage-keys';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,6 @@ const REQUEST_TYPE_INFO: Record<
 
 // Realtime channel is the primary update mechanism; polling is a slow fallback
 const POLL_INTERVAL = 60_000;
-const SOUND_KEY = 'kopi-nako-sound-enabled';
 
 const STATUS_TABS: { key: OrderStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'Semua' },
@@ -390,7 +390,7 @@ export default function AdminDashboard() {
 
   // Read sound preference from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem(SOUND_KEY);
+    const stored = localStorage.getItem(SOUND_KEY) || localStorage.getItem(LEGACY_SOUND_KEY);
     const enabled = stored === 'true';
     setSoundEnabled(enabled);
     soundEnabledRef.current = enabled;

@@ -19,13 +19,14 @@
  */
 
 import { createAdminClient } from '@/lib/supabase-server';
+import { evaluatePriceLines } from '@/lib/order-pricing';
 import type { SupabaseEnv } from '@supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // Loose duck-type that avoids Supabase schema inference producing 'never'
-type AdminClient = { from: (table: string) => any };
+type AdminClient = { from: (table: string) => any; rpc?: (fn: string, args: any) => any };
 
 export type CartRow = {
   id: string;
@@ -236,10 +237,7 @@ export async function findActiveCart(
 
   if (error) {
     console.error('[group-cart] findActiveCart error:', error);
-    if ((error as { code?: string }).code === 'PGRST205' || error.message?.includes('schema cache')) {
-      return { res: err500('Tabel database group_carts belum dibuat di Supabase. Silakan jalankan migrasi database terlebih dahulu.') };
-    }
-    return { res: err500('Gagal memuat keranjang bersama.') };
+    return { res: err500('Terjadi kesalahan. Coba lagi.') };
   }
   if (!data) return { res: err404('Keranjang bersama tidak ditemukan.') };
 
@@ -270,10 +268,7 @@ export async function findCart(
 
   if (error) {
     console.error('[group-cart] findCart error:', error);
-    if ((error as { code?: string }).code === 'PGRST205' || error.message?.includes('schema cache')) {
-      return { res: err500('Tabel database group_carts belum dibuat di Supabase. Silakan jalankan migrasi database terlebih dahulu.') };
-    }
-    return { res: err500('Gagal memuat keranjang bersama.') };
+    return { res: err500('Terjadi kesalahan. Coba lagi.') };
   }
   if (!data) return { res: err410('Keranjang bersama tidak ditemukan.') };
 
@@ -330,88 +325,62 @@ export async function auditCartItems(
 ): Promise<AuditedItem[]> {
   if (cartItems.length === 0) return [];
 
-  const menuItemIds = Array.from(new Set(cartItems.map((i) => i.menu_item_id)));
+  const evalResult = await evaluatePriceLines(
+    supabaseAdmin as any,
+    branchId,
+    cartItems,
+  );
 
-  const [menuRes, branchRes] = await Promise.all([
-    supabaseAdmin
-      .from('menu_items')
-      .select('id, name, price, image_url, is_available')
-      .in('id', menuItemIds),
-    supabaseAdmin
-      .from('branch_menu_items')
-      .select('menu_item_id, is_available, is_enabled, custom_price')
-      .eq('branch_id', branchId)
-      .in('menu_item_id', menuItemIds),
-  ]);
+  if ('error' in evalResult) {
+    console.error('[group-cart] auditCartItems evaluation error:', evalResult.error);
+    return cartItems.map((item) => ({
+      id:              item.id,
+      member_id:       item.member_id,
+      member_name:     item.member_name ?? '',
+      menu_item_id:    item.menu_item_id,
+      name:            '(Menu tidak tersedia)',
+      image_url:       null,
+      unit_price:      0,
+      price:           0,
+      effective_price: 0,
+      quantity:        item.quantity,
+      note:            item.note,
+      sold_out:        true,
+    }));
+  }
 
-  type MenuRow   = { id: string; name: string; price: number; image_url: string | null; is_available: boolean };
-  type BranchRow = { menu_item_id: string; is_available: boolean; is_enabled: boolean; custom_price: number | null };
-
-  const menuMap   = new Map<string, MenuRow>((menuRes.data ?? []).map((m: MenuRow) => [m.id, m]));
-  const branchMap = new Map<string, BranchRow>((branchRes.data ?? []).map((r: BranchRow) => [r.menu_item_id, r]));
-
-  return cartItems.map((item) => {
-    const menu   = menuMap.get(item.menu_item_id);
-    const branch = branchMap.get(item.menu_item_id);
-    const memberName = item.member_name ?? '';
-
-    if (!menu) {
-      return {
-        id:             item.id,
-        member_id:      item.member_id,
-        member_name:    memberName,
-        menu_item_id:   item.menu_item_id,
-        name:           '(Menu tidak tersedia)',
-        image_url:      null,
-        unit_price:     0,
-        price:          0,
-        effective_price: 0,
-        quantity:       item.quantity,
-        note:           item.note,
-        sold_out:       true,
-      };
-    }
-
-    const sold_out =
-      !menu.is_available ||
-      (branch ? !branch.is_enabled || !branch.is_available : false);
-    const unit_price = branch?.custom_price ?? menu.price;
-
-    return {
-      id:             item.id,
-      member_id:      item.member_id,
-      member_name:    memberName,
-      menu_item_id:   item.menu_item_id,
-      name:           menu.name,
-      image_url:      menu.image_url,
-      unit_price,
-      price:          unit_price,
-      effective_price: unit_price,
-      quantity:       item.quantity,
-      note:           item.note,
-      sold_out,
-    };
-  });
+  return evalResult.lines.map((line) => ({
+    id:              line.id,
+    member_id:       line.member_id,
+    member_name:     line.member_name ?? '',
+    menu_item_id:    line.menu_item_id,
+    name:            line.name,
+    image_url:       line.image_url,
+    unit_price:      line.unit_price,
+    price:           line.unit_price,
+    effective_price: line.unit_price,
+    quantity:        line.quantity,
+    note:            line.note,
+    sold_out:        line.sold_out,
+  }));
 }
 
 // ─── Version bump ─────────────────────────────────────────────────────────────
 
 /**
- * Atomically increments the cart version.
- * Each mutation route passes the currentVersion it loaded, so the update
- * always sets version to exactly currentVersion + 1.
+ * Atomically increments the cart version via the bump_group_cart_version RPC.
  */
 export async function bumpVersion(
   supabaseAdmin: AdminClient,
   cartId: string,
-  currentVersion: number,
-): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from('group_carts')
-    .update({ version: currentVersion + 1 })
-    .eq('id', cartId);
+): Promise<number | null> {
+  const { data, error } = await (supabaseAdmin as any).rpc('bump_group_cart_version', {
+    p_cart_id: cartId,
+  });
 
   if (error) {
-    console.error('[group-cart] bumpVersion error:', error.message);
+    console.error('[group-cart] bumpVersion RPC error:', error.message);
+    return null;
   }
+  return data as number;
 }

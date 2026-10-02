@@ -134,10 +134,7 @@ export async function POST(request: NextRequest) {
       const pgCode = (cartErr as { code?: string }).code;
       if (pgCode === '23505' && attempt < MAX_TRIES) continue; // code collision
       console.error('[group-carts] cart insert error:', cartErr);
-      if (pgCode === 'PGRST205' || cartErr.message?.includes('schema cache')) {
-        return err500('Tabel database group_carts belum dibuat di Supabase. Silakan jalankan file migrasi 20261002000000_create_group_carts.sql terlebih dahulu.');
-      }
-      return err500('Gagal membuat keranjang bersama. Silakan coba lagi.');
+      return err500('Terjadi kesalahan. Coba lagi.');
     }
 
     // Insert host member
@@ -156,11 +153,7 @@ export async function POST(request: NextRequest) {
       console.error('[group-carts] member insert error:', memberErr);
       // Clean up the dangling cart
       await supabaseAdmin.from('group_carts').delete().eq('id', cart.id);
-      const pgCode = (memberErr as { code?: string }).code;
-      if (pgCode === 'PGRST205' || memberErr.message?.includes('schema cache')) {
-        return err500('Tabel database group_cart_members belum dibuat di Supabase. Silakan jalankan file migrasi 20261002000000_create_group_carts.sql terlebih dahulu.');
-      }
-      return err500('Gagal membuat anggota. Silakan coba lagi.');
+      return err500('Terjadi kesalahan. Coba lagi.');
     }
 
     // Set host_member_id and initial version
