@@ -105,6 +105,9 @@ function CheckoutPageInner() {
     { enabled: isGroupMode },
   );
 
+  // Whether the current member is the host (can submit the group order)
+  const isGroupHost = !!(groupCart && groupSession && groupCart.host_member_id === groupSession.member_id);
+
   // Auto-redirect all members to status page when group cart is submitted
   useEffect(() => {
     if (groupCart?.status === 'submitted' && groupCart.order_code) {
@@ -948,7 +951,7 @@ function CheckoutPageInner() {
               submitting ||
               isPaused ||
               (isGroupMode
-                ? !groupSession || !groupCart || groupCart.items.length === 0
+                ? !groupSession || !groupCart || groupCart.items.length === 0 || !isGroupHost
                 : (!name.trim() || !tableNumber.trim() || cart.length === 0))
             }
             className={`w-full py-4 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft ${
@@ -960,7 +963,9 @@ function CheckoutPageInner() {
               : isPaused
                 ? 'Pemesanan Sedang Dijeda'
                 : isGroupMode && groupCart
-                  ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
+                  ? isGroupHost
+                    ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
+                    : 'Menunggu Host Mengonfirmasi...'
                   : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
           </button>
           {submitError && (
@@ -971,6 +976,11 @@ function CheckoutPageInner() {
           {isGroupMode && groupCart && groupCart.items.length === 0 && (
             <p className="text-center text-xs text-amber-700 font-semibold mt-2">
               Keranjang bersama masih kosong. Tambahkan menu terlebih dahulu sebelum konfirmasi.
+            </p>
+          )}
+          {isGroupMode && groupCart && groupCart.items.length > 0 && !isGroupHost && (
+            <p className="text-center text-xs text-charcoal/50 font-medium mt-2 flex items-center justify-center gap-1">
+              <Lock className="w-3 h-3" /> Hanya host yang dapat mengirim pesanan bersama
             </p>
           )}
           {!isGroupMode && (!name.trim() || !tableNumber.trim()) && (

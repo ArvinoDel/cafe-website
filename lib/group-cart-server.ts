@@ -50,10 +50,16 @@ export type MemberRow = {
 export type AuditedItem = {
   id: string;           // group_cart_items.id
   member_id: string;
+  member_name: string;
   menu_item_id: string;
   name: string;
   image_url: string | null;
+  /** Server-authoritative unit price (custom override or global price). */
   unit_price: number;
+  /** Alias for unit_price — matches the client-side GroupCartItem.price field. */
+  price: number;
+  /** Alias for unit_price — matches the client-side GroupCartItem.effective_price field. */
+  effective_price: number;
   quantity: number;
   note: string | null;
   sold_out: boolean;
@@ -316,6 +322,7 @@ export async function auditCartItems(
   cartItems: Array<{
     id: string;
     member_id: string;
+    member_name?: string;
     menu_item_id: string;
     quantity: number;
     note: string | null;
@@ -346,18 +353,22 @@ export async function auditCartItems(
   return cartItems.map((item) => {
     const menu   = menuMap.get(item.menu_item_id);
     const branch = branchMap.get(item.menu_item_id);
+    const memberName = item.member_name ?? '';
 
     if (!menu) {
       return {
-        id:           item.id,
-        member_id:    item.member_id,
-        menu_item_id: item.menu_item_id,
-        name:         '(Menu tidak tersedia)',
-        image_url:    null,
-        unit_price:   0,
-        quantity:     item.quantity,
-        note:         item.note,
-        sold_out:     true,
+        id:             item.id,
+        member_id:      item.member_id,
+        member_name:    memberName,
+        menu_item_id:   item.menu_item_id,
+        name:           '(Menu tidak tersedia)',
+        image_url:      null,
+        unit_price:     0,
+        price:          0,
+        effective_price: 0,
+        quantity:       item.quantity,
+        note:           item.note,
+        sold_out:       true,
       };
     }
 
@@ -367,14 +378,17 @@ export async function auditCartItems(
     const unit_price = branch?.custom_price ?? menu.price;
 
     return {
-      id:           item.id,
-      member_id:    item.member_id,
-      menu_item_id: item.menu_item_id,
-      name:         menu.name,
-      image_url:    menu.image_url,
+      id:             item.id,
+      member_id:      item.member_id,
+      member_name:    memberName,
+      menu_item_id:   item.menu_item_id,
+      name:           menu.name,
+      image_url:      menu.image_url,
       unit_price,
-      quantity:     item.quantity,
-      note:         item.note,
+      price:          unit_price,
+      effective_price: unit_price,
+      quantity:       item.quantity,
+      note:           item.note,
       sold_out,
     };
   });

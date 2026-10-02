@@ -307,7 +307,7 @@ export async function POST(request: NextRequest) {
         quantity,
         note,
         member_id,
-        group_cart_members!inner(name)
+        group_cart_members!member_id(name)
       `)
       .eq('cart_id', cartRow.id);
 

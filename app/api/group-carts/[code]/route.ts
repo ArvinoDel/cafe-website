@@ -81,6 +81,11 @@ export async function GET(
   type RawItem = { id: string; member_id: string; menu_item_id: string; quantity: number; note: string | null; created_at: string };
   const rawItems = (itemsRaw ?? []) as RawItem[];
 
+  // Build a member name lookup for attribution
+  type RawMember = { id: string; name: string; is_ready: boolean; joined_at: string };
+  const rawMembers = (membersRaw ?? []) as RawMember[];
+  const memberNameMap = new Map<string, string>(rawMembers.map((m) => [m.id, m.name]));
+
   // Price + availability check (non-fatal on sold-out)
   const auditedItems = await auditCartItems(
     supabaseAdmin,
@@ -88,6 +93,7 @@ export async function GET(
     rawItems.map((r) => ({
       id:           r.id,
       member_id:    r.member_id,
+      member_name:  memberNameMap.get(r.member_id) ?? '',
       menu_item_id: r.menu_item_id,
       quantity:     r.quantity,
       note:         r.note,
@@ -100,10 +106,10 @@ export async function GET(
     per_member_totals[item.member_id] =
       (per_member_totals[item.member_id] ?? 0) + item.unit_price * item.quantity;
   }
-  const total = Object.values(per_member_totals).reduce((a, b) => a + b, 0);
+  const subtotal = Object.values(per_member_totals).reduce((a, b) => a + b, 0);
+  const total = subtotal; // placeholder for future tax/service charge
 
-  type RawMember = { id: string; name: string; is_ready: boolean; joined_at: string };
-  const members = ((membersRaw ?? []) as RawMember[]).map((m) => ({
+  const members = rawMembers.map((m) => ({
     id:       m.id,
     name:     m.name,
     is_ready: m.is_ready,
@@ -113,6 +119,7 @@ export async function GET(
 
   return NextResponse.json({
     changed:         true,
+    code:            cart.code,
     status:          cart.status,
     order_code:      cart.order_code,
     table_number:    cart.table_number,
@@ -121,6 +128,7 @@ export async function GET(
     host_member_id:  cart.host_member_id,
     members,
     items:           auditedItems,
+    subtotal,
     total,
     per_member_totals,
   });

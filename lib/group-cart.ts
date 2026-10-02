@@ -31,10 +31,13 @@ export type GroupMember = {
 export type GroupCartItem = {
   id: string;
   member_id: string;
+  /** Name of the member who added this item (populated by GET response). */
   member_name: string;
   menu_item_id: string;
   name: string;
+  /** Server-authoritative unit price (custom_price override or global price). */
   price: number;
+  /** Alias for price — kept for backwards compat with checkout/menu renders. */
   effective_price: number;
   image_url: string | null;
   quantity: number;
@@ -49,6 +52,8 @@ export type GroupCartState = {
   branch_id: string;
   expires_at: string;
   version: number;
+  /** UUID of the member who created the cart and can submit it. */
+  host_member_id: string | null;
   members: GroupMember[];
   items: GroupCartItem[];
   subtotal: number;
