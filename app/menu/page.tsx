@@ -129,6 +129,9 @@ function MenuPageInner() {
   );
   // My member record from live cart
   const myMember = groupCart?.members.find((m) => m.id === groupSession?.member_id);
+  // Waiting for order_code after host claims submission
+  const isAwaitingOrderCode = groupCart?.status === 'submitted' && !groupCart?.order_code;
+  const submittedSinceRef = useRef<number | null>(null);
 
   // Restore cart from localStorage on mount (with lineKey backward compatibility)
   useEffect(() => {
@@ -293,21 +296,40 @@ function MenuPageInner() {
   // Auto-redirect when submitted → status page for the new order
   useEffect(() => {
     if (!groupCart) return;
+
     if (groupCart.status === 'submitted') {
       if (groupCart.order_code) {
+        submittedSinceRef.current = null;
         // Happy path: order was created — go to status page
         router.push(`/status/${groupCart.order_code}`);
-      } else {
-        // Unhappy path: cart is stuck submitted with no order (checkout failed).
-        // Clear the stale session so the user can start a fresh group cart.
+        return;
+      }
+
+      // Polled group cart has status 'submitted' but NO order_code yet:
+      // Do NOT clear the group session. Keep polling (~1.5s).
+      if (submittedSinceRef.current === null) {
+        submittedSinceRef.current = Date.now();
+      }
+
+      const elapsed = Date.now() - submittedSinceRef.current;
+      const remainingMs = Math.max(0, 30_000 - elapsed);
+
+      const timeoutId = setTimeout(() => {
+        // Only treat it as stuck after 30 seconds with still no order_code
+        submittedSinceRef.current = null;
         clearLocalGroupSession();
         setGroupSession(null);
         setGroupCartMutationError(
           'Sesi Pesan Bareng sebelumnya telah berakhir. Silakan mulai sesi baru.',
         );
         router.replace('/menu');
-      }
+      }, remainingMs);
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      submittedSinceRef.current = null;
     }
+
     if (groupCart.status === 'cancelled') {
       clearLocalGroupSession();
       setGroupSession(null);
@@ -886,37 +908,50 @@ function MenuPageInner() {
               <div className="flex items-center gap-2 min-w-0">
                 <Users className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="font-semibold truncate">
-                  Pesan Bareng &middot; {groupCart.members.length} orang &middot;&nbsp;
-                  {groupCart.members.every((m) => m.is_ready) && groupCart.members.length > 1
-                    ? <span className="text-green-300 font-bold">Semua siap!</span>
-                    : <span>{groupCart.members.filter((m) => m.is_ready).length} siap</span>
-                  }
+                  {isAwaitingOrderCode ? (
+                    <span className="inline-flex items-center gap-1.5 text-amber-200">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Pesanan sedang dikirim...
+                    </span>
+                  ) : (
+                    <>
+                      Pesan Bareng &middot; {groupCart.members.length} orang &middot;&nbsp;
+                      {groupCart.members.every((m) => m.is_ready) && groupCart.members.length > 1
+                        ? <span className="text-green-300 font-bold">Semua siap!</span>
+                        : <span>{groupCart.members.filter((m) => m.is_ready).length} siap</span>
+                      }
+                    </>
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                {/* Toggle ready */}
-                <button
-                  type="button"
-                  onClick={() => handleToggleReady(!(myMember?.is_ready))}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
-                    myMember?.is_ready
-                      ? 'bg-green-400/20 text-green-200 border border-green-400/40 hover:bg-green-400/30'
-                      : 'bg-cream/15 text-cream border border-cream/30 hover:bg-cream/25'
-                  }`}
-                  title={myMember?.is_ready ? 'Batalkan siap' : 'Tandai siap pesan'}
-                >
-                  <UserCheck className="w-3 h-3" />
-                  {myMember?.is_ready ? 'Siap' : 'Belum siap'}
-                </button>
-                {/* Invite */}
-                <button
-                  type="button"
-                  onClick={() => setInviteSheetOpen(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream/15 hover:bg-cream/25 text-cream border border-cream/30 font-bold text-[11px] transition-colors"
-                >
-                  <Share2 className="w-3 h-3" />
-                  Ajak
-                </button>
+                {!isAwaitingOrderCode && (
+                  <>
+                    {/* Toggle ready */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleReady(!(myMember?.is_ready))}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
+                        myMember?.is_ready
+                          ? 'bg-green-400/20 text-green-200 border border-green-400/40 hover:bg-green-400/30'
+                          : 'bg-cream/15 text-cream border border-cream/30 hover:bg-cream/25'
+                      }`}
+                      title={myMember?.is_ready ? 'Batalkan siap' : 'Tandai siap pesan'}
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      {myMember?.is_ready ? 'Siap' : 'Belum siap'}
+                    </button>
+                    {/* Invite */}
+                    <button
+                      type="button"
+                      onClick={() => setInviteSheetOpen(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream/15 hover:bg-cream/25 text-cream border border-cream/30 font-bold text-[11px] transition-colors"
+                    >
+                      <Share2 className="w-3 h-3" />
+                      Ajak
+                    </button>
+                  </>
+                )}
                 {/* Members */}
                 <button
                   type="button"
@@ -927,7 +962,7 @@ function MenuPageInner() {
                   Anggota
                 </button>
                 {/* Checkout group */}
-                {iAmHost && (
+                {iAmHost && !isAwaitingOrderCode && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1068,6 +1103,25 @@ function MenuPageInner() {
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Group cart submitting status banner */}
+      <AnimatePresence>
+        {isAwaitingOrderCode && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-amber-900 text-xs sm:text-sm overflow-hidden"
+          >
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-amber-600 animate-spin flex-shrink-0" />
+                <span className="font-semibold">Pesanan sedang dikirim...</span>
+              </div>
             </div>
           </motion.div>
         )}
@@ -1622,31 +1676,54 @@ function MenuPageInner() {
                     {iAmHost ? (
                       <button
                         onClick={goToCheckout}
-                        disabled={groupCart.items.length === 0 || isPaused}
+                        disabled={groupCart.items.length === 0 || isPaused || isAwaitingOrderCode}
                         className={`w-full py-4 rounded-xl font-bold transition-colors shadow-soft ${
-                          isPaused
+                          isPaused || isAwaitingOrderCode
                             ? 'bg-charcoal/20 text-charcoal/40 cursor-not-allowed'
                             : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
                         }`}
                       >
-                        {isPaused ? 'Pemesanan Sedang Dijeda' : `Checkout Pesanan Bareng — ${formatPrice(groupCart.total)}`}
+                        {isAwaitingOrderCode ? (
+                          <span className="inline-flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Pesanan sedang dikirim...
+                          </span>
+                        ) : isPaused ? (
+                          'Pemesanan Sedang Dijeda'
+                        ) : (
+                          `Checkout Pesanan Bareng — ${formatPrice(groupCart.total)}`
+                        )}
                       </button>
                     ) : (
                       <div className="space-y-2">
                         <button
                           type="button"
                           onClick={() => handleToggleReady(!myMember?.is_ready)}
+                          disabled={isAwaitingOrderCode}
                           className={`w-full py-3.5 rounded-xl font-bold text-sm transition-colors active:scale-95 flex items-center justify-center gap-2 ${
-                            myMember?.is_ready
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-coffee-700 text-cream hover:bg-coffee-800'
+                            isAwaitingOrderCode
+                              ? 'bg-charcoal/20 text-charcoal/40 cursor-not-allowed'
+                              : myMember?.is_ready
+                                ? 'bg-green-600 text-white hover:bg-green-700'
+                                : 'bg-coffee-700 text-cream hover:bg-coffee-800'
                           }`}
                         >
-                          <UserCheck className="w-4 h-4" />
-                          <span>{myMember?.is_ready ? 'Siap! (Klik jika ingin ubah)' : 'Saya Sudah Selesai Pilih'}</span>
+                          {isAwaitingOrderCode ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Pesanan sedang dikirim...</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="w-4 h-4" />
+                              <span>{myMember?.is_ready ? 'Siap! (Klik jika ingin ubah)' : 'Saya Sudah Selesai Pilih'}</span>
+                            </>
+                          )}
                         </button>
                         <p className="text-center text-[11px] text-charcoal/50">
-                          Pesanan akan dikirim oleh host ({groupCart.members.find(m => m.is_host)?.name ?? 'Host'}).
+                          {isAwaitingOrderCode
+                            ? 'Pesanan sedang diproses oleh server, mohon tunggu sebentar...'
+                            : `Pesanan akan dikirim oleh host (${groupCart.members.find(m => m.is_host)?.name ?? 'Host'}).`}
                         </p>
                       </div>
                     )}

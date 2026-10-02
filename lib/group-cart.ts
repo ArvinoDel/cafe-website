@@ -208,10 +208,12 @@ export function useGroupCart(
   const codeRef      = useRef(code);
   const sessionRef   = useRef(session);
   const stoppedRef   = useRef(false);
+  const cartRef      = useRef<GroupCartState | null>(null);
 
   enabledRef.current  = enabled;
   codeRef.current     = code;
   sessionRef.current  = session;
+  cartRef.current     = cart;
 
   // Use a ref so scheduleNext can call fetchCart without closure issues
   const fetchCartRef = useRef<() => Promise<void>>(async () => {});
@@ -261,7 +263,9 @@ export function useGroupCart(
       const json = await res.json();
 
       if ((json as { changed?: boolean })?.changed === false) {
-        backoffRef.current = POLL_INTERVAL_MS;
+        // If the cart is submitted but waiting for order_code, keep fast polling (~1.5s)
+        const isWaitingOrderCode = cartRef.current?.status === 'submitted' && !cartRef.current?.order_code;
+        backoffRef.current = isWaitingOrderCode ? 1500 : POLL_INTERVAL_MS;
         setError(null);
         scheduleNext();
         return;
@@ -269,17 +273,25 @@ export function useGroupCart(
 
       const state = json as GroupCartState;
       versionRef.current = state.version;
-      backoffRef.current = POLL_INTERVAL_MS;
+      cartRef.current = state;
       setCart(state);
       setError(null);
       setLoading(false);
 
-      // Stop polling on terminal states
-      if (state.status !== 'open') {
+      // Stop polling on terminal states: cancelled, or submitted with order_code
+      if (state.status === 'cancelled' || (state.status === 'submitted' && state.order_code)) {
         stoppedRef.current = true;
         return;
       }
 
+      // If submitted but waiting for order_code, poll fast (~1.5s)
+      if (state.status === 'submitted' && !state.order_code) {
+        backoffRef.current = 1500;
+        scheduleNext();
+        return;
+      }
+
+      backoffRef.current = POLL_INTERVAL_MS;
       scheduleNext();
     } catch (err: unknown) {
       if ((err as { name?: string })?.name === 'AbortError') return;

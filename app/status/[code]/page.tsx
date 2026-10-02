@@ -28,7 +28,7 @@ import OrderFeedbackCard from '@/components/ui/OrderFeedbackCard';
 import TableRequestModal from '@/components/ui/TableRequestModal';
 import { executeReorder } from '@/lib/menu-availability';
 import { saveOrderToHistory } from '@/lib/order-history';
-import { clearLocalGroupSession } from '@/lib/group-cart';
+import { clearLocalGroupSession, getLocalGroupSession } from '@/lib/group-cart';
 import {
   TABLE_KEY,
   ORDER_SNAPSHOT_PREFIX,
@@ -130,10 +130,27 @@ export default function OrderStatusPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // When arriving on status page after group submission, clear the group cart key
+  // Clear group session only when the cart was submitted for THIS specific order.
+  // Visiting an unrelated order keeps the active group session intact.
   useEffect(() => {
-    clearLocalGroupSession();
-  }, []);
+    if (!code) return;
+    const session = getLocalGroupSession();
+    if (!session) return;
+
+    fetch(`/api/group-carts/${encodeURIComponent(session.code)}`, {
+      headers: { 'x-member-token': session.member_token },
+    })
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.status === 'submitted' && data.order_code === code) {
+          clearLocalGroupSession();
+        }
+      })
+      .catch(() => {});
+  }, [code]);
 
   // Initialize sound preference from localStorage key 'cafe-ready-alert'
   useEffect(() => {

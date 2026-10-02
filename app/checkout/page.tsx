@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { useBranchInfo } from '@/lib/branch-info';
 import { roundToFiveMinutes } from '@/lib/wait-time';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -23,6 +23,7 @@ import {
   Clock,
   Users,
   Crown,
+  Loader2,
 } from 'lucide-react';
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
@@ -113,20 +114,40 @@ function CheckoutPageInner() {
 
   // Whether the current member is the host (can submit the group order)
   const isGroupHost = !!(groupCart && groupSession && groupCart.host_member_id === groupSession.member_id);
+  const isAwaitingOrderCode = isGroupMode && groupCart?.status === 'submitted' && !groupCart?.order_code;
+  const submittedSinceRef = useRef<number | null>(null);
 
   // Auto-redirect all members to status page when group cart is submitted
   useEffect(() => {
     if (!groupCart) return;
+
     if (groupCart.status === 'submitted') {
       if (groupCart.order_code) {
+        submittedSinceRef.current = null;
         router.replace(`/status/${groupCart.order_code}`);
-      } else {
-        // Cart is stuck submitted with no order (checkout failed mid-way).
-        // Clear the stale session so the user can start fresh.
+        return;
+      }
+
+      // Polled group cart has status 'submitted' but NO order_code yet:
+      // Do NOT clear the group session. Keep polling (~1.5s).
+      if (submittedSinceRef.current === null) {
+        submittedSinceRef.current = Date.now();
+      }
+
+      const elapsed = Date.now() - submittedSinceRef.current;
+      const remainingMs = Math.max(0, 30_000 - elapsed);
+
+      const timeoutId = setTimeout(() => {
+        // Only treat it as stuck after 30 seconds with still no order_code
+        submittedSinceRef.current = null;
         clearLocalGroupSession();
         setGroupSession(null);
         setSubmitError('Sesi pesanan bareng telah berakhir. Silakan mulai sesi baru dari menu.');
-      }
+      }, remainingMs);
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      submittedSinceRef.current = null;
     }
   }, [groupCart?.status, groupCart?.order_code, router]);
 
@@ -536,7 +557,15 @@ function CheckoutPageInner() {
           >
             <Users className="w-5 h-5 text-coffee-700 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-coffee-900 text-sm">Pesan Bareng — {groupCart.members.length} orang</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold text-coffee-900 text-sm">Pesan Bareng — {groupCart.members.length} orang</p>
+                {isAwaitingOrderCode && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Pesanan sedang dikirim...
+                  </span>
+                )}
+              </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {groupCart.members.map((m) => (
                   <span
@@ -561,6 +590,14 @@ function CheckoutPageInner() {
               </p>
             </div>
           </motion.div>
+        )}
+
+        {/* Submitting order notice */}
+        {isAwaitingOrderCode && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-3 text-amber-900 text-xs sm:text-sm">
+            <Loader2 className="w-4 h-4 text-amber-600 animate-spin flex-shrink-0" />
+            <span className="font-semibold">Pesanan sedang dikirim...</span>
+          </div>
         )}
 
         {/* Missing table alert — not shown in group mode */}
@@ -965,6 +1002,7 @@ function CheckoutPageInner() {
             disabled={
               submitting ||
               isPaused ||
+              isAwaitingOrderCode ||
               (isGroupMode
                 ? !groupSession || !groupCart || groupCart.items.length === 0 || !isGroupHost
                 : (!name.trim() || !tableNumber.trim() || cart.length === 0))
@@ -973,15 +1011,20 @@ function CheckoutPageInner() {
               isPaused ? 'bg-amber-500 text-white' : 'bg-coffee-700 text-cream hover:bg-coffee-800'
             }`}
           >
-            {submitting
-              ? 'Memproses...'
-              : isPaused
-                ? 'Pemesanan Sedang Dijeda'
-                : isGroupMode && groupCart
-                  ? isGroupHost
-                    ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
-                    : 'Menunggu Host Mengonfirmasi...'
-                  : `Konfirmasi Pesanan — ${formatPrice(subtotal)}`}
+            {submitting || isAwaitingOrderCode ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Pesanan sedang dikirim...
+              </span>
+            ) : isPaused ? (
+              'Pemesanan Sedang Dijeda'
+            ) : isGroupMode && groupCart ? (
+              isGroupHost
+                ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
+                : 'Menunggu Host Mengonfirmasi...'
+            ) : (
+              `Konfirmasi Pesanan — ${formatPrice(subtotal)}`
+            )}
           </button>
           {submitError && (
             <p className="text-center text-xs text-red-600 font-semibold mt-2">
