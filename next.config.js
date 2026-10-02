@@ -4,6 +4,9 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   images: { unoptimized: true },
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'date-fns'],
+  },
   webpack: (config) => {
     config.module = {
       ...config.module,
