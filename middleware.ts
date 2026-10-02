@@ -36,9 +36,15 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refresh the session (writes updated cookies via setAll above).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data?.user) {
+      user = data.user;
+    }
+  } catch {
+    user = null;
+  }
 
   const pathname = request.nextUrl.pathname;
 
