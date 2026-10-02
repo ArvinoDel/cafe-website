@@ -3,27 +3,7 @@
 import { motion } from 'framer-motion';
 import { QrCode, Clock, UtensilsCrossed } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
-
-const features = [
-  {
-    icon: QrCode,
-    title: 'Scan & Order',
-    description:
-      'Every table has a QR code. Scan with your phone, browse the full menu, and place your order — no waiting, no waiter required.',
-  },
-  {
-    icon: Clock,
-    title: 'Skip the Queue',
-    description:
-      'Order from your seat and your food and drinks come to you. Enjoy your visit without standing in line.',
-  },
-  {
-    icon: UtensilsCrossed,
-    title: 'Coffee & Kitchen',
-    description:
-      'From expertly crafted espresso drinks to freshly prepared food. Everything you love, all in one place.',
-  },
-];
+import { DEFAULT_VALUE_PROPOSITION } from '@/lib/site-defaults';
 
 export type ValuePropositionContent = {
   tag?: string;
@@ -35,10 +15,12 @@ export type ValuePropositionContent = {
 const defaultIcons = [QrCode, Clock, UtensilsCrossed];
 
 export default function ValueProposition({ content }: { content?: ValuePropositionContent }) {
-  const tag = content?.tag || 'Why Choose Us';
-  const title = content?.title || 'Great coffee, made easy';
-  const description = content?.description || 'We combine specialty coffee, great food, and self-service technology — making every visit simpler, faster, and more enjoyable.';
-  const featureItems = content?.features && content.features.length > 0 ? content.features : features;
+  const tag          = content?.tag          || DEFAULT_VALUE_PROPOSITION.tag;
+  const title        = content?.title        || DEFAULT_VALUE_PROPOSITION.title;
+  const description  = content?.description  || DEFAULT_VALUE_PROPOSITION.description;
+  const featureItems = content?.features && content.features.length > 0
+    ? content.features
+    : DEFAULT_VALUE_PROPOSITION.features;
 
   return (
     <section className="py-20 sm:py-28 bg-white">
@@ -79,7 +61,7 @@ export default function ValueProposition({ content }: { content?: ValuePropositi
         >
           {featureItems.map((feature, idx) => {
             const Icon = (feature as { icon?: unknown }).icon && typeof (feature as { icon?: unknown }).icon === 'function'
-              ? ((feature as { icon: React.ComponentType<{ className?: string }> }).icon)
+              ? ((feature as unknown as { icon: React.ComponentType<{ className?: string }> }).icon)
               : defaultIcons[idx % defaultIcons.length];
             return (
               <motion.div

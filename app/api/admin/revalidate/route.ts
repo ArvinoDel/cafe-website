@@ -1,15 +1,17 @@
-import { revalidatePath } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { revalidatePath, revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseContext } from '@/lib/supabase-server';
 
 /**
  * POST /api/admin/revalidate
  *
- * Triggers ISR revalidation for the homepage and menu page after a superadmin
- * saves site_content changes. The request must come from an authenticated
- * superadmin session (validated via the existing auth context).
+ * Triggers ISR cache revalidation (tags & paths) after an admin or superadmin
+ * saves site_content, menu items, or branch changes.
+ *
+ * Request body (optional JSON):
+ *   { tag?: string, tags?: string[] }
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   const { data: ctx, error } = await createSupabaseContext({ auth: 'user' });
   if (error || !ctx) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -22,8 +24,26 @@ export async function POST() {
     .eq('id', ctx.userClaims!.id)
     .single();
 
-  if (!profile || profile.role !== 'superadmin') {
+  if (!profile || (profile.role !== 'superadmin' && profile.role !== 'admin')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  let body: { tag?: string; tags?: string[] } = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Body is optional
+  }
+
+  if (body.tag) {
+    revalidateTag(body.tag);
+  } else if (body.tags && Array.isArray(body.tags)) {
+    body.tags.forEach((tag) => revalidateTag(tag));
+  } else {
+    // Default: invalidate all primary homepage & catalog cache tags
+    revalidateTag('site-content');
+    revalidateTag('branches');
+    revalidateTag('menu');
   }
 
   revalidatePath('/');
@@ -33,3 +53,4 @@ export async function POST() {
 
   return NextResponse.json({ revalidated: true });
 }
+

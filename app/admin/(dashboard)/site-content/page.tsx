@@ -16,6 +16,10 @@ import {
   Upload,
   X,
   Info,
+  Search,
+  Plus,
+  Trash2,
+  Download,
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
@@ -34,7 +38,7 @@ function getSupabase() {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SectionKey = 'navbar' | 'hero' | 'value_proposition' | 'how_it_works' | 'local_roots' | 'footer' | 'theme';
+type SectionKey = 'navbar' | 'hero' | 'value_proposition' | 'how_it_works' | 'featured_menu' | 'local_roots' | 'footer' | 'theme' | 'seo';
 
 type SectionDef = {
   key: SectionKey;
@@ -45,10 +49,12 @@ type SectionDef = {
 
 const SECTIONS: SectionDef[] = [
   { key: 'theme',            label: 'Branding & Theme',  icon: Palette,    description: 'Color palette, brand name, and logo' },
+  { key: 'seo',             label: 'SEO & Metadata',    icon: Search,     description: 'Page title, meta description, and OG image' },
   { key: 'navbar',           label: 'Navigation',        icon: Navigation, description: 'Brand name, subtitle, and nav links' },
   { key: 'hero',             label: 'Hero Section',      icon: Layout,     description: 'Main headline, subheadline, CTA, and hero image' },
   { key: 'value_proposition',label: 'Value Proposition', icon: Star,       description: 'Why choose us — feature cards' },
   { key: 'how_it_works',     label: 'How It Works',      icon: BookOpen,   description: 'Steps, title, and description' },
+  { key: 'featured_menu',    label: 'Featured Menu',     icon: Star,       description: 'Section eyebrow, title, and "see all" link copy' },
   { key: 'local_roots',      label: 'Our Story',         icon: Footprints, description: 'Origin story, commitments, and story image' },
   { key: 'footer',           label: 'Footer',            icon: Footprints, description: 'Tagline, social links, and newsletter copy' },
 ];
@@ -299,6 +305,12 @@ function NavbarEditor({ content, onChange }: { content: Record<string, unknown>;
 }
 
 function HeroEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  const sp = (content.socialProof as Record<string, unknown>) ?? {};
+
+  function updateSp(key: string, value: unknown) {
+    onChange({ ...content, socialProof: { ...sp, [key]: value } });
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -311,7 +323,7 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
       </div>
       <div>
         <Label>Headline Accent (highlighted line)</Label>
-        <Input value={(content.headlineAccent as string) ?? ''} onChange={(v) => onChange({ ...content, headlineAccent: v })} placeholder="& Fresh Kitchen." />
+        <Input value={(content.headlineAccent as string) ?? ''} onChange={(v) => onChange({ ...content, headlineAccent: v })} placeholder="&amp; Fresh Kitchen." />
       </div>
       <div>
         <Label>Subheadline</Label>
@@ -333,6 +345,48 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
       <div>
         <Label>Hero Image Alt Text</Label>
         <Input value={(content.heroImageAlt as string) ?? ''} onChange={(v) => onChange({ ...content, heroImageAlt: v })} placeholder="Freshly brewed specialty coffee" />
+      </div>
+
+      {/* Social Proof (opt-in) */}
+      <div className="border-t border-coffee-100 pt-4 space-y-3">
+        <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Social Proof</p>
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={!!sp.enabled}
+            onChange={(e) => updateSp('enabled', e.target.checked)}
+            className="w-4 h-4 rounded accent-coffee-700"
+          />
+          <span className="text-sm font-semibold text-coffee-900">Tampilkan blok social proof</span>
+        </label>
+        {!!sp.enabled && (
+          <div className="space-y-3 pl-6 border-l-2 border-coffee-100">
+            <div className="p-3 rounded-xl bg-coffee-50 border border-coffee-100 flex gap-2">
+              <Info className="w-4 h-4 text-coffee-500 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-charcoal/60">Isi dengan angka nyata, bukan perkiraan. Tidak ada default — kolom kosong tidak akan ditampilkan.</p>
+            </div>
+            <div>
+              <Label>Customers Title</Label>
+              <Input value={(sp.customersTitle as string) ?? ''} onChange={(v) => updateSp('customersTitle', v)} placeholder="Pelanggan puas" />
+            </div>
+            <div>
+              <Label>Customers Subtitle</Label>
+              <Input value={(sp.customersSubtitle as string) ?? ''} onChange={(v) => updateSp('customersSubtitle', v)} placeholder="di setiap kunjungan" />
+            </div>
+            <div>
+              <Label>Rating Value (e.g. 4.8)</Label>
+              <Input value={(sp.ratingValue as string) ?? ''} onChange={(v) => updateSp('ratingValue', v)} placeholder="" />
+            </div>
+            <div>
+              <Label>Rating Title</Label>
+              <Input value={(sp.ratingTitle as string) ?? ''} onChange={(v) => updateSp('ratingTitle', v)} placeholder="Rating pelanggan" />
+            </div>
+            <div>
+              <Label>Rating Subtitle</Label>
+              <Input value={(sp.ratingSubtitle as string) ?? ''} onChange={(v) => updateSp('ratingSubtitle', v)} placeholder="disukai pelanggan tetap" />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -381,11 +435,16 @@ function ValuePropositionEditor({ content, onChange }: { content: Record<string,
 }
 
 function HowItWorksEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
-  const steps = (content.steps as { num: string; title: string; desc: string }[]) ?? [];
+  const steps  = (content.steps  as { num: string; title: string; desc: string }[]) ?? [];
+  const mockup = (content.mockup as Record<string, string>) ?? {};
 
   function updateStep(i: number, key: string, value: string) {
     const updated = steps.map((s, idx) => idx === i ? { ...s, [key]: value } : s);
     onChange({ ...content, steps: updated });
+  }
+
+  function updateMockup(key: string, value: string) {
+    onChange({ ...content, mockup: { ...mockup, [key]: value } });
   }
 
   return (
@@ -422,16 +481,56 @@ function HowItWorksEditor({ content, onChange }: { content: Record<string, unkno
           </div>
         ))}
       </div>
+
+      {/* Phone mockup item */}
+      <div className="border-t border-coffee-100 pt-4 space-y-3">
+        <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Phone Mockup Item</p>
+        <p className="text-xs text-charcoal/50">The example item shown inside the phone illustration.</p>
+        <div>
+          <Label>Item Name</Label>
+          <Input value={mockup.itemName ?? ''} onChange={(v) => updateMockup('itemName', v)} placeholder="Es Kopi Susu" />
+        </div>
+        <div>
+          <Label>Item Price (e.g. Rp 25.000)</Label>
+          <Input value={mockup.itemPrice ?? ''} onChange={(v) => updateMockup('itemPrice', v)} placeholder="Rp 25.000" />
+        </div>
+        <div>
+          <Label>Item Note / Modifier</Label>
+          <Input value={mockup.itemNote ?? ''} onChange={(v) => updateMockup('itemNote', v)} placeholder="Less ice" />
+        </div>
+        <div>
+          <Label>Table Label</Label>
+          <Input value={mockup.tableLabel ?? ''} onChange={(v) => updateMockup('tableLabel', v)} placeholder="Meja" />
+        </div>
+        <div>
+          <Label>Table Value (e.g. A-12)</Label>
+          <Input value={mockup.tableValue ?? ''} onChange={(v) => updateMockup('tableValue', v)} placeholder="A-12" />
+        </div>
+      </div>
     </div>
   );
 }
 
 function LocalRootsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
   const commitments = (content.commitments as { title: string; desc: string }[]) ?? [];
+  const stats       = (content.stats as { value: string; label: string }[]) ?? [];
 
   function updateCommitment(i: number, key: string, value: string) {
     const updated = commitments.map((c, idx) => idx === i ? { ...c, [key]: value } : c);
     onChange({ ...content, commitments: updated });
+  }
+
+  function updateStat(i: number, key: string, value: string) {
+    const updated = stats.map((s, idx) => idx === i ? { ...s, [key]: value } : s);
+    onChange({ ...content, stats: updated });
+  }
+
+  function addStat() {
+    onChange({ ...content, stats: [...stats, { value: '', label: '' }] });
+  }
+
+  function removeStat(i: number) {
+    onChange({ ...content, stats: stats.filter((_, idx) => idx !== i) });
   }
 
   return (
@@ -461,6 +560,46 @@ function LocalRootsEditor({ content, onChange }: { content: Record<string, unkno
         <Label>Story Image Alt Text</Label>
         <Input value={(content.storyImageAlt as string) ?? ''} onChange={(v) => onChange({ ...content, storyImageAlt: v })} placeholder="Freshly sourced coffee beans" />
       </div>
+
+      {/* Stat overlays (optional — need at least 2) */}
+      <div className="border-t border-coffee-100 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Stat Overlays</p>
+          {stats.length < 2 && (
+            <button
+              type="button"
+              onClick={addStat}
+              className="flex items-center gap-1 text-xs font-semibold text-coffee-700 hover:text-coffee-900 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" /> Tambah stat
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-charcoal/50">Stats hanya ditampilkan jika ada tepat 2 entri dengan nilai dan label.</p>
+        {stats.map((s, i) => (
+          <div key={i} className="p-4 rounded-xl bg-coffee-50 border border-coffee-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-coffee-700">Stat {i + 1}</p>
+              <button
+                type="button"
+                onClick={() => removeStat(i)}
+                className="p-1 rounded-lg text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div>
+              <Label>Value (e.g. 10.000+)</Label>
+              <Input value={s.value} onChange={(v) => updateStat(i, 'value', v)} placeholder="10.000+" />
+            </div>
+            <div>
+              <Label>Label</Label>
+              <Input value={s.label} onChange={(v) => updateStat(i, 'label', v)} placeholder="Pelanggan" />
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="space-y-4">
         <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Commitments</p>
         {commitments.map((c, i) => (
@@ -482,11 +621,48 @@ function LocalRootsEditor({ content, onChange }: { content: Record<string, unkno
 }
 
 function FooterEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
-  const socials = (content.socials as { platform: string; href: string; label: string }[]) ?? [];
+  const socials  = (content.socials  as { platform: string; href: string; label: string }[]) ?? [];
+  const columns  = (content.linkColumns as { title: string; links: { label: string; href: string }[] }[]) ?? [];
+  const nl       = (content.newsletter as Record<string, unknown>) ?? {};
 
   function updateSocial(i: number, key: string, value: string) {
     const updated = socials.map((s, idx) => idx === i ? { ...s, [key]: value } : s);
     onChange({ ...content, socials: updated });
+  }
+
+  function updateColumn(ci: number, key: string, value: unknown) {
+    const updated = columns.map((c, idx) => idx === ci ? { ...c, [key]: value } : c);
+    onChange({ ...content, linkColumns: updated });
+  }
+
+  function updateLink(ci: number, li: number, key: string, value: string) {
+    const updated = columns.map((c, cIdx) => {
+      if (cIdx !== ci) return c;
+      return { ...c, links: c.links.map((l: { label: string; href: string }, lIdx: number) => lIdx === li ? { ...l, [key]: value } : l) };
+    });
+    onChange({ ...content, linkColumns: updated });
+  }
+
+  function addLinkToColumn(ci: number) {
+    const updated = columns.map((c, idx) => idx === ci ? { ...c, links: [...c.links, { label: '', href: '' }] } : c);
+    onChange({ ...content, linkColumns: updated });
+  }
+
+  function removeLinkFromColumn(ci: number, li: number) {
+    const updated = columns.map((c, idx) => idx === ci ? { ...c, links: c.links.filter((_: unknown, lIdx: number) => lIdx !== li) } : c);
+    onChange({ ...content, linkColumns: updated });
+  }
+
+  function addColumn() {
+    onChange({ ...content, linkColumns: [...columns, { title: '', links: [] }] });
+  }
+
+  function removeColumn(ci: number) {
+    onChange({ ...content, linkColumns: columns.filter((_, idx) => idx !== ci) });
+  }
+
+  function updateNl(key: string, value: unknown) {
+    onChange({ ...content, newsletter: { ...nl, [key]: value } });
   }
 
   return (
@@ -507,6 +683,41 @@ function FooterEditor({ content, onChange }: { content: Record<string, unknown>;
         <Label>Copyright Entity</Label>
         <Input value={(content.copyright as string) ?? ''} onChange={(v) => onChange({ ...content, copyright: v })} placeholder="Your Cafe" />
       </div>
+
+      {/* Link columns */}
+      <div className="border-t border-coffee-100 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Link Columns</p>
+          <button type="button" onClick={addColumn} className="flex items-center gap-1 text-xs font-semibold text-coffee-700 hover:text-coffee-900 transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Tambah kolom
+          </button>
+        </div>
+        {columns.map((col, ci) => (
+          <div key={ci} className="p-4 rounded-xl bg-coffee-50 border border-coffee-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Column Title</Label>
+              <button type="button" onClick={() => removeColumn(ci)} className="p-1 rounded-lg text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <Input value={col.title} onChange={(v) => updateColumn(ci, 'title', v)} placeholder="Jelajahi" />
+            {col.links.map((link: { label: string; href: string }, li: number) => (
+              <div key={li} className="flex items-center gap-2">
+                <Input value={link.label} onChange={(v) => updateLink(ci, li, 'label', v)} placeholder="Label" />
+                <Input value={link.href}  onChange={(v) => updateLink(ci, li, 'href',  v)} placeholder="/path atau #anchor" />
+                <button type="button" onClick={() => removeLinkFromColumn(ci, li)} className="p-1.5 rounded-lg text-charcoal/30 hover:text-red-500 hover:bg-red-50 flex-shrink-0 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={() => addLinkToColumn(ci)} className="flex items-center gap-1 text-xs font-semibold text-coffee-600 hover:text-coffee-800 transition-colors">
+              <Plus className="w-3 h-3" /> Link
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Socials */}
       <div className="space-y-3">
         <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Social Links</p>
         {socials.map((s, i) => (
@@ -516,6 +727,90 @@ function FooterEditor({ content, onChange }: { content: Record<string, unknown>;
           </div>
         ))}
       </div>
+
+      {/* Newsletter */}
+      <div className="border-t border-coffee-100 pt-4 space-y-3">
+        <p className="text-xs font-semibold text-charcoal/50 uppercase tracking-wide">Newsletter</p>
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input type="checkbox" checked={!!nl.enabled} onChange={(e) => updateNl('enabled', e.target.checked)} className="w-4 h-4 rounded accent-coffee-700" />
+          <span className="text-sm font-semibold text-coffee-900">Aktifkan form newsletter di Footer</span>
+        </label>
+        {!!nl.enabled && (
+          <div className="space-y-3 pl-6 border-l-2 border-coffee-100">
+            <div>
+              <Label>Label</Label>
+              <Input value={(nl.label as string) ?? ''} onChange={(v) => updateNl('label', v)} placeholder="Dapatkan info terbaru &amp; penawaran" />
+            </div>
+            <div>
+              <Label>Placeholder</Label>
+              <Input value={(nl.placeholder as string) ?? ''} onChange={(v) => updateNl('placeholder', v)} placeholder="emailmu@contoh.com" />
+            </div>
+            <div>
+              <Label>Success Message</Label>
+              <Input value={(nl.successMessage as string) ?? ''} onChange={(v) => updateNl('successMessage', v)} placeholder="Terima kasih! Kamu sudah terdaftar." />
+            </div>
+            <a
+              href="/api/admin/newsletter-export"
+              download
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-coffee-200 text-coffee-700 text-sm font-semibold hover:bg-coffee-50 transition-colors w-fit"
+            >
+              <Download className="w-4 h-4" />
+              Download Daftar Subscriber (CSV)
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FeaturedMenuEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-xl bg-coffee-50 border border-coffee-100 flex gap-2">
+        <Info className="w-4 h-4 text-coffee-500 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-charcoal/60 leading-relaxed">
+          Which items appear here is controlled by the <strong>&quot;Tampilkan di Beranda&quot;</strong> toggle on each menu item in <a href="/admin/menu" className="underline text-coffee-700">Menu Management</a>. Up to 8 items can be featured at a time.
+        </p>
+      </div>
+      <div>
+        <Label>Eyebrow / Tag</Label>
+        <Input value={(content.eyebrow as string) ?? ''} onChange={(v) => onChange({ ...content, eyebrow: v })} placeholder="Pilihan Favorit" />
+      </div>
+      <div>
+        <Label>Section Title</Label>
+        <Input value={(content.title as string) ?? ''} onChange={(v) => onChange({ ...content, title: v })} placeholder="Menu Paling Disukai" />
+      </div>
+      <div>
+        <Label>&quot;See All Menu&quot; Link Label</Label>
+        <Input value={(content.linkLabel as string) ?? ''} onChange={(v) => onChange({ ...content, linkLabel: v })} placeholder="Lihat semua menu" />
+      </div>
+    </div>
+  );
+}
+
+function SeoEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-xl bg-coffee-50 border border-coffee-100 flex gap-2">
+        <Info className="w-4 h-4 text-coffee-500 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-charcoal/60 leading-relaxed">
+          These values are used in the <code>&lt;title&gt;</code> tag, meta description, and Open Graph / Twitter card previews. Leave blank to use the brand name as a fallback.
+        </p>
+      </div>
+      <div>
+        <Label>Page Title</Label>
+        <Input value={(content.title as string) ?? ''} onChange={(v) => onChange({ ...content, title: v })} placeholder="Nama Kafe — Specialty Coffee" />
+      </div>
+      <div>
+        <Label>Meta Description</Label>
+        <Input value={(content.description as string) ?? ''} onChange={(v) => onChange({ ...content, description: v })} placeholder="Kopi artisan dan makanan segar. Pesan langsung dari mejamu." multiline />
+      </div>
+      <ImageUploader
+        label="OG Image (1200×630 px recommended)"
+        currentUrl={(content.ogImageUrl as string) ?? ''}
+        onUrlChange={(url) => onChange({ ...content, ogImageUrl: url })}
+      />
     </div>
   );
 }
@@ -591,7 +886,11 @@ function SiteContentEditor() {
         } catch {}
       }
       // Trigger ISR revalidation via API route
-      await fetch('/api/admin/revalidate', { method: 'POST' }).catch(() => null);
+      await fetch('/api/admin/revalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: 'site-content' }),
+      }).catch(() => null);
     }
 
     setTimeout(() => setSaveState(null), 3000);
@@ -668,10 +967,12 @@ function SiteContentEditor() {
           <form onSubmit={handleSave}>
             <div className="bg-white rounded-2xl border border-coffee-100/80 p-6">
               {activeSection === 'theme'             && <ThemeEditor             content={activeContent as Record<string, string>}          onChange={(v) => updateSection('theme',             v as Record<string, unknown>)} />}
+              {activeSection === 'seo'               && <SeoEditor               content={activeContent}                                     onChange={(v) => updateSection('seo',               v)} />}
               {activeSection === 'navbar'            && <NavbarEditor            content={activeContent}                                     onChange={(v) => updateSection('navbar',            v)} />}
               {activeSection === 'hero'              && <HeroEditor              content={activeContent}                                     onChange={(v) => updateSection('hero',              v)} />}
               {activeSection === 'value_proposition' && <ValuePropositionEditor  content={activeContent}                                     onChange={(v) => updateSection('value_proposition', v)} />}
               {activeSection === 'how_it_works'      && <HowItWorksEditor        content={activeContent}                                     onChange={(v) => updateSection('how_it_works',      v)} />}
+              {activeSection === 'featured_menu'     && <FeaturedMenuEditor      content={activeContent}                                     onChange={(v) => updateSection('featured_menu',     v)} />}
               {activeSection === 'local_roots'       && <LocalRootsEditor        content={activeContent}                                     onChange={(v) => updateSection('local_roots',       v)} />}
               {activeSection === 'footer'            && <FooterEditor            content={activeContent}                                     onChange={(v) => updateSection('footer',            v)} />}
             </div>

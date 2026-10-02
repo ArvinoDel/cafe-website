@@ -376,6 +376,13 @@ function BranchFormModal({
       if (err) { setError(err.message); setSaving(false); return; }
     }
 
+    // Invalidate cached branch data for the homepage
+    await fetch('/api/admin/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag: 'branches' }),
+    }).catch(() => null);
+
     onSaved();
     onClose();
   }

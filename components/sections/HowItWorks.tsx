@@ -1,35 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { QrCode, ListOrdered, Coffee } from 'lucide-react';
+import { QrCode, ListOrdered, Coffee, ShoppingCart } from 'lucide-react';
 import {
   fadeInUp,
   staggerContainer,
   slideInLeft,
-  slideInRight,
 } from '@/lib/animations';
 import { useBrand } from '@/components/providers/BrandProvider';
-
-const steps = [
-  {
-    icon: QrCode,
-    num: '01',
-    title: 'Scan the QR Code',
-    desc: 'Open your camera, scan the QR code on your table, and the full menu appears instantly on your screen.',
-  },
-  {
-    icon: ListOrdered,
-    num: '02',
-    title: 'Choose & Customise',
-    desc: 'Pick your drinks and food, customise to your preference, and pay securely right from your phone.',
-  },
-  {
-    icon: Coffee,
-    num: '03',
-    title: 'Sit Back & Enjoy',
-    desc: 'Our team prepares your order and brings it straight to your table. No queuing, no hassle.',
-  },
-];
+import { DEFAULT_HOW_IT_WORKS, DEFAULT_BRAND } from '@/lib/site-defaults';
 
 export type HowItWorksContent = {
   tag?: string;
@@ -43,19 +22,28 @@ export type HowItWorksContent = {
     tableValue?: string;
     tableStatus?: string;
     menuTitle?: string;
+    /** Editable featured item name */
+    itemName?: string;
+    /** Editable featured item price (pre-formatted string, e.g. "Rp 25.000") */
+    itemPrice?: string;
+    /** Editable featured item note / modifier */
+    itemNote?: string;
   };
 };
 
 const defaultStepIcons = [QrCode, ListOrdered, Coffee];
 
 export default function HowItWorks({ content }: { content?: HowItWorksContent }) {
-  const brand = useBrand();
-  const tag = content?.tag || 'How It Works';
-  const title = content?.title || 'Three steps,';
-  const titleAccent = content?.titleAccent || 'coffee without the wait.';
-  const description = content?.description || 'No queuing, no flagging down staff. Simply scan the QR code at your table, choose what you love, and settle back while we bring your order to you.';
-  const stepItems = content?.steps && content.steps.length > 0 ? content.steps : steps;
-  const mockup = content?.mockup || {};
+  const brand       = useBrand();
+  const tag         = content?.tag         || DEFAULT_HOW_IT_WORKS.tag;
+  const title       = content?.title       || DEFAULT_HOW_IT_WORKS.title;
+  const titleAccent = content?.titleAccent || DEFAULT_HOW_IT_WORKS.titleAccent;
+  const description = content?.description || DEFAULT_HOW_IT_WORKS.description;
+  const stepItems   = content?.steps && content.steps.length > 0 ? content.steps : DEFAULT_HOW_IT_WORKS.steps;
+  const mockup      = { ...DEFAULT_HOW_IT_WORKS.mockup, ...(content?.mockup ?? {}) };
+
+  // Use brand name from CMS/brand provider for the phone status bar
+  const appLabel = mockup.appLabel || brand.brandName || DEFAULT_BRAND.brandName;
 
   return (
     <section id="how-it-works" className="py-20 sm:py-28 bg-cream relative overflow-hidden">
@@ -82,7 +70,7 @@ export default function HowItWorks({ content }: { content?: HowItWorksContent })
                   {/* Status bar */}
                   <div className="flex justify-between items-center px-6 pt-8 pb-2 text-cream/80 text-xs">
                     <span className="font-semibold">9:41</span>
-                    <span>{mockup.appLabel || brand.brandName || 'CAFE'}</span>
+                    <span>{appLabel}</span>
                   </div>
 
                   {/* Table indicator */}
@@ -91,60 +79,51 @@ export default function HowItWorks({ content }: { content?: HowItWorksContent })
                       <QrCode className="w-5 h-5 text-sand-200" />
                     </div>
                     <div>
-                      <p className="text-cream/60 text-xs">{mockup.tableLabel || 'Table'}</p>
-                      <p className="text-cream text-lg font-bold">{mockup.tableValue || 'A-12'}</p>
+                      <p className="text-cream/60 text-xs">{mockup.tableLabel}</p>
+                      <p className="text-cream text-lg font-bold">{mockup.tableValue}</p>
                     </div>
                     <div className="ml-auto px-3 py-1 rounded-lg bg-green-400/20 text-green-300 text-xs font-medium">
-                      {mockup.tableStatus || 'Active'}
+                      {mockup.tableStatus}
                     </div>
                   </div>
 
                   {/* Menu preview */}
                   <div className="mx-4 mt-3 bg-cream rounded-2xl p-4 flex-1 flex flex-col">
                     <p className="text-coffee-800 text-sm font-bold mb-3">
-                      {mockup.menuTitle || "Today's Menu"}
+                      {mockup.menuTitle}
                     </p>
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-12 h-12 rounded-xl bg-coffee-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                        <img
-                          src="https://images.pexels.com/photos/38523136/pexels-photo-38523136.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
-                          alt="Specialty Coffee"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-charcoal truncate">
-                          Signature Latte
-                        </p>
-                        <p className="text-xs text-charcoal/50">Iced · Less Ice</p>
-                      </div>
-                      <p className="text-sm font-bold text-coffee-700">$5.50</p>
-                    </div>
+
+                    {/* Single featured item — all text, no stock images */}
                     <div className="flex items-center gap-3 mb-3 pb-3 border-b border-coffee-50">
-                      <div className="w-12 h-12 rounded-xl bg-sand-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                        <img
-                          src="https://images.pexels.com/photos/37081060/pexels-photo-37081060.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
-                          alt="Fresh Bowl"
-                          className="w-full h-full object-cover"
-                        />
+                      {/* Coffee icon placeholder instead of hotlinked image */}
+                      <div className="w-12 h-12 rounded-xl bg-coffee-100 flex items-center justify-center flex-shrink-0">
+                        <Coffee className="w-6 h-6 text-coffee-500" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-charcoal truncate">
-                          Chicken Rice Bowl
+                          {mockup.itemName}
                         </p>
-                        <p className="text-xs text-charcoal/50">Medium Spice</p>
+                        <p className="text-xs text-charcoal/50">{mockup.itemNote}</p>
                       </div>
-                      <p className="text-sm font-bold text-coffee-700">$8.90</p>
+                      <p className="text-sm font-bold text-coffee-700 flex-shrink-0">
+                        {mockup.itemPrice}
+                      </p>
                     </div>
+
                     <div className="mt-auto">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs text-charcoal/50">Total</span>
                         <span className="text-lg font-extrabold text-coffee-800">
-                          $14.40
+                          {mockup.itemPrice}
                         </span>
                       </div>
-                      <button className="w-full py-3 rounded-xl bg-coffee-700 text-cream text-sm font-bold">
-                        Place Order
+                      <button
+                        className="w-full py-3 rounded-xl bg-coffee-700 text-cream text-sm font-bold flex items-center justify-center gap-2"
+                        aria-hidden="true"
+                        tabIndex={-1}
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        Pesan Sekarang
                       </button>
                     </div>
                   </div>

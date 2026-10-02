@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { useBranchInfo } from '@/lib/branch-info';
+import { formatRupiah as formatPrice } from '@/lib/format';
 
 type OrderItem = {
   id: string;
@@ -43,14 +44,6 @@ type Order = {
   created_at: string;
 };
 
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
-}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);

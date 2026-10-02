@@ -20,6 +20,7 @@ import {
   ToggleLeft,
   ToggleRight,
   SlidersHorizontal,
+  Star,
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
@@ -38,6 +39,7 @@ export type MenuItem = {
   image_url: string | null;
   badge: string | null;
   is_available: boolean;
+  is_featured: boolean;
   sort_order: number;
   created_at: string;
 };
@@ -111,6 +113,14 @@ async function updateBranchMenuItem(payload: {
     throw new Error(data?.error || 'Gagal menyimpan perubahan menu cabang.');
   }
   return data;
+}
+
+async function triggerMenuRevalidate() {
+  await fetch('/api/admin/revalidate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag: 'menu' }),
+  }).catch(() => null);
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -230,6 +240,8 @@ export default function MenuManagementPage() {
           prev.map((i) => (i.id === item.id ? { ...i, is_available: item.is_available } : i)),
         );
         setError(err.message);
+      } else {
+        triggerMenuRevalidate();
       }
     } else {
       // Branch-specific Toggle
@@ -260,6 +272,7 @@ export default function MenuManagementPage() {
           is_enabled: existingBranchRow?.is_enabled ?? true,
           custom_price: existingBranchRow?.custom_price ?? null,
         });
+        triggerMenuRevalidate();
       } catch (err: any) {
         // Rollback
         setBranchItemMap((prev) => ({
@@ -307,6 +320,7 @@ export default function MenuManagementPage() {
         is_available: existingBranchRow?.is_available ?? item.is_available,
         custom_price: existingBranchRow?.custom_price ?? null,
       });
+      triggerMenuRevalidate();
     } catch (err: any) {
       setBranchItemMap((prev) => ({
         ...prev,
@@ -336,6 +350,37 @@ export default function MenuManagementPage() {
     setMasterItems((prev) => prev.filter((i) => i.id !== item.id));
     setDeleting(false);
     setDeleteTarget(null);
+    triggerMenuRevalidate();
+  }
+
+  // Toggle is_featured (max 8, superadmin master view only)
+  async function handleToggleFeatured(item: MenuItem) {
+    const nextFeatured = !item.is_featured;
+
+    if (nextFeatured && featuredCount >= 8) {
+      setError('Maksimal 8 menu yang bisa ditampilkan di beranda. Hapus centang salah satu terlebih dahulu.');
+      return;
+    }
+
+    // Optimistic update
+    setMasterItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, is_featured: nextFeatured } : i)),
+    );
+
+    const { error: err } = await supabase
+      .from('menu_items')
+      .update({ is_featured: nextFeatured })
+      .eq('id', item.id);
+
+    if (err) {
+      // Rollback
+      setMasterItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_featured: item.is_featured } : i)),
+      );
+      setError(err.message);
+    } else {
+      triggerMenuRevalidate();
+    }
   }
 
   // Compute processed items with branch overrides
@@ -381,9 +426,10 @@ export default function MenuManagementPage() {
   const activeBranch = isSuperadmin ? selectedBranchId : profile.branch_id;
   const isBranchView = Boolean(activeBranch && activeBranch !== 'all');
 
-  const enabledCount = processedItems.filter((i) => i.is_enabled).length;
+  const enabledCount   = processedItems.filter((i) => i.is_enabled).length;
   const availableCount = processedItems.filter((i) => i.is_enabled && i.is_available).length;
   const outOfStockCount = processedItems.filter((i) => i.is_enabled && !i.is_available).length;
+  const featuredCount  = masterItems.filter((i) => i.is_featured).length;
 
   const currentBranchName = useMemo(() => {
     if (isSuperadmin) {
@@ -446,7 +492,7 @@ export default function MenuManagementPage() {
       </div>
 
       {/* Stats summary bar */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <div className="bg-white rounded-2xl border border-coffee-100/80 p-3.5 sm:p-4">
           <p className="text-[11px] font-bold text-charcoal/50 uppercase tracking-wide">
             {isBranchView ? 'Menu Disajikan' : 'Total Master Menu'}
@@ -455,6 +501,15 @@ export default function MenuManagementPage() {
             {isBranchView ? enabledCount : totalCount}
           </p>
         </div>
+        {!isBranchView && isSuperadmin && (
+          <div className="bg-white rounded-2xl border border-amber-200/80 p-3.5 sm:p-4">
+            <p className="text-[11px] font-bold text-amber-700/70 uppercase tracking-wide flex items-center gap-1">
+              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+              Ditampilkan
+            </p>
+            <p className="text-lg sm:text-2xl font-extrabold text-amber-700 mt-1">{featuredCount}<span className="text-xs font-semibold text-amber-500/70 ml-1">/8</span></p>
+          </div>
+        )}
         <div className="bg-white rounded-2xl border border-coffee-100/80 p-3.5 sm:p-4">
           <p className="text-[11px] font-bold text-emerald-700/70 uppercase tracking-wide">Stok Tersedia</p>
           <p className="text-lg sm:text-2xl font-extrabold text-emerald-700 mt-1">{availableCount}</p>
@@ -557,8 +612,10 @@ export default function MenuManagementPage() {
                 isBranchView={isBranchView}
                 isSuperadmin={isSuperadmin}
                 toggling={togglingId === item.id}
+                featuredCount={featuredCount}
                 onToggleAvailability={() => handleToggleAvailability(item)}
                 onToggleEnabled={() => handleToggleEnabled(item)}
+                onToggleFeatured={() => handleToggleFeatured(item)}
                 onEditMaster={() => setItemModal(item)}
                 onDeleteMaster={() => setDeleteTarget(item)}
                 onOpenPriceModal={() =>
@@ -669,8 +726,10 @@ const MenuItemCard = forwardRef<
     isBranchView: boolean;
     isSuperadmin: boolean;
     toggling: boolean;
+    featuredCount: number;
     onToggleAvailability: () => void;
     onToggleEnabled: () => void;
+    onToggleFeatured: () => void;
     onEditMaster: () => void;
     onDeleteMaster: () => void;
     onOpenPriceModal: () => void;
@@ -681,8 +740,10 @@ const MenuItemCard = forwardRef<
     isBranchView,
     isSuperadmin,
     toggling,
+    featuredCount,
     onToggleAvailability,
     onToggleEnabled,
+    onToggleFeatured,
     onEditMaster,
     onDeleteMaster,
     onOpenPriceModal,
@@ -722,6 +783,12 @@ const MenuItemCard = forwardRef<
                 {item.badge}
               </span>
             )}
+            {item.is_featured && !isBranchView && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1">
+                <Star className="w-2.5 h-2.5 fill-amber-400" />
+                Beranda
+              </span>
+            )}
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-coffee-50 text-coffee-600 border border-coffee-100 flex items-center gap-1">
               <Layers className="w-2.5 h-2.5" />
               #{item.sort_order}
@@ -734,9 +801,24 @@ const MenuItemCard = forwardRef<
             )}
           </div>
 
-          {/* Master Edit / Delete (Superadmin only) */}
+          {/* Master Edit / Delete + Featured toggle (Superadmin only) */}
           {isSuperadmin && !isBranchView && (
             <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Star: Tampilkan di Beranda toggle */}
+              <button
+                onClick={onToggleFeatured}
+                disabled={!item.is_featured && featuredCount >= 8}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  item.is_featured
+                    ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50'
+                    : featuredCount >= 8
+                    ? 'text-charcoal/20 cursor-not-allowed'
+                    : 'text-charcoal/40 hover:text-amber-500 hover:bg-amber-50'
+                }`}
+                title={item.is_featured ? 'Hapus dari Beranda' : featuredCount >= 8 ? 'Maks. 8 item beranda' : 'Tampilkan di Beranda'}
+              >
+                <Star className={`w-3.5 h-3.5 ${item.is_featured ? 'fill-amber-400' : ''}`} />
+              </button>
               <button
                 onClick={onEditMaster}
                 className="p-1.5 rounded-lg text-charcoal/40 hover:text-coffee-700 hover:bg-coffee-50 transition-colors"
@@ -907,6 +989,7 @@ function MenuItemFormModal({
   const [badge, setBadge] = useState(initial?.badge ?? '');
   const [sortOrder, setSortOrder] = useState<number>(initial?.sort_order ?? 0);
   const [isAvailable, setIsAvailable] = useState<boolean>(initial?.is_available ?? true);
+  const [isFeatured, setIsFeatured] = useState<boolean>(initial?.is_featured ?? false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -937,6 +1020,7 @@ function MenuItemFormModal({
       badge: badge.trim() || null,
       sort_order: Number(sortOrder) || 0,
       is_available: isAvailable,
+      is_featured: isFeatured,
     };
 
     if (initial) {
@@ -960,6 +1044,7 @@ function MenuItemFormModal({
       }
     }
 
+    triggerMenuRevalidate();
     onSaved();
     onClose();
   }
@@ -1099,7 +1184,7 @@ function MenuItemFormModal({
             </div>
           </div>
 
-          <div className="pt-1">
+          <div className="pt-1 space-y-2.5">
             <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -1109,6 +1194,18 @@ function MenuItemFormModal({
               />
               <span className="text-sm font-semibold text-coffee-900">
                 Menu Aktif &amp; Tersedia secara Global
+              </span>
+            </label>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isFeatured}
+                onChange={(e) => setIsFeatured(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 border-amber-300 accent-amber-500"
+              />
+              <span className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                Tampilkan di Beranda (maks. 8)
               </span>
             </label>
           </div>
@@ -1191,6 +1288,7 @@ function BranchPriceModal({
       return;
     }
 
+    triggerMenuRevalidate();
     onSaved();
     onClose();
   }

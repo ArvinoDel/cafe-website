@@ -7,14 +7,7 @@ import { Menu, X, Coffee, Camera } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { TABLE_KEY, BRANCH_KEY, LEGACY_TABLE_KEY, LEGACY_BRANCH_KEY } from '@/lib/storage-keys';
-
-const navLinks = [
-  { label: 'Home', href: '#home' },
-  { label: 'Menu', href: '/menu' },
-  { label: 'Riwayat', href: '/orders' },
-  { label: 'Stores', href: '#stores' },
-  { label: 'Our Story', href: '#story' },
-];
+import { DEFAULT_NAVBAR, DEFAULT_BRAND } from '@/lib/site-defaults';
 
 export type NavbarContent = {
   brandName?: string;
@@ -38,10 +31,10 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
     }
   }, [scannerOpen]);
 
-  const brandName = content?.brandName || brand.brandName || 'CAFE';
-  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || 'Specialty Coffee';
-  const ctaLabel = content?.ctaLabel || 'Scan to Order';
-  const links = content?.links?.length ? content.links : navLinks;
+  const brandName     = content?.brandName     || brand.brandName     || DEFAULT_BRAND.brandName;
+  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || DEFAULT_BRAND.brandSubtitle;
+  const ctaLabel      = content?.ctaLabel      || DEFAULT_NAVBAR.ctaLabel;
+  const links         = content?.links?.length ? content.links : DEFAULT_NAVBAR.links;
 
   useEffect(() => {
     const handleScroll = () => {

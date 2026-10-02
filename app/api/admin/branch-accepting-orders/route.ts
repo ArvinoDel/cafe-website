@@ -29,6 +29,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { z } from 'zod';
 import { createSupabaseContext } from '@/lib/supabase-server';
 
@@ -99,6 +100,12 @@ export async function POST(request: NextRequest) {
   if (updateErr) {
     return NextResponse.json({ error: 'Gagal memperbarui status cabang.' }, { status: 500 });
   }
+
+  // Invalidate cached branches so homepage updates immediately
+  try {
+    revalidateTag('branches');
+    revalidatePath('/');
+  } catch {}
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

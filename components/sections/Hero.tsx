@@ -1,8 +1,18 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { QrCode, ArrowRight, Star, Clock } from 'lucide-react';
+import { QrCode, ArrowRight, Coffee, User } from 'lucide-react';
 import { fadeInUp, staggerContainer, slideInRight, scaleIn } from '@/lib/animations';
+import { DEFAULT_HERO } from '@/lib/site-defaults';
+
+export type SocialProofContent = {
+  enabled?: boolean;
+  customersTitle?: string;
+  customersSubtitle?: string;
+  ratingValue?: string;
+  ratingTitle?: string;
+  ratingSubtitle?: string;
+};
 
 export type HeroContent = {
   badge?: string;
@@ -11,21 +21,24 @@ export type HeroContent = {
   subheadline?: string;
   primaryCta?: { label: string; href?: string };
   secondaryCta?: { label: string; href?: string };
-  stats?: { label: string; sub: string }[];
-  floatingCards?: { icon: string; title: string; sub: string }[];
   heroImageUrl?: string;
   heroImageAlt?: string;
+  socialProof?: SocialProofContent;
 };
 
 export default function Hero({ content }: { content?: HeroContent }) {
-  const badge = content?.badge || 'Scan the QR at your table — order without the queue';
-  const headline = content?.headline || 'Artisan Coffee';
-  const headlineAccent = content?.headlineAccent || '& Fresh Kitchen.';
-  const subheadline = content?.subheadline || 'Scan the QR code at your table, browse our full menu, and order your favourites — great coffee and fresh food delivered right to your seat.';
-  const primaryCta = content?.primaryCta || { label: 'View Menu', href: '/menu' };
-  const secondaryCta = content?.secondaryCta || { label: 'How It Works', href: '#how-it-works' };
-  const heroImageUrl = content?.heroImageUrl || 'https://images.pexels.com/photos/38523136/pexels-photo-38523136.jpeg?auto=compress&cs=tinysrgb&h=650&w=940';
-  const heroImageAlt = content?.heroImageAlt || 'Freshly brewed specialty coffee';
+  const badge          = content?.badge          || DEFAULT_HERO.badge;
+  const headline       = content?.headline       || DEFAULT_HERO.headline;
+  const headlineAccent = content?.headlineAccent || DEFAULT_HERO.headlineAccent;
+  const subheadline    = content?.subheadline    || DEFAULT_HERO.subheadline;
+  const primaryCta     = content?.primaryCta     || DEFAULT_HERO.primaryCta;
+  const secondaryCta   = content?.secondaryCta   || DEFAULT_HERO.secondaryCta;
+  const heroImageUrl   = content?.heroImageUrl   ?? DEFAULT_HERO.heroImageUrl;
+  const heroImageAlt   = content?.heroImageAlt   || DEFAULT_HERO.heroImageAlt;
+
+  // Social proof — only render when explicitly enabled with real data
+  const sp = content?.socialProof ?? DEFAULT_HERO.socialProof;
+  const showSocialProof = sp?.enabled === true;
 
   return (
     <section
@@ -78,51 +91,54 @@ export default function Hero({ content }: { content?: HeroContent }) {
                 className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-coffee-700 text-cream font-semibold text-base hover:bg-coffee-800 transition-all hover:shadow-soft-lg active:scale-95"
               >
                 <QrCode className="w-5 h-5" />
-                {primaryCta.label || 'View Menu'}
+                {primaryCta.label}
               </a>
               <a
                 href={secondaryCta.href || '#how-it-works'}
                 className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-white border-2 border-coffee-200 text-coffee-700 font-semibold text-base hover:border-coffee-400 hover:bg-coffee-50 transition-all active:scale-95"
               >
-                {secondaryCta.label || 'How It Works'}
+                {secondaryCta.label}
                 <ArrowRight className="w-5 h-5" />
               </a>
             </motion.div>
 
-            {/* Social proof */}
-            <motion.div
-              variants={fadeInUp}
-              className="mt-10 flex flex-wrap items-center gap-6 sm:gap-8"
-            >
-              <div className="flex items-center gap-2">
-                <div className="flex -space-x-2">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="w-9 h-9 rounded-full border-2 border-cream bg-gradient-to-br from-coffee-300 to-coffee-500 flex items-center justify-center text-cream text-xs font-bold"
-                    >
-                      {String.fromCharCode(64 + i)}
+            {/* Social proof — only shown when admin explicitly enables it */}
+            {showSocialProof && (
+              <motion.div
+                variants={fadeInUp}
+                className="mt-10 flex flex-wrap items-center gap-6 sm:gap-8"
+              >
+                <div className="flex items-center gap-2">
+                  {/* Generic user-icon bubbles — no fake letter avatars */}
+                  <div className="flex -space-x-2">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="w-9 h-9 rounded-full border-2 border-cream bg-gradient-to-br from-coffee-300 to-coffee-500 flex items-center justify-center text-cream"
+                      >
+                        <User className="w-4 h-4" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-charcoal">{sp?.customersTitle}</p>
+                    <p className="text-charcoal/50">{sp?.customersSubtitle}</p>
+                  </div>
+                </div>
+                {sp?.ratingValue && (
+                  <>
+                    <div className="h-10 w-px bg-coffee-100" />
+                    <div className="flex items-center gap-2">
+                      <p className="text-2xl font-extrabold text-coffee-700">{sp.ratingValue}</p>
+                      <div className="text-sm">
+                        <p className="font-semibold text-charcoal">{sp?.ratingTitle}</p>
+                        <p className="text-charcoal/50">{sp?.ratingSubtitle}</p>
+                      </div>
                     </div>
-                  ))}
-                </div>
-                <div className="text-sm">
-                  <p className="font-semibold text-charcoal">Happy customers</p>
-                  <p className="text-charcoal/50">at every table</p>
-                </div>
-              </div>
-              <div className="h-10 w-px bg-coffee-100" />
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <Star key={i} className="w-4 h-4 fill-coffee-500 text-coffee-500" />
-                  ))}
-                </div>
-                <div className="text-sm">
-                  <p className="font-semibold text-charcoal">4.8 rating</p>
-                  <p className="text-charcoal/50">loved by regulars</p>
-                </div>
-              </div>
-            </motion.div>
+                  </>
+                )}
+              </motion.div>
+            )}
           </motion.div>
 
           {/* Right: Visual */}
@@ -133,18 +149,32 @@ export default function Hero({ content }: { content?: HeroContent }) {
             className="relative order-1 lg:order-2 flex justify-center"
           >
             <div className="relative w-full max-w-md lg:max-w-lg">
-              {/* Main image */}
+              {/* Hero image or neutral placeholder */}
               <motion.div
                 variants={scaleIn}
                 className="relative rounded-[2rem] overflow-hidden shadow-soft-xl aspect-[4/5]"
               >
-                <img
-                  src={heroImageUrl}
-                  alt={heroImageAlt}
-                  className="w-full h-full object-cover"
-                  loading="eager"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-coffee-950/20 to-transparent" />
+                {heroImageUrl ? (
+                  <>
+                    <img
+                      src={heroImageUrl}
+                      alt={heroImageAlt}
+                      className="w-full h-full object-cover"
+                      loading="eager"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-coffee-950/20 to-transparent" />
+                  </>
+                ) : (
+                  /* Neutral placeholder — no stock images */
+                  <div className="w-full h-full bg-gradient-to-br from-coffee-100 via-sand-100 to-coffee-200 flex flex-col items-center justify-center gap-4">
+                    <div className="flex items-center justify-center w-24 h-24 rounded-3xl bg-coffee-700/20 text-coffee-600">
+                      <Coffee className="w-12 h-12" />
+                    </div>
+                    <p className="text-coffee-500 text-sm font-medium text-center px-8 leading-relaxed">
+                      Tambahkan foto utama di pengaturan konten
+                    </p>
+                  </div>
+                )}
               </motion.div>
 
               {/* Floating card 1: Scan to order */}
@@ -160,7 +190,7 @@ export default function Hero({ content }: { content?: HeroContent }) {
                   </div>
                   <div>
                     <p className="text-xs text-charcoal/50 font-medium">Scan</p>
-                    <p className="text-base font-bold text-coffee-800">Table QR code</p>
+                    <p className="text-base font-bold text-coffee-800">QR Code Meja</p>
                   </div>
                 </div>
               </motion.div>
@@ -174,11 +204,11 @@ export default function Hero({ content }: { content?: HeroContent }) {
               >
                 <div className="flex items-center gap-3">
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-sand-100">
-                    <Clock className="w-5 h-5 text-coffee-600" />
+                    <QrCode className="w-5 h-5 text-coffee-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-charcoal/50 font-medium">Ready in</p>
-                    <p className="text-base font-bold text-coffee-800">5 minutes</p>
+                    <p className="text-xs text-charcoal/50 font-medium">Pesan langsung</p>
+                    <p className="text-base font-bold text-coffee-800">Dari mejamu</p>
                   </div>
                 </div>
               </motion.div>

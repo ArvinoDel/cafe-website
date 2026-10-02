@@ -13,55 +13,118 @@ import {
 } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useBrand } from '@/components/providers/BrandProvider';
+import {
+  DEFAULT_FOOTER,
+  DEFAULT_BRAND,
+  type FooterLinkColumn,
+} from '@/lib/site-defaults';
 
-const footerLinks = {
-  Brand: ['About Us', 'Our Locations', 'Careers', 'Press'],
-  Menu: ['Coffee', 'Non-Coffee', 'Food', 'Snacks'],
-  'Self Service': ['How It Works', 'Scan & Order', 'Gift Cards', 'Loyalty'],
-  Support: ['Help Centre', 'Contact Us', 'Privacy Policy', 'Terms of Service'],
+// ─── Shape normalisation ──────────────────────────────────────────────────────
+/**
+ * Normalize old footer link columns shape (Record<string, string[]>) to the new
+ * structured shape ([{ title, links: [{ label, href }] }]).
+ * Never crashes on missing or unknown fields.
+ */
+function normalizeLinkColumns(raw: unknown): FooterLinkColumn[] {
+  if (!raw) return DEFAULT_FOOTER.linkColumns;
+
+  // New shape: array of { title, links }
+  if (Array.isArray(raw)) {
+    return (raw as FooterLinkColumn[]).filter(
+      (col) => col && typeof col.title === 'string' && Array.isArray(col.links),
+    );
+  }
+
+  // Old shape: Record<string, string[]>
+  if (typeof raw === 'object') {
+    return Object.entries(raw as Record<string, unknown>).map(([category, links]) => ({
+      title: category,
+      links: Array.isArray(links)
+        ? (links as string[]).map((label) => ({ label, href: '' }))
+        : [],
+    }));
+  }
+
+  return DEFAULT_FOOTER.linkColumns;
+}
+
+// ─── Social icon map ──────────────────────────────────────────────────────────
+
+const SOCIAL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  instagram: Instagram,
+  twitter:   Twitter,
+  facebook:  Facebook,
+  youtube:   Youtube,
 };
 
-const socials = [
-  { icon: Instagram, href: '#', label: 'Instagram' },
-  { icon: Twitter, href: '#', label: 'Twitter' },
-  { icon: Facebook, href: '#', label: 'Facebook' },
-  { icon: Youtube, href: '#', label: 'Youtube' },
-];
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type FooterContent = {
   brandName?: string;
   brandSubtitle?: string;
   tagline?: string;
   newsletter?: {
+    enabled?: boolean;
     label?: string;
     placeholder?: string;
     successMessage?: string;
   };
-  linkColumns?: Record<string, string[]>;
+  /** New shape: array. Old shape (Record<string,string[]>) normalised on read. */
+  linkColumns?: FooterLinkColumn[] | Record<string, string[]>;
   socials?: { platform: string; href: string; label: string }[];
   copyright?: string;
 };
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Footer({ content }: { content?: FooterContent }) {
   const brand = useBrand();
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [honeypot, setHoneypot] = useState('');
 
-  const brandName = content?.brandName || brand.brandName || 'CAFE';
-  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || 'Specialty Coffee';
-  const tagline = content?.tagline || 'Freshly brewed specialty coffee and great food, served right to your table. Scan the QR code and order in seconds.';
-  const newsletterLabel = content?.newsletter?.label || 'Get the latest news & offers';
-  const newsletterPlaceholder = content?.newsletter?.placeholder || 'your@email.com';
-  const newsletterSuccess = content?.newsletter?.successMessage || 'Thanks for subscribing!';
-  const columns = content?.linkColumns || footerLinks;
-  const copyright = content?.copyright || brand.brandName || 'CAFE';
+  const brandName     = content?.brandName     || brand.brandName     || DEFAULT_BRAND.brandName;
+  const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || DEFAULT_BRAND.brandSubtitle;
+  const tagline       = content?.tagline       || DEFAULT_FOOTER.tagline;
+  const copyright     = content?.copyright     || brand.brandName     || DEFAULT_BRAND.brandName;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Newsletter — hidden by default, only shown when enabled
+  const newsletter = content?.newsletter ?? DEFAULT_FOOTER.newsletter;
+  const showNewsletter = newsletter?.enabled === true;
+
+  // Link columns — normalise old shapes on read
+  const columns = normalizeLinkColumns(content?.linkColumns);
+
+  // Socials — only render entries with a real non-empty href
+  const socials = (content?.socials ?? DEFAULT_FOOTER.socials).filter(
+    (s) => s.href && s.href.trim() !== '' && s.href !== '#',
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email) {
-      setSubmitted(true);
-      setEmail('');
-      setTimeout(() => setSubmitted(false), 3000);
+    if (!email || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, website: honeypot }),
+      });
+      if (res.ok) {
+        setSubmitted(true);
+        setEmail('');
+        setTimeout(() => setSubmitted(false), 4000);
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setSubmitError(json.error || 'Gagal mendaftar. Coba lagi.');
+      }
+    } catch {
+      setSubmitError('Tidak dapat terhubung. Periksa koneksimu.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -93,85 +156,115 @@ export default function Footer({ content }: { content?: FooterContent }) {
               {tagline}
             </p>
 
-            {/* Newsletter */}
-            <div>
-              <p className="text-sm font-semibold text-cream mb-3">
-                {newsletterLabel}
-              </p>
-              <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm">
-                <div className="relative flex-1">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cream/40" />
+            {/* Newsletter — only rendered when admin enables it */}
+            {showNewsletter && (
+              <div>
+                <p className="text-sm font-semibold text-cream mb-3">
+                  {newsletter?.label || DEFAULT_FOOTER.newsletter.label}
+                </p>
+                <form onSubmit={handleSubmit} className="flex flex-col gap-2 max-w-sm">
+                  {/* Honeypot — hidden from real users, filled by bots */}
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder={newsletterPlaceholder}
-                    required
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-coffee-900 border border-coffee-800 text-cream text-sm placeholder:text-cream/30 focus:outline-none focus:border-sand-300 transition-colors"
+                    type="text"
+                    name="website"
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    autoComplete="off"
+                    style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
                   />
-                </div>
-                <button
-                  type="submit"
-                  className="flex items-center justify-center px-4 py-3 rounded-xl bg-coffee-600 hover:bg-coffee-500 text-cream transition-colors active:scale-95"
-                  aria-label="Subscribe"
-                >
-                  <ArrowRight className="w-5 h-5" />
-                </button>
-              </form>
-              {submitted && (
-                <motion.p
-                  initial={{ opacity: 0, y: -5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-2 text-sm text-sand-300"
-                >
-                  {newsletterSuccess}
-                </motion.p>
-              )}
-            </div>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cream/40" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder={newsletter?.placeholder || DEFAULT_FOOTER.newsletter.placeholder}
+                        required
+                        disabled={submitting}
+                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-coffee-900 border border-coffee-800 text-cream text-sm placeholder:text-cream/30 focus:outline-none focus:border-sand-300 transition-colors disabled:opacity-60"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="flex items-center justify-center px-4 py-3 rounded-xl bg-coffee-600 hover:bg-coffee-500 text-cream transition-colors active:scale-95 disabled:opacity-60"
+                      aria-label="Daftar"
+                    >
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {submitError && (
+                    <p className="text-xs text-red-400">{submitError}</p>
+                  )}
+                </form>
+                {submitted && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-2 text-sm text-sand-300"
+                  >
+                    {newsletter?.successMessage || DEFAULT_FOOTER.newsletter.successMessage}
+                  </motion.p>
+                )}
+              </div>
+            )}
           </motion.div>
 
-          {/* Link columns */}
-          {Object.entries(columns).map(([category, links]) => (
-            <motion.div key={category} variants={fadeInUp}>
-              <h4 className="text-sm font-bold text-cream uppercase tracking-wider mb-4">
-                {category}
-              </h4>
-              <ul className="space-y-3">
-                {links.map((link) => (
-                  <li key={link}>
-                    <a
-                      href="#"
-                      className="text-sm text-cream/50 hover:text-sand-300 transition-colors"
-                    >
-                      {link}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          ))}
+          {/* Link columns — only render links with real hrefs */}
+          {columns.map((col) => {
+            const validLinks = col.links.filter(
+              (link) => link.href && link.href.trim() !== '' && link.href !== '#',
+            );
+            if (!validLinks.length) return null;
+            return (
+              <motion.div key={col.title} variants={fadeInUp}>
+                <h4 className="text-sm font-bold text-cream uppercase tracking-wider mb-4">
+                  {col.title}
+                </h4>
+                <ul className="space-y-3">
+                  {validLinks.map((link) => (
+                    <li key={`${link.href}-${link.label}`}>
+                      <a
+                        href={link.href}
+                        className="text-sm text-cream/50 hover:text-sand-300 transition-colors"
+                      >
+                        {link.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            );
+          })}
         </motion.div>
 
         {/* Bottom bar */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-6">
           <p className="text-sm text-cream/40 text-center sm:text-left">
-            © {new Date().getFullYear()} {copyright}. All rights reserved.
+            © {new Date().getFullYear()} {copyright}. Semua hak dilindungi.
           </p>
-          <div className="flex items-center gap-3">
-            {socials.map((social) => {
-              const Icon = social.icon;
-              return (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="flex items-center justify-center w-10 h-10 rounded-xl bg-coffee-900 border border-coffee-800 text-cream/60 hover:bg-coffee-700 hover:text-cream hover:border-coffee-600 transition-all active:scale-90"
-                >
-                  <Icon className="w-5 h-5" />
-                </a>
-              );
-            })}
-          </div>
+          {socials.length > 0 && (
+            <div className="flex items-center gap-3">
+              {socials.map((social) => {
+                const Icon = SOCIAL_ICONS[social.platform?.toLowerCase()] ?? Coffee;
+                return (
+                  <a
+                    key={social.label || social.platform}
+                    href={social.href}
+                    aria-label={social.label}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center w-10 h-10 rounded-xl bg-coffee-900 border border-coffee-800 text-cream/60 hover:bg-coffee-700 hover:text-cream hover:border-coffee-600 transition-all active:scale-90"
+                  >
+                    <Icon className="w-5 h-5" />
+                  </a>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </footer>
