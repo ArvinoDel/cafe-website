@@ -12,9 +12,10 @@ export type Branch = {
 
 export type SiteContentMap = Record<string, any>;
 
-function getAnonClient() {
+function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
+    process.env.SUPABASE_SECRET_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return null;
@@ -29,7 +30,7 @@ function getAnonClient() {
 // ─── Fetchers ─────────────────────────────────────────────────────────────────
 
 async function loadSiteContent(): Promise<SiteContentMap> {
-  const supabase = getAnonClient();
+  const supabase = getServerClient();
   if (!supabase) return {};
   try {
     const { data, error } = await supabase
@@ -46,7 +47,7 @@ async function loadSiteContent(): Promise<SiteContentMap> {
 }
 
 async function loadBranches(): Promise<Branch[]> {
-  const supabase = getAnonClient();
+  const supabase = getServerClient();
   if (!supabase) return [];
   try {
     const { data, error } = await supabase
@@ -61,7 +62,7 @@ async function loadBranches(): Promise<Branch[]> {
 }
 
 async function loadFeaturedItems(): Promise<FeaturedMenuItem[]> {
-  const supabase = getAnonClient();
+  const supabase = getServerClient();
   if (!supabase) return [];
   try {
     const { data, error } = await supabase
