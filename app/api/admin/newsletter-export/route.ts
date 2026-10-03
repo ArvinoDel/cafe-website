@@ -9,14 +9,20 @@ import { createClient } from '@supabase/supabase-js';
  * Only accessible by superadmin users.
  */
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_KEY  =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
+function formatCsvCell(val: unknown): string {
+  const str = val == null ? '' : String(val);
+  const neutralized = /^[=+\-@]/.test(str) ? `'${str}` : str;
+  return `"${neutralized.replace(/"/g, '""')}"`;
+}
 
 export async function GET() {
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!secretKey || !url) {
+    console.error('[newsletter-export] SUPABASE_SECRET_KEY or NEXT_PUBLIC_SUPABASE_URL is missing');
+    return NextResponse.json({ error: 'Terjadi kesalahan sistem.' }, { status: 500 });
+  }
+
   // 1. Auth — superadmin only
   const { data: ctx, error: authErr } = await createSupabaseContext({ auth: 'user' });
   if (authErr || !ctx) {
@@ -33,8 +39,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // 2. Fetch all subscribers using service role (bypasses RLS read restriction)
-  const serviceClient = createClient(SUPABASE_URL, SERVICE_KEY, {
+  // 2. Fetch all subscribers using secret key (bypasses RLS read restriction)
+  const serviceClient = createClient(url, secretKey, {
     auth: { persistSession: false },
   });
 
@@ -44,7 +50,8 @@ export async function GET() {
     .order('subscribed_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('[newsletter-export] DB error:', error.message);
+    return NextResponse.json({ error: 'Terjadi kesalahan sistem.' }, { status: 500 });
   }
 
   // 3. Build CSV
@@ -58,9 +65,9 @@ export async function GET() {
   const body   = rows
     .map((r) =>
       [
-        `"${r.email.replace(/"/g, '""')}"`,
-        `"${r.subscribed_at}"`,
-        `"${(r.source ?? '').replace(/"/g, '""')}"`,
+        formatCsvCell(r.email),
+        formatCsvCell(r.subscribed_at),
+        formatCsvCell(r.source),
       ].join(','),
     )
     .join('\n');

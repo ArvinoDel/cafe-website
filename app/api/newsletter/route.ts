@@ -14,15 +14,14 @@ import { createHash } from 'crypto';
  *  - No sensitive data stored — only a SHA-256 hash of the IP
  */
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_KEY  =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
-
 function getServiceClient() {
-  return createClient(SUPABASE_URL, SERVICE_KEY, {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !key) {
+    console.error('[newsletter] SUPABASE_SECRET_KEY or NEXT_PUBLIC_SUPABASE_URL is missing');
+    return null;
+  }
+  return createClient(url, key, {
     auth: { persistSession: false },
   });
 }
@@ -61,6 +60,9 @@ export async function POST(req: NextRequest) {
   const ipHash = hashIp(ip);
 
   const supabase = getServiceClient();
+  if (!supabase) {
+    return NextResponse.json({ error: 'Terjadi kesalahan. Coba lagi.' }, { status: 500 });
+  }
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   const { count } = await supabase

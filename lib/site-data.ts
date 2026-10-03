@@ -14,11 +14,15 @@ export type SiteContentMap = Record<string, any>;
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
+  const key = process.env.SUPABASE_SECRET_KEY;
+  if (!key) {
+    console.error('[site-data] SUPABASE_SECRET_KEY is missing. Server client cannot be initialized.');
+    return null;
+  }
+  if (!url) {
+    console.error('[site-data] NEXT_PUBLIC_SUPABASE_URL is missing.');
+    return null;
+  }
   return createClient(url, key, {
     auth: {
       persistSession: false,
