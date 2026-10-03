@@ -19,30 +19,141 @@ import {
   type FooterLinkColumn,
 } from '@/lib/site-defaults';
 
-// ─── Shape normalisation ──────────────────────────────────────────────────────
+// ─── Shape normalisation & route resolution ──────────────────────────────────
+
+const KNOWN_FOOTER_HREFS: Record<string, string> = {
+  // Support & policies
+  'support': '/p/support',
+  'bantuan': '/p/support',
+  'help centre': '/p/help-centre',
+  'help center': '/p/help-centre',
+  'pusat bantuan': '/p/help-centre',
+  'contact us': '/p/contact-us',
+  'contact': '/p/contact-us',
+  'kontak': '/p/contact-us',
+  'hubungi kami': '/p/contact-us',
+  'privacy policy': '/p/privacy-policy',
+  'kebijakan privasi': '/p/privacy-policy',
+  'privasi': '/p/privacy-policy',
+  'terms of service': '/p/terms-of-service',
+  'terms & conditions': '/p/terms-of-service',
+  'terms': '/p/terms-of-service',
+  'syarat & ketentuan': '/p/terms-of-service',
+  'syarat dan ketentuan': '/p/terms-of-service',
+  // Navigation
+  'menu': '/menu',
+  'coffee': '/menu',
+  'non-coffee': '/menu',
+  'food': '/menu',
+  'snacks': '/menu',
+  'riwayat': '/orders',
+  'orders': '/orders',
+  'about us': '/#story',
+  'cerita kami': '/#story',
+  'our locations': '/#stores',
+  'lokasi': '/#stores',
+  'how it works': '/#how-it-works',
+  'scan & order': '/#how-it-works',
+};
+
+function resolveFooterHref(label: string, existingHref?: string): string {
+  if (existingHref && existingHref.trim() !== '' && existingHref !== '#') {
+    return existingHref;
+  }
+  const normalized = label.trim().toLowerCase();
+  return KNOWN_FOOTER_HREFS[normalized] || '';
+}
+
 /**
  * Normalize old footer link columns shape (Record<string, string[]>) to the new
  * structured shape ([{ title, links: [{ label, href }] }]).
- * Never crashes on missing or unknown fields.
+ * Automatically resolves missing hrefs for known pages and ensures all 5 footer pages are accessible.
  */
 function normalizeLinkColumns(raw: unknown): FooterLinkColumn[] {
   if (!raw) return DEFAULT_FOOTER.linkColumns;
 
   // New shape: array of { title, links }
   if (Array.isArray(raw)) {
-    return (raw as FooterLinkColumn[]).filter(
-      (col) => col && typeof col.title === 'string' && Array.isArray(col.links),
+    const cols = (raw as FooterLinkColumn[])
+      .filter((col) => col && typeof col.title === 'string' && Array.isArray(col.links))
+      .map((col) => ({
+        ...col,
+        links: col.links.map((link) => ({
+          ...link,
+          href: resolveFooterHref(link.label, link.href),
+        })),
+      }));
+
+    const hasSupport = cols.some((c) =>
+      ['support', 'bantuan', 'kebijakan', 'legal'].includes(c.title.toLowerCase().trim()),
     );
+    if (!hasSupport) {
+      const defaultSupportCol = DEFAULT_FOOTER.linkColumns.find(
+        (c) => c.title.toLowerCase() === 'support',
+      );
+      if (defaultSupportCol) {
+        cols.push(defaultSupportCol);
+      }
+    } else {
+      // Ensure all 5 pages are present in Support column
+      const supportCol = cols.find((c) =>
+        ['support', 'bantuan', 'kebijakan', 'legal'].includes(c.title.toLowerCase().trim()),
+      );
+      if (supportCol) {
+        const existingHrefs = new Set(supportCol.links.map((l) => l.href));
+        const requiredPages = [
+          { label: 'Support', href: '/p/support' },
+          { label: 'Help Centre', href: '/p/help-centre' },
+          { label: 'Contact Us', href: '/p/contact-us' },
+          { label: 'Privacy Policy', href: '/p/privacy-policy' },
+          { label: 'Terms of Service', href: '/p/terms-of-service' },
+        ];
+        for (const req of requiredPages) {
+          if (!existingHrefs.has(req.href)) {
+            supportCol.links.push(req);
+            existingHrefs.add(req.href);
+          }
+        }
+      }
+    }
+
+    return cols;
   }
 
   // Old shape: Record<string, string[]>
   if (typeof raw === 'object') {
-    return Object.entries(raw as Record<string, unknown>).map(([category, links]) => ({
+    const cols = Object.entries(raw as Record<string, unknown>).map(([category, links]) => ({
       title: category,
       links: Array.isArray(links)
-        ? (links as string[]).map((label) => ({ label, href: '' }))
+        ? (links as string[]).map((label) => ({
+            label,
+            href: resolveFooterHref(label),
+          }))
         : [],
     }));
+
+    // Ensure Support column has all 5 pages
+    const supportCol = cols.find((c) =>
+      ['support', 'bantuan', 'kebijakan', 'legal'].includes(c.title.toLowerCase().trim()),
+    );
+    if (supportCol) {
+      const existingHrefs = new Set(supportCol.links.map((l) => l.href));
+      const requiredPages = [
+        { label: 'Support', href: '/p/support' },
+        { label: 'Help Centre', href: '/p/help-centre' },
+        { label: 'Contact Us', href: '/p/contact-us' },
+        { label: 'Privacy Policy', href: '/p/privacy-policy' },
+        { label: 'Terms of Service', href: '/p/terms-of-service' },
+      ];
+      for (const req of requiredPages) {
+        if (!existingHrefs.has(req.href)) {
+          supportCol.links.push(req);
+          existingHrefs.add(req.href);
+        }
+      }
+    }
+
+    return cols;
   }
 
   return DEFAULT_FOOTER.linkColumns;

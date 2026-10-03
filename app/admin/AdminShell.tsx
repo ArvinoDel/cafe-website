@@ -2,7 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette } from 'lucide-react';
+import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette, FileText } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useBrand } from '@/components/providers/BrandProvider';
 
@@ -68,6 +68,7 @@ export function AdminHeader() {
       ? [
           { href: '/admin/branches', label: 'Branches & Accounts', icon: Building2 },
           { href: '/admin/site-content', label: 'Site Content', icon: Palette },
+          { href: '/admin/pages', label: 'Pages', icon: FileText },
         ]
       : []),
   ];

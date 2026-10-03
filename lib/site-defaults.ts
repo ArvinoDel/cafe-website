@@ -49,11 +49,11 @@ export type DefaultNavLink = { label: string; href: string };
 export const DEFAULT_NAVBAR = {
   ctaLabel: 'Pesan Sekarang',
   links: [
-    { label: 'Beranda',    href: '#home'   },
+    { label: 'Beranda',    href: '/#home'   },
     { label: 'Menu',       href: '/menu'   },
     { label: 'Riwayat',   href: '/orders' },
-    { label: 'Lokasi',     href: '#stores' },
-    { label: 'Cerita Kami', href: '#story' },
+    { label: 'Lokasi',     href: '/#stores' },
+    { label: 'Cerita Kami', href: '/#story' },
   ] satisfies DefaultNavLink[],
 };
 
@@ -179,8 +179,18 @@ export const DEFAULT_FOOTER = {
       links: [
         { label: 'Menu',       href: '/menu'    },
         { label: 'Riwayat',   href: '/orders'  },
-        { label: 'Lokasi',     href: '#stores'  },
-        { label: 'Cerita Kami', href: '#story' },
+        { label: 'Lokasi',     href: '/#stores' },
+        { label: 'Cerita Kami', href: '/#story' },
+      ],
+    },
+    {
+      title: 'Support',
+      links: [
+        { label: 'Support',          href: '/p/support'          },
+        { label: 'Help Centre',      href: '/p/help-centre'      },
+        { label: 'Contact Us',       href: '/p/contact-us'       },
+        { label: 'Privacy Policy',   href: '/p/privacy-policy'   },
+        { label: 'Terms of Service', href: '/p/terms-of-service' },
       ],
     },
   ] satisfies FooterLinkColumn[],

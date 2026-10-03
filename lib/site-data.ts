@@ -102,3 +102,57 @@ export const getFeaturedItems = unstable_cache(
   ['featured-menu'],
   { tags: ['menu'], revalidate: 300 },
 );
+
+export type SitePage = {
+  id: string;
+  slug: string;
+  title: string;
+  content: string;
+  is_published: boolean;
+  updated_at: string;
+};
+
+async function loadSitePage(slug: string): Promise<SitePage | null> {
+  const supabase = getServerClient();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('site_pages')
+      .select('id, slug, title, content, is_published, updated_at')
+      .eq('slug', slug)
+      .eq('is_published', true)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as SitePage;
+  } catch {
+    return null;
+  }
+}
+
+async function loadAllSitePages(): Promise<SitePage[]> {
+  const supabase = getServerClient();
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('site_pages')
+      .select('id, slug, title, content, is_published, updated_at')
+      .order('updated_at', { ascending: false });
+    if (error || !data) return [];
+    return data as SitePage[];
+  } catch {
+    return [];
+  }
+}
+
+export const getSitePage = (slug: string) =>
+  unstable_cache(
+    () => loadSitePage(slug),
+    [`site-page-${slug}`],
+    { tags: ['site-pages', `site-page-${slug}`], revalidate: 300 },
+  )();
+
+export const getAllSitePages = unstable_cache(
+  loadAllSitePages,
+  ['site-pages-all'],
+  { tags: ['site-pages'], revalidate: 300 },
+);

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  let body: { tag?: string; tags?: string[] } = {};
+  let body: { tag?: string; tags?: string[]; path?: string; paths?: string[] } = {};
   try {
     body = await request.json();
   } catch {
@@ -44,6 +44,13 @@ export async function POST(request: NextRequest) {
     revalidateTag('site-content');
     revalidateTag('branches');
     revalidateTag('menu');
+    revalidateTag('site-pages');
+  }
+
+  if (body.path) {
+    revalidatePath(body.path);
+  } else if (body.paths && Array.isArray(body.paths)) {
+    body.paths.forEach((p) => revalidatePath(p));
   }
 
   revalidatePath('/');

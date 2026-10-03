@@ -68,7 +68,7 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-20">
             {/* Logo */}
-            <a href="#home" className="flex items-center gap-2 group">
+            <a href="/" className="flex items-center gap-2 group">
               <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-coffee-700 text-cream transition-transform group-hover:scale-105">
                 <Coffee className="w-5 h-5" />
               </div>
