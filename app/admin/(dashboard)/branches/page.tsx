@@ -22,6 +22,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -377,11 +378,18 @@ function BranchFormModal({
     }
 
     // Invalidate cached branch data for the homepage
-    await fetch('/api/admin/revalidate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag: 'branches' }),
-    }).catch(() => null);
+    try {
+      const res = await fetch('/api/admin/revalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: 'branches' }),
+      });
+      if (!res.ok) {
+        toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+      }
+    } catch {
+      toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+    }
 
     onSaved();
     onClose();

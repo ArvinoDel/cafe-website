@@ -25,6 +25,7 @@ import {
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,11 +117,18 @@ async function updateBranchMenuItem(payload: {
 }
 
 async function triggerMenuRevalidate() {
-  await fetch('/api/admin/revalidate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tag: 'menu' }),
-  }).catch(() => null);
+  try {
+    const res = await fetch('/api/admin/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag: 'menu' }),
+    });
+    if (!res.ok) {
+      toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+    }
+  } catch {
+    toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+  }
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────

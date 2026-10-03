@@ -63,7 +63,7 @@ function BranchLiveBadge({
       {isAccepting && waitMinutes !== null && waitMinutes !== undefined && waitMinutes > 0 ? (
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-coffee-50 text-coffee-700 border border-coffee-200/60">
           <Clock className="w-3 h-3 text-coffee-500" />
-          Antrean ±{waitMinutes} menit
+          Perkiraan tunggu ±{waitMinutes} menit
         </span>
       ) : null}
     </div>

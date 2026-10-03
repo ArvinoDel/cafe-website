@@ -24,6 +24,7 @@ import {
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
 
@@ -622,7 +623,36 @@ function LocalRootsEditor({ content, onChange }: { content: Record<string, unkno
 
 function FooterEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
   const socials  = (content.socials  as { platform: string; href: string; label: string }[]) ?? [];
-  const columns  = (content.linkColumns as { title: string; links: { label: string; href: string }[] }[]) ?? [];
+  const rawColumns = content.linkColumns;
+  const columns: { title: string; links: { label: string; href: string }[] }[] = Array.isArray(rawColumns)
+    ? rawColumns.map((col) => ({
+        title: typeof col?.title === 'string' ? col.title : '',
+        links: Array.isArray(col?.links)
+          ? col.links.map((link: any) => ({
+              label: typeof link === 'string' ? link : String(link?.label ?? ''),
+              href: typeof link === 'string' ? '' : String(link?.href ?? ''),
+            }))
+          : [],
+      }))
+    : (rawColumns && typeof rawColumns === 'object')
+    ? Object.entries(rawColumns as Record<string, string[]>).map(([title, links]) => ({
+        title,
+        links: Array.isArray(links)
+          ? links.map((label) => ({
+              label: typeof label === 'string' ? label : String((label as any)?.label ?? ''),
+              href: '',
+            }))
+          : [],
+      }))
+    : [];
+
+  useEffect(() => {
+    if (rawColumns && !Array.isArray(rawColumns)) {
+      onChange({ ...content, linkColumns: columns });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawColumns]);
+
   const nl       = (content.newsletter as Record<string, unknown>) ?? {};
 
   function updateSocial(i: number, key: string, value: string) {
@@ -886,11 +916,18 @@ function SiteContentEditor() {
         } catch {}
       }
       // Trigger ISR revalidation via API route
-      await fetch('/api/admin/revalidate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag: 'site-content' }),
-      }).catch(() => null);
+      try {
+        const res = await fetch('/api/admin/revalidate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag: 'site-content' }),
+        });
+        if (!res.ok) {
+          toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+        }
+      } catch {
+        toast('Tersimpan, tapi tampilan publik mungkin baru berubah dalam beberapa menit.');
+      }
     }
 
     setTimeout(() => setSaveState(null), 3000);
