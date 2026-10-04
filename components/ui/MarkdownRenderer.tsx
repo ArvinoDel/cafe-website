@@ -1,5 +1,116 @@
 import React from 'react';
 
+const LINK_CLASS =
+  'text-coffee-700 underline font-semibold hover:text-coffee-900 transition-colors';
+
+/**
+ * Only allow safe protocols and relative paths / anchors:
+ * https://, http://, mailto:, tel:, /, #
+ */
+function isSafeHref(href: string): boolean {
+  const trimmed = href.trim();
+  return (
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('mailto:') ||
+    trimmed.startsWith('tel:') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('#')
+  );
+}
+
+function isHttpHref(href: string): boolean {
+  const trimmed = href.trim();
+  return trimmed.startsWith('https://') || trimmed.startsWith('http://');
+}
+
+/**
+ * Auto-link bare URLs (https://...), email addresses (mailto:),
+ * and phone numbers (tel:, digits/+/spaces/dashes only, at least 8 digits).
+ * WhatsApp values that are wa.me links are also converted to links.
+ */
+function renderAutoLinks(text: string, keyPrefix: string): React.ReactNode[] {
+  if (!text) return [];
+
+  // Match URLs (including bare wa.me), emails, or phone numbers
+  const regex =
+    /(https?:\/\/[^\s<]+|wa\.me\/[^\s<]+)|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})|(?<![\w/])(\+?\d[\d\s-]{6,}\d)(?![\w/])/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let matchIdx = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[1]) {
+      // Bare URL or wa.me link
+      let rawUrl = match[1];
+      let trailing = '';
+      const trailingMatch = rawUrl.match(/[.,;:!?)]+$/);
+      if (trailingMatch) {
+        trailing = trailingMatch[0];
+        rawUrl = rawUrl.slice(0, -trailing.length);
+      }
+      const href = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
+      nodes.push(
+        <a
+          key={`${keyPrefix}-url-${matchIdx++}`}
+          href={href}
+          className={LINK_CLASS}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {rawUrl}
+        </a>
+      );
+      if (trailing) {
+        nodes.push(trailing);
+      }
+    } else if (match[2]) {
+      // Bare email address
+      const email = match[2];
+      nodes.push(
+        <a
+          key={`${keyPrefix}-email-${matchIdx++}`}
+          href={`mailto:${email}`}
+          className={LINK_CLASS}
+        >
+          {email}
+        </a>
+      );
+    } else if (match[3]) {
+      // Phone number candidate (digits/+/spaces/dashes only, >= 8 digits)
+      const candidate = match[3];
+      const digits = candidate.replace(/\D/g, '');
+      if (digits.length >= 8) {
+        const cleaned = candidate.replace(/[^\d+]/g, '');
+        nodes.push(
+          <a
+            key={`${keyPrefix}-tel-${matchIdx++}`}
+            href={`tel:${cleaned}`}
+            className={LINK_CLASS}
+          >
+            {candidate}
+          </a>
+        );
+      } else {
+        nodes.push(candidate);
+      }
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
 /**
  * Helper to render inline markdown: **bold**, [link](href), `code`
  */
@@ -9,13 +120,6 @@ function renderInlineText(text: string): React.ReactNode[] {
   const parts = text.split(regex);
 
   return parts.map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return (
-        <strong key={index} className="font-bold text-coffee-950">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
     if (part.startsWith('`') && part.endsWith('`')) {
       return (
         <code
@@ -26,21 +130,46 @@ function renderInlineText(text: string): React.ReactNode[] {
         </code>
       );
     }
+
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      const label = linkMatch[1];
+      const href = linkMatch[2];
+
+      if (isSafeHref(href)) {
+        const isHttp = isHttpHref(href);
+        return (
+          <a
+            key={index}
+            href={href}
+            className={LINK_CLASS}
+            target={isHttp ? '_blank' : undefined}
+            rel={isHttp ? 'noopener noreferrer' : undefined}
+          >
+            {label}
+          </a>
+        );
+      }
+
+      // Unsafe link: render link text as plain text without an <a>.
+      // Do not touch text that is already inside [text](url).
+      return <React.Fragment key={index}>{label}</React.Fragment>;
+    }
+
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const inner = part.slice(2, -2);
       return (
-        <a
-          key={index}
-          href={linkMatch[2]}
-          className="text-coffee-700 underline font-semibold hover:text-coffee-900 transition-colors"
-          target={linkMatch[2].startsWith('http') ? '_blank' : undefined}
-          rel={linkMatch[2].startsWith('http') ? 'noopener noreferrer' : undefined}
-        >
-          {linkMatch[1]}
-        </a>
+        <strong key={index} className="font-bold text-coffee-950">
+          {renderAutoLinks(inner, `bold-${index}`)}
+        </strong>
       );
     }
-    return part;
+
+    return (
+      <React.Fragment key={index}>
+        {renderAutoLinks(part, `plain-${index}`)}
+      </React.Fragment>
+    );
   });
 }
 

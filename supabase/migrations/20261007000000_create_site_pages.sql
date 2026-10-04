@@ -103,117 +103,117 @@ INSERT INTO site_pages (slug, title, content, is_published)
 VALUES
   (
     'support',
-    'Support',
-    $content$# Support
-Need a hand? We're happy to help.
+    'Bantuan',
+    $content$# Bantuan
+Butuh bantuan? Kami siap membantu.
 
-- Questions about an order: tell us your order code and we'll check it right away.
-- Something wrong with your drink or food: let the staff know at the counter, or message us.
-- Website not working: try refreshing the page first, then contact us.
+- Pertanyaan tentang pesanan: sebutkan kode pesananmu dan kami akan segera mengeceknya.
+- Ada masalah dengan minuman atau makananmu: beri tahu staf di kasir atau hubungi kami.
+- Website tidak berfungsi: coba muat ulang halaman, lalu hubungi kami jika masih bermasalah.
 
-**Contact:** {{contact_email}} · {{contact_phone}} · WhatsApp {{whatsapp}}
-**Hours:** {{opening_hours}}$content$,
+**Kontak:** {{contact_email}} · {{contact_phone}} · WhatsApp {{whatsapp}}
+**Jam buka:** {{opening_hours}}$content$,
     true
   ),
   (
     'help-centre',
-    'Help Centre',
-    $content$# Help Centre
-## How do I order?
-Scan the QR code at your table or open our website, choose your items, add any notes (for example less sugar or no ice), and place your order.
+    'Pusat Bantuan',
+    $content$# Pusat Bantuan
+## Bagaimana cara memesan?
+Pindai kode QR di mejamu atau buka website kami, pilih menu, tambahkan catatan (misalnya kurang manis atau tanpa es), lalu kirim pesanan.
 
-## How do I pay?
-Payment is made at the counter. Online payment (QRIS) is coming soon.
+## Bagaimana cara membayar?
+Pembayaran dilakukan di kasir. Pembayaran online (QRIS) akan segera tersedia.
 
-## Can I change or cancel my order?
-Tell our staff as soon as possible. Once an order is being prepared, it may not be possible to cancel.
+## Bisakah saya mengubah atau membatalkan pesanan?
+Beri tahu staf secepatnya. Setelah pesanan mulai disiapkan, pembatalan mungkin tidak bisa dilakukan.
 
-## How do I track my order?
-After ordering you'll get an order code. Use it on the order status page to see when it's ready.
+## Bagaimana cara melacak pesanan?
+Setelah memesan, kamu akan mendapat kode pesanan. Gunakan kode itu di halaman status pesanan untuk melihat kapan pesananmu siap.
 
-## Do you have Wi-Fi?
-Yes. The Wi-Fi details are shown on the website and at the counter.
+## Apakah ada Wi-Fi?
+Ada. Informasi Wi-Fi tersedia di website dan di kasir.
 
-## I have an allergy or dietary need.
-Please tell our staff before ordering so we can advise you.$content$,
+## Saya punya alergi atau pantangan makanan.
+Mohon beri tahu staf sebelum memesan agar kami bisa membantu.$content$,
     true
   ),
   (
     'contact-us',
-    'Contact Us',
-    $content$# Contact Us
-We'd love to hear from you.
+    'Hubungi Kami',
+    $content$# Hubungi Kami
+Kami senang mendengar kabar darimu.
 
-**Address:** {{address}}
-**Phone:** {{contact_phone}}
+**Alamat:** {{address}}
+**Telepon:** {{contact_phone}}
 **Email:** {{contact_email}}
 **WhatsApp:** {{whatsapp}}
 **Instagram:** {{instagram}}
-**Opening hours:** {{opening_hours}}$content$,
+**Jam buka:** {{opening_hours}}$content$,
     true
   ),
   (
     'privacy-policy',
-    'Privacy Policy',
-    $content$# Privacy Policy
-{{cafe_name}} ("we") respects your privacy. This page explains what we collect and why.
+    'Kebijakan Privasi',
+    $content$# Kebijakan Privasi
+{{cafe_name}} ("kami") menghargai privasimu. Halaman ini menjelaskan data apa yang kami kumpulkan dan untuk apa.
 
-## Information we collect
-- Order details (items, notes, order code, time).
-- Name or table number if you provide it when ordering.
-- Optional feedback you submit.
-- Basic technical data (device type, browser) to keep the site working.
+## Data yang kami kumpulkan
+- Detail pesanan (item, catatan, kode pesanan, waktu).
+- Nama atau nomor meja jika kamu mengisinya saat memesan.
+- Masukan (feedback) yang kamu kirim secara opsional.
+- Data teknis dasar (jenis perangkat, browser) agar website berjalan baik.
 
-## How we use it
-- To prepare and deliver your order.
-- To improve our menu and service.
-- To keep the website secure and working.
+## Cara kami menggunakan data
+- Menyiapkan dan mengantar pesananmu.
+- Meningkatkan menu dan layanan kami.
+- Menjaga website tetap aman dan berfungsi.
 
-## Payments
-Payments are currently handled in person. When online payment is added, it will be processed by a third-party payment provider and we will not store your card or e-wallet details.
+## Pembayaran
+Saat ini pembayaran dilakukan langsung di kasir. Saat pembayaran online tersedia, pembayaran diproses oleh penyedia pembayaran pihak ketiga dan kami tidak menyimpan data kartu atau dompet digitalmu.
 
-## Sharing
-We do not sell your data. We only share it with service providers needed to run the website (for example hosting and database), or when required by law.
+## Berbagi data
+Kami tidak menjual datamu. Data hanya dibagikan kepada penyedia layanan yang diperlukan untuk menjalankan website (misalnya hosting dan database), atau jika diwajibkan oleh hukum.
 
-## Retention
-We keep order records only as long as needed for operations and legal obligations.
+## Penyimpanan
+Kami menyimpan catatan pesanan hanya selama diperlukan untuk operasional dan kewajiban hukum.
 
-## Your rights
-You can ask us to access, correct or delete your personal data by contacting {{contact_email}}.
+## Hakmu
+Kamu dapat meminta akses, perbaikan, atau penghapusan data pribadimu dengan menghubungi {{contact_email}}.
 
-## Changes
-We may update this policy. The date below shows the latest version.$content$,
+## Perubahan
+Kebijakan ini dapat diperbarui. Tanggal pembaruan terakhir ditampilkan di halaman ini.$content$,
     true
   ),
   (
     'terms-of-service',
-    'Terms of Service',
-    $content$# Terms of Service
-By using this website and ordering from {{cafe_name}}, you agree to these terms.
+    'Syarat & Ketentuan',
+    $content$# Syarat & Ketentuan
+Dengan menggunakan website ini dan memesan di {{cafe_name}}, kamu menyetujui ketentuan berikut.
 
-## Orders
-Orders are confirmed when our staff accepts them. We may decline or pause orders when we are closed, busy, or an item is unavailable.
+## Pesanan
+Pesanan dianggap terkonfirmasi setelah diterima oleh staf kami. Kami dapat menolak atau menunda pesanan saat tutup, sibuk, atau jika menu tidak tersedia.
 
-## Prices and menu
-Prices and availability may change without notice. The price shown at the time of ordering applies.
+## Harga dan menu
+Harga dan ketersediaan menu dapat berubah sewaktu-waktu tanpa pemberitahuan. Harga yang berlaku adalah yang tertera saat pemesanan.
 
-## Payment
-Payment is due at the counter unless online payment is offered. Taxes or service charges, if any, are shown at checkout.
+## Pembayaran
+Pembayaran dilakukan di kasir kecuali pembayaran online tersedia. Pajak atau biaya layanan, jika ada, ditampilkan saat checkout.
 
-## Cancellations and issues
-Contact our staff immediately if there is a problem with your order. We'll do our best to make it right.
+## Pembatalan dan kendala
+Hubungi staf kami secepatnya jika ada masalah dengan pesananmu. Kami akan berusaha sebaik mungkin untuk menyelesaikannya.
 
-## Acceptable use
-Don't misuse the website, place false orders, or attempt to disrupt the service.
+## Penggunaan yang wajar
+Dilarang menyalahgunakan website, membuat pesanan palsu, atau mencoba mengganggu jalannya layanan.
 
-## Liability
-We prepare food and drinks with care, but we are not liable for indirect losses arising from use of the website, to the extent permitted by law.
+## Batasan tanggung jawab
+Kami menyiapkan makanan dan minuman dengan teliti, namun kami tidak bertanggung jawab atas kerugian tidak langsung akibat penggunaan website, sejauh diizinkan oleh hukum.
 
-## Changes
-We may update these terms at any time. Continued use means you accept the changes.
+## Perubahan
+Kami dapat memperbarui ketentuan ini sewaktu-waktu. Penggunaan layanan secara berkelanjutan berarti kamu menyetujui perubahan tersebut.
 
-## Contact
-Questions? Reach us at {{contact_email}}.$content$,
+## Kontak
+Ada pertanyaan? Hubungi kami di {{contact_email}}.$content$,
     true
   )
 ON CONFLICT (slug) DO NOTHING;

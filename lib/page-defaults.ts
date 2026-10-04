@@ -80,6 +80,127 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDefinition[] = [
 export const DEFAULT_SITE_PAGES: Record<string, SitePageDefault> = {
   support: {
     slug: 'support',
+    title: 'Bantuan',
+    content: `# Bantuan
+Butuh bantuan? Kami siap membantu.
+
+- Pertanyaan tentang pesanan: sebutkan kode pesananmu dan kami akan segera mengeceknya.
+- Ada masalah dengan minuman atau makananmu: beri tahu staf di kasir atau hubungi kami.
+- Website tidak berfungsi: coba muat ulang halaman, lalu hubungi kami jika masih bermasalah.
+
+**Kontak:** {{contact_email}} · {{contact_phone}} · WhatsApp {{whatsapp}}
+**Jam buka:** {{opening_hours}}`,
+  },
+
+  'help-centre': {
+    slug: 'help-centre',
+    title: 'Pusat Bantuan',
+    content: `# Pusat Bantuan
+## Bagaimana cara memesan?
+Pindai kode QR di mejamu atau buka website kami, pilih menu, tambahkan catatan (misalnya kurang manis atau tanpa es), lalu kirim pesanan.
+
+## Bagaimana cara membayar?
+Pembayaran dilakukan di kasir. Pembayaran online (QRIS) akan segera tersedia.
+
+## Bisakah saya mengubah atau membatalkan pesanan?
+Beri tahu staf secepatnya. Setelah pesanan mulai disiapkan, pembatalan mungkin tidak bisa dilakukan.
+
+## Bagaimana cara melacak pesanan?
+Setelah memesan, kamu akan mendapat kode pesanan. Gunakan kode itu di halaman status pesanan untuk melihat kapan pesananmu siap.
+
+## Apakah ada Wi-Fi?
+Ada. Informasi Wi-Fi tersedia di website dan di kasir.
+
+## Saya punya alergi atau pantangan makanan.
+Mohon beri tahu staf sebelum memesan agar kami bisa membantu.`,
+  },
+
+  'contact-us': {
+    slug: 'contact-us',
+    title: 'Hubungi Kami',
+    content: `# Hubungi Kami
+Kami senang mendengar kabar darimu.
+
+**Alamat:** {{address}}
+**Telepon:** {{contact_phone}}
+**Email:** {{contact_email}}
+**WhatsApp:** {{whatsapp}}
+**Instagram:** {{instagram}}
+**Jam buka:** {{opening_hours}}`,
+  },
+
+  'privacy-policy': {
+    slug: 'privacy-policy',
+    title: 'Kebijakan Privasi',
+    content: `# Kebijakan Privasi
+{{cafe_name}} ("kami") menghargai privasimu. Halaman ini menjelaskan data apa yang kami kumpulkan dan untuk apa.
+
+## Data yang kami kumpulkan
+- Detail pesanan (item, catatan, kode pesanan, waktu).
+- Nama atau nomor meja jika kamu mengisinya saat memesan.
+- Masukan (feedback) yang kamu kirim secara opsional.
+- Data teknis dasar (jenis perangkat, browser) agar website berjalan baik.
+
+## Cara kami menggunakan data
+- Menyiapkan dan mengantar pesananmu.
+- Meningkatkan menu dan layanan kami.
+- Menjaga website tetap aman dan berfungsi.
+
+## Pembayaran
+Saat ini pembayaran dilakukan langsung di kasir. Saat pembayaran online tersedia, pembayaran diproses oleh penyedia pembayaran pihak ketiga dan kami tidak menyimpan data kartu atau dompet digitalmu.
+
+## Berbagi data
+Kami tidak menjual datamu. Data hanya dibagikan kepada penyedia layanan yang diperlukan untuk menjalankan website (misalnya hosting dan database), atau jika diwajibkan oleh hukum.
+
+## Penyimpanan
+Kami menyimpan catatan pesanan hanya selama diperlukan untuk operasional dan kewajiban hukum.
+
+## Hakmu
+Kamu dapat meminta akses, perbaikan, atau penghapusan data pribadimu dengan menghubungi {{contact_email}}.
+
+## Perubahan
+Kebijakan ini dapat diperbarui. Tanggal pembaruan terakhir ditampilkan di halaman ini.`,
+  },
+
+  'terms-of-service': {
+    slug: 'terms-of-service',
+    title: 'Syarat & Ketentuan',
+    content: `# Syarat & Ketentuan
+Dengan menggunakan website ini dan memesan di {{cafe_name}}, kamu menyetujui ketentuan berikut.
+
+## Pesanan
+Pesanan dianggap terkonfirmasi setelah diterima oleh staf kami. Kami dapat menolak atau menunda pesanan saat tutup, sibuk, atau jika menu tidak tersedia.
+
+## Harga dan menu
+Harga dan ketersediaan menu dapat berubah sewaktu-waktu tanpa pemberitahuan. Harga yang berlaku adalah yang tertera saat pemesanan.
+
+## Pembayaran
+Pembayaran dilakukan di kasir kecuali pembayaran online tersedia. Pajak atau biaya layanan, jika ada, ditampilkan saat checkout.
+
+## Pembatalan dan kendala
+Hubungi staf kami secepatnya jika ada masalah dengan pesananmu. Kami akan berusaha sebaik mungkin untuk menyelesaikannya.
+
+## Penggunaan yang wajar
+Dilarang menyalahgunakan website, membuat pesanan palsu, atau mencoba mengganggu jalannya layanan.
+
+## Batasan tanggung jawab
+Kami menyiapkan makanan dan minuman dengan teliti, namun kami tidak bertanggung jawab atas kerugian tidak langsung akibat penggunaan website, sejauh diizinkan oleh hukum.
+
+## Perubahan
+Kami dapat memperbarui ketentuan ini sewaktu-waktu. Penggunaan layanan secara berkelanjutan berarti kamu menyetujui perubahan tersebut.
+
+## Kontak
+Ada pertanyaan? Hubungi kami di {{contact_email}}.`,
+  },
+};
+
+/**
+ * Original English seed defaults prior to localization.
+ * Used by migrations and verification tests to detect unedited pages.
+ */
+export const OLD_ENGLISH_SITE_PAGES: Record<string, SitePageDefault> = {
+  support: {
+    slug: 'support',
     title: 'Support',
     content: `# Support
 Need a hand? We're happy to help.
