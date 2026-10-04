@@ -6,11 +6,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { QrCode, Plus, Minus, ShoppingCart, X, ArrowLeft, Search, Lock, AlertCircle, Camera, Receipt, RefreshCw, CheckCircle2, MessageSquare, Pencil, Trash2, Clock, Users, Copy, Share2, Loader2, UserCheck, UserMinus, Crown, LogOut } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
+import { toast } from 'sonner';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import ItemNoteModal from '@/components/ui/ItemNoteModal';
+import ProductDetailModal from '@/components/ui/ProductDetailModal';
 import TableRequestModal from '@/components/ui/TableRequestModal';
-import { getItemLineKey, normalizeNote } from '@/lib/item-options';
+import { getItemLineKey, normalizeNote, type SelectedOption } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
@@ -35,6 +37,7 @@ type CartItem = MenuItem & {
   lineKey: string;
   quantity: number;
   note?: string | null;
+  selectedOptions?: SelectedOption[] | null;
 };
 
 const categories = [
@@ -83,7 +86,7 @@ function MenuPageInner() {
   const isPaused = branchInfo?.accepting_orders === false;
   const pauseMsg = branchInfo?.pause_message || 'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.';
 
-  // Note modal state
+  // Note modal state (kept for editing cart items from the cart drawer)
   const [noteModalTarget, setNoteModalTarget] = useState<{
     item: MenuItem;
     initialNote?: string;
@@ -91,6 +94,9 @@ function MenuPageInner() {
     lineKeyToEdit?: string;
     isEditing: boolean;
   } | null>(null);
+
+  // Product detail popup state
+  const [detailTarget, setDetailTarget] = useState<MenuItem | null>(null);
 
   // ── Group cart (Pesan Bareng) state ──────────────────────────────────────────
   // Local session loaded from localStorage on mount
@@ -523,7 +529,12 @@ function MenuPageInner() {
   }, [groupSession, cart, refreshGroupCart]);
 
   const addToCartWithNote = useCallback(
-    (item: MenuItem, note?: string | null, qty = 1) => {
+    (
+      item: MenuItem,
+      note?: string | null,
+      qty = 1,
+      selectedOptions?: SelectedOption[] | null,
+    ) => {
       // Defense in depth: refuse sold-out items
       if (item.sold_out) return;
 
@@ -559,7 +570,7 @@ function MenuPageInner() {
         return;
       }
 
-      const lineKey = getItemLineKey(item.id, cleanNote);
+      const lineKey = getItemLineKey(item.id, cleanNote, selectedOptions);
 
       setCart((prev) => {
         const existing = prev.find((c) => c.lineKey === lineKey);
@@ -576,6 +587,7 @@ function MenuPageInner() {
               lineKey,
               quantity: qty,
               note: cleanNote || undefined,
+              selectedOptions: selectedOptions || undefined,
             },
           ];
         }
@@ -1243,10 +1255,13 @@ function MenuPageInner() {
                 variants={fadeInUp}
                 whileHover={item.sold_out ? undefined : { y: -6 }}
                 className={`group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 transition-shadow duration-300 flex flex-col ${
-                  item.sold_out ? 'opacity-75' : 'hover:shadow-soft-lg'
+                  item.sold_out ? 'opacity-75' : 'hover:shadow-soft-lg cursor-pointer'
                 }`}
-                aria-disabled={item.sold_out ? true : undefined}
-                aria-label={item.sold_out ? `${item.name}, habis` : undefined}
+                onClick={() => setDetailTarget(item)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailTarget(item); } }}
+                aria-label={item.sold_out ? `${item.name}, habis — lihat detail` : `${item.name} — lihat detail dan tambah ke pesanan`}
               >
                 <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
                   {item.image_url ? (
@@ -1311,42 +1326,23 @@ function MenuPageInner() {
                         Habis
                       </span>
                     ) : (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={isPaused}
-                          onClick={() =>
-                            !isPaused &&
-                            setNoteModalTarget({
-                              item,
-                              initialNote: '',
-                              isEditing: false,
-                            })
-                          }
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors active:scale-95 ${
-                            isPaused
-                              ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
-                              : 'bg-coffee-50/80 hover:bg-coffee-100 text-coffee-700'
-                          }`}
-                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Atur catatan (gula, es, level pedas, dll)'}
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>Catatan</span>
-                        </button>
-                        <button
-                          disabled={isPaused}
-                          onClick={() => !isPaused && addToCart(item)}
-                          className={`flex items-center justify-center w-9 h-9 rounded-xl transition-all active:scale-90 ${
-                            isPaused
-                              ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
-                              : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
-                          }`}
-                          aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name} ke keranjang`}
-                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah langsung'}
-                        >
-                          <Plus className="w-5 h-5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        disabled={isPaused}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isPaused) addToCart(item);
+                        }}
+                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all active:scale-90 ${
+                          isPaused
+                            ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
+                            : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
+                        }`}
+                        aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah cepat ${item.name}`}
+                        title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah langsung (tanpa opsi)'}
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1922,7 +1918,7 @@ function MenuPageInner() {
         </motion.button>
       )}
 
-      {/* Item Note / Customization Modal */}
+      {/* Item Note / Customization Modal (for editing cart notes) */}
       <ItemNoteModal
         isOpen={Boolean(noteModalTarget)}
         item={noteModalTarget?.item ?? null}
@@ -1937,6 +1933,23 @@ function MenuPageInner() {
           } else {
             addToCartWithNote(noteModalTarget.item, confirmedNote, quantity);
           }
+        }}
+      />
+
+      {/* Product Detail Popup */}
+      <ProductDetailModal
+        isOpen={Boolean(detailTarget)}
+        item={detailTarget}
+        allItems={items}
+        isPaused={isPaused}
+        onClose={() => setDetailTarget(null)}
+        onAddToCart={({ item, note, quantity, selectedOptions }) => {
+          addToCartWithNote(item, note, quantity, selectedOptions);
+          toast.success(`${item.name} ditambahkan ke pesanan!`, { duration: 2500 });
+        }}
+        onAddPairingItem={(pairingItem) => {
+          addToCartWithNote(pairingItem, null, 1);
+          toast.success(`${pairingItem.name} ditambahkan!`, { duration: 2000 });
         }}
       />
 

@@ -19,25 +19,33 @@
  *   const { snapshot, subtotal, total } = result;
  */
 
+import {
+  type SelectedOption,
+  calculateOptionsTotal,
+  buildCombinedNote,
+} from '@/lib/item-options';
+
 type AnySupabaseClient = { from: (table: string) => any };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** One line of input: a menu item id, desired quantity, and optional note. */
+/** One line of input: a menu item id, desired quantity, optional note and selected options. */
 export type PricingLine = {
   id: string;       // menu_items.id
   quantity: number; // 1–99
   note: string | null;
+  selected_options?: SelectedOption[] | null;
 };
 
 /** A single item in the server-authoritative order snapshot. */
 export type OrderItemSnapshot = {
   id: string;
   name: string;
-  price: number;          // unit price (custom or global)
+  price: number;          // unit price including selected options (custom or global)
   image_url: string | null;
   quantity: number;
   note?: string | null;
+  selected_options?: SelectedOption[] | null;
   /** Added by which group-cart member (name).  Present only for group orders. */
   added_by?: string;
 };
@@ -48,6 +56,7 @@ type MenuItem = {
   price: number;
   image_url: string | null;
   is_available: boolean;
+  is_sold_out?: boolean | null;
 };
 
 type BranchMenuItem = {
@@ -81,6 +90,7 @@ export type PricingLineInput = {
   menu_item_id?: string;
   quantity?: number;
   note?: string | null;
+  selected_options?: SelectedOption[] | null;
   [key: string]: any;
 };
 
@@ -102,10 +112,10 @@ export type EvaluatedPriceLine<T extends PricingLineInput = PricingLineInput> = 
  *
  * Rules:
  *   - Missing menu item: sold_out = true, unit_price = 0
- *   - menuItem.is_available === false: sold_out = true
+ *   - menuItem.is_available === false or menuItem.is_sold_out === true: sold_out = true
  *   - branchRow.is_enabled === false: sold_out = true
  *   - branchRow.is_available === false: sold_out = true
- *   - unit_price: branchRow.custom_price ?? menuItem.price
+ *   - unit_price: (branchRow.custom_price ?? menuItem.price) + optionsTotal
  */
 export async function evaluatePriceLines<T extends PricingLineInput>(
   supabaseAdmin: AnySupabaseClient,
@@ -126,7 +136,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
   const [menuRes, branchRes] = await Promise.all([
     supabaseAdmin
       .from('menu_items')
-      .select('id, name, price, image_url, is_available')
+      .select('id, name, price, image_url, is_available, is_sold_out')
       .in('id', itemIds),
     supabaseAdmin
       .from('branch_menu_items')
@@ -155,6 +165,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
     const menuItemId = line.menu_item_id || line.id || '';
     const menuItem = menuMap.get(menuItemId);
     const branchRow = branchMap.get(menuItemId);
+    const optionsTotal = calculateOptionsTotal(line.selected_options);
 
     if (!menuItem) {
       return {
@@ -168,15 +179,16 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
       };
     }
 
-    const unitPrice = branchRow?.custom_price ?? menuItem.price;
+    const baseUnitPrice = branchRow?.custom_price ?? menuItem.price;
+    const finalUnitPrice = baseUnitPrice + optionsTotal;
 
-    if (!menuItem.is_available) {
+    if (!menuItem.is_available || menuItem.is_sold_out === true) {
       return {
         ...line,
         menu_item_id: menuItemId,
         name: menuItem.name,
         image_url: menuItem.image_url,
-        unit_price: unitPrice,
+        unit_price: finalUnitPrice,
         sold_out: true,
         sold_out_reason: `Menu "${menuItem.name}" sedang tidak tersedia.`,
       };
@@ -189,7 +201,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
           menu_item_id: menuItemId,
           name: menuItem.name,
           image_url: menuItem.image_url,
-          unit_price: unitPrice,
+          unit_price: finalUnitPrice,
           sold_out: true,
           sold_out_reason: `Menu "${menuItem.name}" tidak tersedia di cabang ini.`,
         };
@@ -200,7 +212,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
           menu_item_id: menuItemId,
           name: menuItem.name,
           image_url: menuItem.image_url,
-          unit_price: unitPrice,
+          unit_price: finalUnitPrice,
           sold_out: true,
           sold_out_reason: `Menu "${menuItem.name}" sedang habis di cabang ini.`,
         };
@@ -212,7 +224,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
       menu_item_id: menuItemId,
       name: menuItem.name,
       image_url: menuItem.image_url,
-      unit_price: unitPrice,
+      unit_price: finalUnitPrice,
       sold_out: false,
       sold_out_reason: null,
     };
@@ -261,13 +273,16 @@ export async function priceOrderLines(
     }
 
     subtotal += line.unit_price * line.quantity;
+    const combinedNote = buildCombinedNote(line.note, line.selected_options);
+
     snapshot.push({
-      id:        line.menu_item_id,
-      name:      line.name,
-      price:     line.unit_price,
-      image_url: line.image_url,
-      quantity:  line.quantity,
-      note:      line.note,
+      id:               line.menu_item_id,
+      name:             line.name,
+      price:            line.unit_price,
+      image_url:        line.image_url,
+      quantity:         line.quantity,
+      note:             combinedNote || line.note,
+      selected_options: line.selected_options || undefined,
     });
   }
 

@@ -37,6 +37,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
 import { priceOrderLines, pricingLinesFromGroupItems, evaluatePriceLines } from '@/lib/order-pricing';
+import { getItemLineKey, type SelectedOption } from '@/lib/item-options';
 import type { SupabaseEnv } from '@supabase/server';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
@@ -70,6 +71,17 @@ const CreateOrderSchema = z.object({
         id:       z.string().uuid('ID menu tidak valid.'),
         quantity: z.number().int().min(1, 'Jumlah minimum 1.').max(99, 'Jumlah maksimum 99.'),
         note:     z.string().trim().max(100, 'Catatan per item maksimal 100 karakter.').nullish(),
+        selected_options: z
+          .array(
+            z.object({
+              groupId: z.string(),
+              groupName: z.string(),
+              choiceId: z.string(),
+              choiceName: z.string(),
+              price: z.number().min(0),
+            }),
+          )
+          .nullish(),
       }),
     )
     .min(1, 'Pesanan tidak boleh kosong.')
@@ -428,19 +440,19 @@ export async function POST(request: NextRequest) {
   if ('response' in branchResult) return branchResult.response;
   const resolvedBranchId = branchResult.branch.id;
 
-  // 3. Consolidate requested items by (id + normalized note)
-  // Two entries with the exact same id and note are summed; entries with different notes remain distinct lines.
+  // 3. Consolidate requested items by (id + normalized note + options)
+  // Two entries with the exact same id, options, and note are summed; entries with different options/notes remain distinct lines.
   type ConsolidatedLine = {
     id: string;
     quantity: number;
     note: string | null;
+    selected_options?: SelectedOption[] | null;
   };
 
   const consolidatedMap = new Map<string, ConsolidatedLine>();
   for (const item of items!) {
     const cleanNote = item.note?.trim() || null;
-    const norm = (cleanNote || '').toLowerCase();
-    const lineKey = `${item.id}:::${norm}`;
+    const lineKey = getItemLineKey(item.id, cleanNote, item.selected_options);
 
     const existing = consolidatedMap.get(lineKey);
     if (existing) {
@@ -450,6 +462,7 @@ export async function POST(request: NextRequest) {
         id: item.id,
         quantity: item.quantity,
         note: cleanNote,
+        selected_options: item.selected_options || null,
       });
     }
   }

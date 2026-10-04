@@ -21,11 +21,17 @@ import {
   ToggleRight,
   SlidersHorizontal,
   Star,
+  ChevronDown,
+  Image as ImageIcon,
+  Clock,
+  Flame,
+  Link,
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useAdminProfile } from '../../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { toast } from 'sonner';
+import type { ItemOptionGroup, ItemOptionChoice } from '@/lib/item-options';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,10 +44,19 @@ export type MenuItem = {
   price: number;
   category: MenuCategory;
   image_url: string | null;
+  image_urls?: string[] | null;
   badge: string | null;
   is_available: boolean;
   is_featured: boolean;
+  is_sold_out?: boolean | null;
   sort_order: number;
+  ingredients?: string | null;
+  diet_tags?: string[] | null;
+  allergen_tags?: string[] | null;
+  prep_time_minutes?: number | null;
+  portion_calories?: string | null;
+  pairing_item_ids?: string[] | null;
+  options?: ItemOptionGroup[] | null;
   created_at: string;
 };
 
@@ -643,6 +658,7 @@ export default function MenuManagementPage() {
         {itemModal && (
           <MenuItemFormModal
             initial={itemModal === 'create' ? null : (itemModal as MenuItem)}
+            allItems={masterItems}
             onClose={() => setItemModal(null)}
             onSaved={fetchData}
           />
@@ -976,31 +992,487 @@ const MenuItemCard = forwardRef<
   );
 });
 
+// ─── Add / Edit Master Modal — helper components ──────────────────────────────
+
+const PRESET_DIET_TAGS = ['Halal', 'Vegetarian', 'Vegan', 'Bebas Gluten', 'Bebas Laktosa', 'Rendah Kalori', 'Pedas'];
+const PRESET_ALLERGEN_TAGS = ['Kacang', 'Susu', 'Telur', 'Gluten', 'Kedelai', 'Seafood', 'Wijen'];
+
+function makeId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function FormSection({
+  title,
+  icon,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-coffee-100 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-coffee-50/70 text-left hover:bg-coffee-100/60 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-[11px] font-bold text-coffee-900 uppercase tracking-wide">
+          {icon}
+          {title}
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 text-charcoal/40 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-3 space-y-3 border-t border-coffee-100/60">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TagChipSelector({
+  label,
+  hint,
+  presets,
+  selected,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  presets: string[];
+  selected: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [customInput, setCustomInput] = useState('');
+
+  function toggle(tag: string) {
+    onChange(selected.includes(tag) ? selected.filter((t) => t !== tag) : [...selected, tag]);
+  }
+
+  function addCustom() {
+    const trimmed = customInput.trim();
+    if (trimmed && !selected.includes(trimmed)) onChange([...selected, trimmed]);
+    setCustomInput('');
+  }
+
+  const customTags = selected.filter((t) => !presets.includes(t));
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-semibold text-charcoal/60">
+        {label}
+        {hint && <span className="font-normal ml-1 text-charcoal/40">{hint}</span>}
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        {presets.map((tag) => {
+          const active = selected.includes(tag);
+          return (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => toggle(tag)}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+                active
+                  ? 'bg-coffee-700 text-cream border-coffee-700'
+                  : 'bg-white text-charcoal/70 border-coffee-200 hover:border-coffee-400 hover:text-coffee-900'
+              }`}
+            >
+              {tag}
+            </button>
+          );
+        })}
+        {customTags.map((tag) => (
+          <span
+            key={tag}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-coffee-700 text-cream"
+          >
+            {tag}
+            <button
+              type="button"
+              onClick={() => onChange(selected.filter((t) => t !== tag))}
+              className="hover:opacity-70"
+              aria-label={`Hapus tag ${tag}`}
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addCustom();
+            }
+          }}
+          placeholder={`Tambah tag kustom...`}
+          className="flex-1 px-3 py-1.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-xs focus:outline-none focus:border-coffee-400 transition-colors"
+        />
+        <button
+          type="button"
+          onClick={addCustom}
+          disabled={!customInput.trim()}
+          className="px-3 py-1.5 rounded-xl bg-coffee-100 text-coffee-800 text-xs font-bold hover:bg-coffee-200 disabled:opacity-40 transition-colors"
+        >
+          + Tambah
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OptionGroupsEditor({
+  groups,
+  onChange,
+}: {
+  groups: ItemOptionGroup[];
+  onChange: (groups: ItemOptionGroup[]) => void;
+}) {
+  function addGroup() {
+    const newGroup: ItemOptionGroup = {
+      id: makeId(),
+      name: '',
+      type: 'single',
+      required: false,
+      choices: [{ id: makeId(), name: '', price: 0 }],
+    };
+    onChange([...groups, newGroup]);
+  }
+
+  function updateGroup(idx: number, patch: Partial<ItemOptionGroup>) {
+    onChange(groups.map((g, i) => (i === idx ? { ...g, ...patch } : g)));
+  }
+
+  function removeGroup(idx: number) {
+    onChange(groups.filter((_, i) => i !== idx));
+  }
+
+  function addChoice(gIdx: number) {
+    const newChoice: ItemOptionChoice = { id: makeId(), name: '', price: 0 };
+    updateGroup(gIdx, { choices: [...groups[gIdx].choices, newChoice] });
+  }
+
+  function updateChoice(gIdx: number, cIdx: number, patch: Partial<ItemOptionChoice>) {
+    updateGroup(gIdx, {
+      choices: groups[gIdx].choices.map((c, i) => (i === cIdx ? { ...c, ...patch } : c)),
+    });
+  }
+
+  function removeChoice(gIdx: number, cIdx: number) {
+    updateGroup(gIdx, { choices: groups[gIdx].choices.filter((_, i) => i !== cIdx) });
+  }
+
+  return (
+    <div className="space-y-3">
+      {groups.map((group, gIdx) => (
+        <div
+          key={group.id}
+          className="bg-coffee-50/50 rounded-xl border border-coffee-100 p-3 space-y-3"
+        >
+          {/* Group name + delete */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={group.name}
+              onChange={(e) => updateGroup(gIdx, { name: e.target.value })}
+              placeholder="Nama grup (mis. Ukuran, Level Pedas, Topping)"
+              className="flex-1 px-3 py-2 rounded-lg bg-white border border-coffee-200 text-charcoal text-xs font-semibold focus:outline-none focus:border-coffee-400"
+            />
+            <button
+              type="button"
+              onClick={() => removeGroup(gIdx)}
+              className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+              title="Hapus grup"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Type toggle + required */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center rounded-lg bg-white border border-coffee-200 overflow-hidden text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => updateGroup(gIdx, { type: 'single' })}
+                className={`px-2.5 py-1.5 transition-colors ${
+                  group.type === 'single'
+                    ? 'bg-coffee-700 text-cream'
+                    : 'text-charcoal/60 hover:bg-coffee-50'
+                }`}
+              >
+                Pilih Satu
+              </button>
+              <button
+                type="button"
+                onClick={() => updateGroup(gIdx, { type: 'multiple' })}
+                className={`px-2.5 py-1.5 transition-colors border-l border-coffee-200 ${
+                  group.type === 'multiple'
+                    ? 'bg-coffee-700 text-cream'
+                    : 'text-charcoal/60 hover:bg-coffee-50'
+                }`}
+              >
+                Pilih Banyak
+              </button>
+            </div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold text-charcoal/70">
+              <input
+                type="checkbox"
+                checked={group.required}
+                onChange={(e) => updateGroup(gIdx, { required: e.target.checked })}
+                className="w-3.5 h-3.5 accent-coffee-700"
+              />
+              Wajib dipilih
+            </label>
+          </div>
+
+          {/* Choices */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-charcoal/40 uppercase tracking-wide">Pilihan</p>
+            {group.choices.map((choice, cIdx) => (
+              <div key={choice.id} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={choice.name}
+                  onChange={(e) => updateChoice(gIdx, cIdx, { name: e.target.value })}
+                  placeholder={`Pilihan ${cIdx + 1} (mis. Regular, Large)`}
+                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-white border border-coffee-200 text-charcoal text-xs focus:outline-none focus:border-coffee-400"
+                />
+                <div className="relative flex-shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-charcoal/40">
+                    Rp
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="500"
+                    value={choice.price}
+                    onChange={(e) =>
+                      updateChoice(gIdx, cIdx, { price: Number(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                    className="w-24 pl-6 pr-2 py-1.5 rounded-lg bg-white border border-coffee-200 text-charcoal text-xs focus:outline-none focus:border-coffee-400"
+                  />
+                </div>
+                {group.choices.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeChoice(gIdx, cIdx)}
+                    className="p-1 rounded-lg text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                    aria-label="Hapus pilihan"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => addChoice(gIdx)}
+              className="text-xs font-semibold text-coffee-700 hover:text-coffee-900 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-coffee-100 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Tambah Pilihan
+            </button>
+          </div>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addGroup}
+        className="w-full py-2.5 rounded-xl border-2 border-dashed border-coffee-200 text-coffee-700 text-xs font-bold hover:bg-coffee-50 hover:border-coffee-400 transition-all flex items-center justify-center gap-2"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Tambah Grup Opsi Baru
+      </button>
+    </div>
+  );
+}
+
+function PairingItemsSelector({
+  allItems,
+  currentItemId,
+  selected,
+  onChange,
+}: {
+  allItems: MenuItem[];
+  currentItemId: string | null;
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [search, setSearch] = useState('');
+
+  const available = allItems.filter(
+    (i) =>
+      i.id !== currentItemId &&
+      (!search.trim() || i.name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  function toggle(id: string) {
+    if (selected.includes(id)) {
+      onChange(selected.filter((s) => s !== id));
+    } else if (selected.length < 4) {
+      onChange([...selected, id]);
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-xs text-charcoal/50">
+        Pilih hingga <strong>4</strong> item yang direkomendasikan bersama produk ini di popup detail pelanggan.
+      </p>
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((id) => {
+            const it = allItems.find((i) => i.id === id);
+            return it ? (
+              <span
+                key={id}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-coffee-700 text-cream"
+              >
+                {it.name}
+                <button
+                  type="button"
+                  onClick={() => toggle(id)}
+                  className="hover:opacity-70"
+                  aria-label={`Hapus ${it.name} dari pairing`}
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ) : null;
+          })}
+        </div>
+      )}
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Cari nama menu..."
+        className="w-full px-3 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-xs focus:outline-none focus:border-coffee-400 transition-colors"
+      />
+
+      <div className="max-h-40 overflow-y-auto space-y-0.5 rounded-xl border border-coffee-100 bg-white p-1">
+        {available.slice(0, 30).map((it) => {
+          const isSelected = selected.includes(it.id);
+          const isDisabled = !isSelected && selected.length >= 4;
+          return (
+            <button
+              key={it.id}
+              type="button"
+              disabled={isDisabled}
+              onClick={() => toggle(it.id)}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors text-xs ${
+                isSelected
+                  ? 'bg-coffee-700 text-cream'
+                  : isDisabled
+                  ? 'opacity-40 cursor-not-allowed text-charcoal/60'
+                  : 'hover:bg-coffee-50 text-charcoal'
+              }`}
+            >
+              {it.image_url ? (
+                <img
+                  src={it.image_url}
+                  alt=""
+                  className="w-6 h-6 rounded-md object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-md bg-coffee-100 flex-shrink-0" />
+              )}
+              <span className="flex-1 font-semibold truncate">{it.name}</span>
+              <span
+                className={`flex-shrink-0 font-mono ${
+                  isSelected ? 'text-cream/70' : 'text-charcoal/40'
+                }`}
+              >
+                {formatPrice(it.price)}
+              </span>
+            </button>
+          );
+        })}
+        {available.length === 0 && (
+          <p className="text-center text-xs text-charcoal/40 py-4">Tidak ada item yang sesuai.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Add / Edit Master Modal ──────────────────────────────────────────────────
 
 function MenuItemFormModal({
   initial,
+  allItems,
   onClose,
   onSaved,
 }: {
   initial: MenuItem | null;
+  allItems: MenuItem[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const supabase = getSupabase();
 
+  // ── Basic info ──
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [price, setPrice] = useState<number | string>(initial?.price ?? '');
   const [category, setCategory] = useState<MenuCategory>(initial?.category ?? 'kopi');
-  const [imageUrl, setImageUrl] = useState(initial?.image_url ?? '');
-  const [badge, setBadge] = useState(initial?.badge ?? '');
   const [sortOrder, setSortOrder] = useState<number>(initial?.sort_order ?? 0);
+
+  // ── Visibilitas & badge ──
+  const [badge, setBadge] = useState(initial?.badge ?? '');
   const [isAvailable, setIsAvailable] = useState<boolean>(initial?.is_available ?? true);
   const [isFeatured, setIsFeatured] = useState<boolean>(initial?.is_featured ?? false);
+  const [isSoldOut, setIsSoldOut] = useState<boolean>(initial?.is_sold_out ?? false);
+
+  // ── Media ──
+  const [imageUrl, setImageUrl] = useState(initial?.image_url ?? '');
+  const [imageUrls, setImageUrls] = useState<string[]>(initial?.image_urls ?? []);
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [imgPreviewError, setImgPreviewError] = useState(false);
+
+  // ── Detail produk ──
+  const [ingredients, setIngredients] = useState(initial?.ingredients ?? '');
+  const [prepTimeMinutes, setPrepTimeMinutes] = useState<number | string>(
+    initial?.prep_time_minutes ?? ''
+  );
+  const [portionCalories, setPortionCalories] = useState(initial?.portion_calories ?? '');
+  const [dietTags, setDietTags] = useState<string[]>(initial?.diet_tags ?? []);
+  const [allergenTags, setAllergenTags] = useState<string[]>(initial?.allergen_tags ?? []);
+
+  // ── Pairing items ──
+  const [pairingItemIds, setPairingItemIds] = useState<string[]>(
+    initial?.pairing_item_ids ?? []
+  );
+
+  // ── Option groups ──
+  const [optionGroups, setOptionGroups] = useState<ItemOptionGroup[]>(
+    (initial?.options as ItemOptionGroup[]) ?? []
+  );
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function addExtraImageUrl() {
+    const trimmed = newImageUrl.trim();
+    if (trimmed && imageUrls.length < 5) {
+      setImageUrls((prev) => [...prev, trimmed]);
+    }
+    setNewImageUrl('');
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -1016,19 +1488,48 @@ function MenuItemFormModal({
       return;
     }
 
+    for (const group of optionGroups) {
+      if (!group.name.trim()) {
+        setError('Nama grup opsi tidak boleh kosong.');
+        return;
+      }
+      for (const choice of group.choices) {
+        if (!choice.name.trim()) {
+          setError(`Nama pilihan dalam grup "${group.name}" tidak boleh kosong.`);
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     setError(null);
+
+    const primaryUrl = imageUrl.trim() || null;
+    const allImageUrls = [
+      ...(primaryUrl ? [primaryUrl] : []),
+      ...imageUrls.filter((u) => u && u !== primaryUrl),
+    ];
 
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
       price: numericPrice,
       category,
-      image_url: imageUrl.trim() || null,
+      image_url: primaryUrl,
+      image_urls: allImageUrls.length > 0 ? allImageUrls : null,
       badge: badge.trim() || null,
       sort_order: Number(sortOrder) || 0,
       is_available: isAvailable,
       is_featured: isFeatured,
+      is_sold_out: isSoldOut,
+      ingredients: ingredients.trim() || null,
+      prep_time_minutes:
+        prepTimeMinutes === '' ? null : Number(prepTimeMinutes) || null,
+      portion_calories: portionCalories.trim() || null,
+      diet_tags: dietTags.length > 0 ? dietTags : null,
+      allergen_tags: allergenTags.length > 0 ? allergenTags : null,
+      pairing_item_ids: pairingItemIds.length > 0 ? pairingItemIds : null,
+      options: optionGroups.length > 0 ? optionGroups : null,
     };
 
     if (initial) {
@@ -1063,9 +1564,12 @@ function MenuItemFormModal({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 20 }}
-        className="w-full max-w-lg bg-white rounded-2xl p-6 shadow-soft-lg max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-2xl bg-white rounded-2xl shadow-soft-lg flex flex-col"
+        style={{ maxHeight: '90dvh' }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-5 border-b border-coffee-50 pb-3">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-coffee-100 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-coffee-50 flex items-center justify-center">
               <UtensilsCrossed className="w-4 h-4 text-coffee-700" />
@@ -1075,6 +1579,7 @@ function MenuItemFormModal({
             </h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="text-charcoal/35 hover:text-charcoal/60 transition-colors p-1 rounded-lg hover:bg-coffee-50"
           >
@@ -1082,166 +1587,361 @@ function MenuItemFormModal({
           </button>
         </div>
 
-        {error && <ErrorAlert message={error} />}
+        {/* Scrollable form body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {error && <ErrorAlert message={error} />}
 
-        <form onSubmit={handleSave} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-              Nama Menu <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Contoh: Signature Iced Latte"
-              required
-              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
-            />
-          </div>
+          <form id="menu-item-form" onSubmit={handleSave} className="space-y-3">
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-                Kategori <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as MenuCategory)}
-                className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors cursor-pointer"
-              >
-                <option value="kopi">Kopi</option>
-                <option value="non-kopi">Non-Kopi</option>
-                <option value="makanan">Makanan</option>
-                <option value="snack">Snack</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-                Harga Master (IDR) <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-charcoal/40">
-                  Rp
-                </span>
+            {/* ── 1. Informasi Dasar ── */}
+            <FormSection
+              title="Informasi Dasar"
+              icon={<UtensilsCrossed className="w-3.5 h-3.5" />}
+              defaultOpen
+            >
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                  Nama Menu <span className="text-red-500">*</span>
+                </label>
                 <input
-                  type="number"
-                  min="0"
-                  step="500"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="27000"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Contoh: Signature Iced Latte"
                   required
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
                 />
               </div>
-            </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-              Deskripsi (opsional)
-            </label>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Deskripsi singkat mengenai rasa atau bahan menu..."
-              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors resize-none"
-            />
-          </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                    Kategori <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as MenuCategory)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors cursor-pointer"
+                  >
+                    <option value="kopi">Kopi</option>
+                    <option value="non-kopi">Non-Kopi</option>
+                    <option value="makanan">Makanan</option>
+                    <option value="snack">Snack</option>
+                  </select>
+                </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-              URL Gambar (opsional)
-            </label>
-            <input
-              type="url"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://images.pexels.com/..."
-              className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
-            />
-          </div>
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                    Harga Master (IDR) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-charcoal/40">
+                      Rp
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="27000"
+                      required
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-                Badge (opsional)
-              </label>
-              <input
-                type="text"
-                value={badge}
-                onChange={(e) => setBadge(e.target.value)}
-                placeholder="Contoh: Bestseller, New"
-                className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                  Deskripsi (opsional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Deskripsi singkat mengenai rasa atau bahan menu..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors resize-none"
+                />
+              </div>
+            </FormSection>
 
-            <div>
-              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
-                Urutan (Sort Order)
-              </label>
-              <input
-                type="number"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
-                placeholder="0"
-                className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div className="pt-1 space-y-2.5">
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isAvailable}
-                onChange={(e) => setIsAvailable(e.target.checked)}
-                className="w-4 h-4 rounded text-coffee-700 focus:ring-coffee-500 border-coffee-200 accent-coffee-700"
-              />
-              <span className="text-sm font-semibold text-coffee-900">
-                Menu Aktif &amp; Tersedia secara Global
-              </span>
-            </label>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isFeatured}
-                onChange={(e) => setIsFeatured(e.target.checked)}
-                className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 border-amber-300 accent-amber-500"
-              />
-              <span className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
-                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                Tampilkan di Beranda (maks. 8)
-              </span>
-            </label>
-          </div>
-
-          <div className="flex gap-2 pt-3 border-t border-coffee-50">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-coffee-100 text-charcoal/70 font-semibold text-sm hover:bg-coffee-50 transition-colors"
+            {/* ── 2. Foto & Media ── */}
+            <FormSection
+              title="Foto & Media"
+              icon={<ImageIcon className="w-3.5 h-3.5" />}
+              defaultOpen
             >
-              Batal
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                  URL Foto Utama
+                </label>
+                <input
+                  type="url"
+                  value={imageUrl}
+                  onChange={(e) => {
+                    setImageUrl(e.target.value);
+                    setImgPreviewError(false);
+                  }}
+                  placeholder="https://images.pexels.com/..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                />
+                {imageUrl && !imgPreviewError && (
+                  <img
+                    src={imageUrl}
+                    alt="Preview foto utama"
+                    className="mt-2 h-20 w-auto rounded-xl object-cover border border-coffee-100"
+                    onError={() => setImgPreviewError(true)}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                  Foto Tambahan
+                  <span className="font-normal ml-1 text-charcoal/40">(carousel — maks. 5 total)</span>
+                </label>
+                {imageUrls.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {imageUrls.map((url, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Link className="w-3.5 h-3.5 text-charcoal/30 flex-shrink-0" />
+                        <span className="flex-1 truncate text-xs text-charcoal/60 bg-coffee-50 px-2.5 py-1.5 rounded-lg border border-coffee-100 font-mono">
+                          {url}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setImageUrls(imageUrls.filter((_, j) => j !== i))}
+                          className="p-1 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                          aria-label="Hapus foto ini"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {imageUrls.length < 5 && (
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={newImageUrl}
+                      onChange={(e) => setNewImageUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addExtraImageUrl();
+                        }
+                      }}
+                      placeholder="URL foto tambahan (Enter untuk tambah)"
+                      className="flex-1 px-3 py-2 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-xs focus:outline-none focus:border-coffee-400 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={addExtraImageUrl}
+                      disabled={!newImageUrl.trim() || imageUrls.length >= 5}
+                      className="px-3 py-2 rounded-xl bg-coffee-100 text-coffee-800 text-xs font-bold hover:bg-coffee-200 disabled:opacity-40 transition-colors"
+                    >
+                      + Tambah
+                    </button>
+                  </div>
+                )}
+              </div>
+            </FormSection>
+
+            {/* ── 3. Visibilitas & Badge ── */}
+            <FormSection
+              title="Visibilitas & Badge"
+              icon={<Tag className="w-3.5 h-3.5" />}
+              defaultOpen
             >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Menyimpan...</span>
-                </>
-              ) : (
-                <span>{initial ? 'Simpan Perubahan' : 'Tambah Menu'}</span>
-              )}
-            </button>
-          </div>
-        </form>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">Badge</label>
+                  <select
+                    value={badge}
+                    onChange={(e) => setBadge(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors cursor-pointer"
+                  >
+                    <option value="">Tidak ada</option>
+                    <option value="Bestseller">★ Bestseller</option>
+                    <option value="New">✦ New</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                    Urutan (Sort Order)
+                  </label>
+                  <input
+                    type="number"
+                    value={sortOrder}
+                    onChange={(e) => setSortOrder(Number(e.target.value))}
+                    placeholder="0"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2.5 pt-1">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isAvailable}
+                    onChange={(e) => setIsAvailable(e.target.checked)}
+                    className="w-4 h-4 rounded accent-coffee-700"
+                  />
+                  <span className="text-sm font-semibold text-coffee-900">
+                    Menu Aktif &amp; Tersedia secara Global
+                  </span>
+                </label>
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isSoldOut}
+                    onChange={(e) => setIsSoldOut(e.target.checked)}
+                    className="w-4 h-4 rounded accent-red-500"
+                  />
+                  <span className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Tandai Stok Habis (Global)
+                  </span>
+                </label>
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isFeatured}
+                    onChange={(e) => setIsFeatured(e.target.checked)}
+                    className="w-4 h-4 rounded accent-amber-500"
+                  />
+                  <span className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    Tampilkan di Beranda (maks. 8)
+                  </span>
+                </label>
+              </div>
+            </FormSection>
+
+            {/* ── 4. Detail Produk ── */}
+            <FormSection
+              title="Detail Produk"
+              icon={<SlidersHorizontal className="w-3.5 h-3.5" />}
+              defaultOpen={false}
+            >
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                  Bahan-bahan / Ingredients (opsional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={ingredients}
+                  onChange={(e) => setIngredients(e.target.value)}
+                  placeholder="Contoh: Espresso, susu segar, gula aren, es batu..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                    <Clock className="inline w-3 h-3 mr-1" />
+                    Estimasi Waktu Saji (menit)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={prepTimeMinutes}
+                    onChange={(e) => setPrepTimeMinutes(e.target.value)}
+                    placeholder="Contoh: 5"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/60 mb-1.5">
+                    <Flame className="inline w-3 h-3 mr-1" />
+                    Kalori / Porsi (opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={portionCalories}
+                    onChange={(e) => setPortionCalories(e.target.value)}
+                    placeholder="Contoh: 250 kcal"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <TagChipSelector
+                label="Diet Tags"
+                hint="(mis. Halal, Vegan)"
+                presets={PRESET_DIET_TAGS}
+                selected={dietTags}
+                onChange={setDietTags}
+              />
+              <TagChipSelector
+                label="Allergen Tags"
+                hint="(peringatan bahan alergen)"
+                presets={PRESET_ALLERGEN_TAGS}
+                selected={allergenTags}
+                onChange={setAllergenTags}
+              />
+            </FormSection>
+
+            {/* ── 5. Opsi & Tambahan ── */}
+            <FormSection
+              title="Opsi & Tambahan"
+              icon={<Layers className="w-3.5 h-3.5" />}
+              defaultOpen={false}
+            >
+              <p className="text-xs text-charcoal/50 leading-relaxed">
+                Tambah grup opsi seperti ukuran, level pedas, atau topping tambahan. Pilihan dengan harga
+                tambahan akan ditampilkan langsung kepada pelanggan di popup produk.
+              </p>
+              <OptionGroupsEditor groups={optionGroups} onChange={setOptionGroups} />
+            </FormSection>
+
+            {/* ── 6. Cocok Dipadukan ── */}
+            <FormSection
+              title="Cocok Dipadukan"
+              icon={<Coffee className="w-3.5 h-3.5" />}
+              defaultOpen={false}
+            >
+              <PairingItemsSelector
+                allItems={allItems}
+                currentItemId={initial?.id ?? null}
+                selected={pairingItemIds}
+                onChange={setPairingItemIds}
+              />
+            </FormSection>
+
+          </form>
+        </div>
+
+        {/* Sticky footer */}
+        <div className="flex gap-2 px-6 py-4 border-t border-coffee-100 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-coffee-100 text-charcoal/70 font-semibold text-sm hover:bg-coffee-50 transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            form="menu-item-form"
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Menyimpan...</span>
+              </>
+            ) : (
+              <span>{initial ? 'Simpan Perubahan' : 'Tambah Menu'}</span>
+            )}
+          </button>
+        </div>
       </motion.div>
     </ModalBackdrop>
   );

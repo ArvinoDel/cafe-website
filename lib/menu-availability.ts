@@ -10,7 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import type { ItemOptionGroup } from '@/lib/item-options';
 
 export type AvailableMenuItem = {
   id: string;
@@ -19,9 +19,18 @@ export type AvailableMenuItem = {
   price: number;          // already resolved: custom_price ?? global price
   category: string;
   image_url: string | null;
+  image_urls?: string[] | null;
   badge: string | null;
   is_available: boolean;
+  is_sold_out?: boolean | null;
   sort_order: number;
+  ingredients?: string | null;
+  diet_tags?: string[] | null;
+  allergen_tags?: string[] | null;
+  prep_time_minutes?: number | null;
+  portion_calories?: string | null;
+  pairing_item_ids?: string[] | null;
+  options?: ItemOptionGroup[] | null;
 };
 
 /**
@@ -104,7 +113,7 @@ export async function fetchBranchMenu(
       // Hidden: branch row exists and is_enabled = false → skip entirely
       if (bRow && !bRow.is_enabled) continue;
 
-      const sold_out = bRow ? !bRow.is_available : !item.is_available;
+      const sold_out = bRow ? !bRow.is_available : (item.is_sold_out === true || !item.is_available);
       const price = bRow?.custom_price != null ? bRow.custom_price : item.price;
 
       result.push({
@@ -127,7 +136,7 @@ export async function fetchBranchMenu(
 
   return ((data || []) as AvailableMenuItem[]).map((item) => ({
     ...item,
-    sold_out: !item.is_available,
+    sold_out: item.is_sold_out === true || !item.is_available,
   }));
 }
 
