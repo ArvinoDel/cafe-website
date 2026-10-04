@@ -162,7 +162,7 @@ function PhotoCarousel({
 
   if (images.length === 0) {
     return (
-      <div className="w-full h-44 sm:h-56 lg:h-full min-h-[160px] bg-coffee-50 flex flex-col items-center justify-center gap-2 text-coffee-200 flex-shrink-0">
+      <div className="w-full flex-1 h-full min-h-[160px] max-h-[35dvh] lg:max-h-none bg-coffee-50 flex flex-col items-center justify-center gap-2 text-coffee-200 flex-shrink-0">
         <UtensilsCrossed className="w-12 h-12" />
         <span className="text-xs text-coffee-300 font-medium">Belum ada foto</span>
       </div>
@@ -171,7 +171,7 @@ function PhotoCarousel({
 
   return (
     <motion.div
-      className="relative w-full h-48 sm:h-64 lg:h-full min-h-[160px] max-h-[35dvh] lg:max-h-none overflow-hidden flex-shrink-0 bg-coffee-50 touch-pan-y"
+      className="relative w-full flex-1 h-full min-h-[160px] max-h-[35dvh] lg:max-h-none overflow-hidden bg-coffee-50 touch-pan-y"
       drag={images.length > 1 ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.2}
@@ -928,7 +928,7 @@ export default function ProductDetailModal({
             {/* Body: stacked on mobile, 2-column on desktop */}
             <div className="flex flex-col lg:flex-row overflow-hidden flex-1 min-h-0">
               {/* Photo column */}
-              <div className="relative flex-shrink-0 w-full lg:w-80 xl:w-96 flex flex-col bg-coffee-50 max-h-[35dvh] lg:max-h-none lg:h-full">
+              <div className="relative flex-shrink-0 w-full lg:w-80 xl:w-96 flex flex-col bg-coffee-50 max-h-[35dvh] lg:max-h-none lg:self-stretch">
                 <PhotoCarousel images={images} itemName={item.name} soldOut={isSoldOut} />
               </div>
 
