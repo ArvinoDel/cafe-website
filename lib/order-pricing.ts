@@ -21,6 +21,7 @@
 
 import {
   type SelectedOption,
+  type ItemOptionGroup,
   calculateOptionsTotal,
   buildCombinedNote,
 } from '@/lib/item-options';
@@ -57,6 +58,7 @@ type MenuItem = {
   image_url: string | null;
   is_available: boolean;
   is_sold_out?: boolean | null;
+  options?: ItemOptionGroup[] | null; // jsonb column from DB
 };
 
 type BranchMenuItem = {
@@ -136,7 +138,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
   const [menuRes, branchRes] = await Promise.all([
     supabaseAdmin
       .from('menu_items')
-      .select('id, name, price, image_url, is_available, is_sold_out')
+      .select('id, name, price, image_url, is_available, is_sold_out, options')
       .in('id', itemIds),
     supabaseAdmin
       .from('branch_menu_items')
@@ -165,7 +167,6 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
     const menuItemId = line.menu_item_id || line.id || '';
     const menuItem = menuMap.get(menuItemId);
     const branchRow = branchMap.get(menuItemId);
-    const optionsTotal = calculateOptionsTotal(line.selected_options);
 
     if (!menuItem) {
       return {
@@ -180,6 +181,89 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
     }
 
     const baseUnitPrice = branchRow?.custom_price ?? menuItem.price;
+
+    // ── Server-side option validation & repricing ────────────────────────────
+    // Re-price options from DB data; reject any invalid/unknown group or choice.
+    const rawOptions: ItemOptionGroup[] = Array.isArray(menuItem.options) ? menuItem.options as ItemOptionGroup[] : [];
+    const clientSelections = line.selected_options ?? [];
+    const validatedOptions: SelectedOption[] = [];
+
+    if (clientSelections.length > 0 && rawOptions.length > 0) {
+      const groupMap = new Map(rawOptions.map((g) => [g.id, g]));
+
+      // Track which groups have been satisfied
+      const seenGroups = new Map<string, number>(); // groupId -> count of choices selected
+
+      for (const sel of clientSelections) {
+        const group = groupMap.get(sel.groupId);
+        if (!group) {
+          return {
+            ...line,
+            menu_item_id: menuItemId,
+            name: menuItem.name,
+            image_url: menuItem.image_url,
+            unit_price: 0,
+            sold_out: true,
+            sold_out_reason: `Opsi "${sel.groupName}" tidak ditemukan pada menu "${menuItem.name}".`,
+          };
+        }
+        const choice = group.choices.find((c) => c.id === sel.choiceId);
+        if (!choice) {
+          return {
+            ...line,
+            menu_item_id: menuItemId,
+            name: menuItem.name,
+            image_url: menuItem.image_url,
+            unit_price: 0,
+            sold_out: true,
+            sold_out_reason: `Pilihan "${sel.choiceName}" tidak ditemukan pada opsi "${group.name}" menu "${menuItem.name}".`,
+          };
+        }
+        const count = seenGroups.get(group.id) ?? 0;
+        if (group.type === 'single' && count >= 1) {
+          return {
+            ...line,
+            menu_item_id: menuItemId,
+            name: menuItem.name,
+            image_url: menuItem.image_url,
+            unit_price: 0,
+            sold_out: true,
+            sold_out_reason: `Opsi "${group.name}" hanya boleh dipilih satu untuk menu "${menuItem.name}".`,
+          };
+        }
+        seenGroups.set(group.id, count + 1);
+        // Use price from DATABASE, not from client payload
+        validatedOptions.push({
+          groupId:    group.id,
+          groupName:  group.name,
+          choiceId:   choice.id,
+          choiceName: choice.name,
+          price:      choice.price, // always from DB
+        });
+      }
+    } else if (clientSelections.length > 0 && rawOptions.length === 0) {
+      // Client sent options but item has none — silently ignore
+    }
+
+    // Validate required groups
+    if (rawOptions.length > 0) {
+      const selectedGroupIds = new Set(validatedOptions.map((s) => s.groupId));
+      for (const group of rawOptions) {
+        if (group.required && !selectedGroupIds.has(group.id)) {
+          return {
+            ...line,
+            menu_item_id: menuItemId,
+            name: menuItem.name,
+            image_url: menuItem.image_url,
+            unit_price: 0,
+            sold_out: true,
+            sold_out_reason: `Wajib memilih opsi "${group.name}" untuk menu "${menuItem.name}".`,
+          };
+        }
+      }
+    }
+
+    const optionsTotal = calculateOptionsTotal(validatedOptions);
     const finalUnitPrice = baseUnitPrice + optionsTotal;
 
     if (!menuItem.is_available || menuItem.is_sold_out === true) {
@@ -227,6 +311,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
       unit_price: finalUnitPrice,
       sold_out: false,
       sold_out_reason: null,
+      selected_options: validatedOptions.length > 0 ? validatedOptions : (line.selected_options ?? undefined),
     };
   });
 
@@ -274,6 +359,8 @@ export async function priceOrderLines(
 
     subtotal += line.unit_price * line.quantity;
     const combinedNote = buildCombinedNote(line.note, line.selected_options);
+    // Use server-validated options from evaluatePriceLines (stored in line.selected_options after eval)
+    const serverOptions = (line as any).selected_options;
 
     snapshot.push({
       id:               line.menu_item_id,
@@ -282,7 +369,7 @@ export async function priceOrderLines(
       image_url:        line.image_url,
       quantity:         line.quantity,
       note:             combinedNote || line.note,
-      selected_options: line.selected_options || undefined,
+      selected_options: serverOptions || undefined,
     });
   }
 

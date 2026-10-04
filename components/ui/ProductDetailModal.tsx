@@ -157,7 +157,9 @@ function PhotoCarousel({ images, itemName, soldOut }: {
   const prev = useCallback(() => setIndex((i) => (i - 1 + images.length) % images.length), [images.length]);
   const next = useCallback(() => setIndex((i) => (i + 1) % images.length), [images.length]);
 
-  useEffect(() => setIndex(0), [images]);
+  // Only reset index when the item's images actually change (not on every parent re-render)
+  const imagesKey = images.join('|');
+  useEffect(() => setIndex(0), [imagesKey]);
 
   if (images.length === 0) {
     return (
@@ -231,12 +233,14 @@ function OptionGroupSelector({
   onChange,
   hasError,
   disabled,
+  onErrorClear,
 }: {
   group: ItemOptionGroup;
   selected: SelectedOption[];
   onChange: (newSelected: SelectedOption[]) => void;
   hasError: boolean;
   disabled: boolean;
+  onErrorClear?: (groupName: string) => void;
 }) {
   const groupSelections = selected.filter((s) => s.groupId === group.id);
   const isSingleChosen = (choiceId: string) => groupSelections.some((s) => s.choiceId === choiceId);
@@ -247,6 +251,7 @@ function OptionGroupSelector({
     if (isSingleChosen(choiceId)) {
       onChange(withoutGroup);
     } else {
+      onErrorClear?.(group.name);
       onChange([...withoutGroup, { groupId: group.id, groupName: group.name, choiceId, choiceName, price }]);
     }
   }
@@ -255,6 +260,7 @@ function OptionGroupSelector({
     if (isSingleChosen(choiceId)) {
       onChange(selected.filter((s) => !(s.groupId === group.id && s.choiceId === choiceId)));
     } else {
+      onErrorClear?.(group.name);
       onChange([...selected, { groupId: group.id, groupName: group.name, choiceId, choiceName, price }]);
     }
   }
@@ -362,14 +368,26 @@ export default function ProductDetailModal({
     }
   }, [isOpen]);
 
-  // Lock body scroll
+  // Ref-counted scroll lock with scrollbar width compensation to prevent layout shift
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    const prev = parseInt(document.body.dataset.scrollLockCount ?? '0', 10);
+    const count = prev + 1;
+    document.body.dataset.scrollLockCount = String(count);
+    if (count === 1) {
+      const scrollbarW = window.innerWidth - document.documentElement.clientWidth;
       document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
+      if (scrollbarW > 0) document.body.style.paddingRight = `${scrollbarW}px`;
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      const current = parseInt(document.body.dataset.scrollLockCount ?? '1', 10);
+      const next = Math.max(0, current - 1);
+      document.body.dataset.scrollLockCount = String(next);
+      if (next === 0) {
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+      }
+    };
   }, [isOpen]);
 
   // Esc key dismiss
@@ -478,6 +496,7 @@ export default function ProductDetailModal({
             selectedOptions={selectedOptions}
             setSelectedOptions={setSelectedOptions}
             validationErrors={validationErrors}
+            setValidationErrors={setValidationErrors}
             note={note}
             setNote={setNote}
             chips={chips}
@@ -513,6 +532,7 @@ export default function ProductDetailModal({
             selectedOptions={selectedOptions}
             setSelectedOptions={setSelectedOptions}
             validationErrors={validationErrors}
+            setValidationErrors={setValidationErrors}
             note={note}
             setNote={setNote}
             chips={chips}
@@ -542,6 +562,7 @@ type InnerContentProps = {
   selectedOptions: SelectedOption[];
   setSelectedOptions: (v: SelectedOption[]) => void;
   validationErrors: string[];
+  setValidationErrors: (v: string[]) => void;
   note: string;
   setNote: (v: string) => void;
   chips: string[];
@@ -666,12 +687,14 @@ function OptionsSection({
   selectedOptions,
   setSelectedOptions,
   validationErrors,
+  setValidationErrors,
   isSoldOut,
 }: {
   optionGroups: ItemOptionGroup[];
   selectedOptions: SelectedOption[];
   setSelectedOptions: (v: SelectedOption[]) => void;
   validationErrors: string[];
+  setValidationErrors: (v: string[]) => void;
   isSoldOut: boolean;
 }) {
   if (optionGroups.length === 0) return null;
@@ -687,6 +710,7 @@ function OptionsSection({
           onChange={setSelectedOptions}
           hasError={validationErrors.includes(group.name)}
           disabled={isSoldOut}
+          onErrorClear={(name) => setValidationErrors(validationErrors.filter((e) => e !== name))}
         />
       ))}
     </div>
@@ -953,6 +977,7 @@ function MobileContent(props: InnerContentProps & { dialogRef?: React.RefObject<
           selectedOptions={rest.selectedOptions}
           setSelectedOptions={rest.setSelectedOptions}
           validationErrors={rest.validationErrors}
+          setValidationErrors={rest.setValidationErrors}
           isSoldOut={isSoldOut}
         />
         <NotesSection
@@ -1020,6 +1045,7 @@ function DesktopContent(props: InnerContentProps) {
                 selectedOptions={props.selectedOptions}
                 setSelectedOptions={props.setSelectedOptions}
                 validationErrors={props.validationErrors}
+                setValidationErrors={props.setValidationErrors}
                 isSoldOut={isSoldOut}
               />
               <NotesSection

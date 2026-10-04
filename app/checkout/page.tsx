@@ -28,7 +28,7 @@ import {
 import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
-import { getItemLineKey } from '@/lib/item-options';
+import { getItemLineKey, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import {
   getLocalGroupSession,
@@ -51,6 +51,7 @@ type CartItem = {
   image_url: string | null;
   quantity: number;
   note?: string | null;
+  selectedOptions?: SelectedOption[] | null;
 };
 
 // Shape returned by POST /api/orders/create and stored in localStorage
@@ -299,7 +300,7 @@ function CheckoutPageInner() {
     [cart, persistCart],
   );
 
-  const subtotal  = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const subtotal  = cart.reduce((sum, c) => sum + (c.price + calculateOptionsTotal(c.selectedOptions)) * c.quantity, 0);
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
   const handleConfirm = async () => {
@@ -371,11 +372,12 @@ function CheckoutPageInner() {
         table_number:   tableNumber.trim(),
         payment_method: payment,
         notes:          notes.trim() || undefined,
-        // Send menu_item id + quantity + optional note
+        // Send menu_item id + quantity + optional note + selected options
         items: cart.map((c) => ({
-          id:       c.id,
-          quantity: c.quantity,
-          note:     c.note?.trim() || undefined,
+          id:              c.id,
+          quantity:        c.quantity,
+          note:            c.note?.trim() || undefined,
+          selected_options: c.selectedOptions?.length ? c.selectedOptions : undefined,
         })),
         // Include branch_id only when we have one (may be null for single-branch sites)
         ...(resolvedBranch ? { branch_id: resolvedBranch } : {}),
@@ -795,12 +797,17 @@ function CheckoutPageInner() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                        {item.selectedOptions && formatItemOptionsSummary(item.selectedOptions) && (
+                          <p className="text-xs text-coffee-700 bg-coffee-50/80 border border-coffee-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                            {formatItemOptionsSummary(item.selectedOptions)}
+                          </p>
+                        )}
                         {item.note && (
                           <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                             Catatan: {item.note}
                           </p>
                         )}
-                        <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice(item.price)}</p>
+                        <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice((item.price + calculateOptionsTotal(item.selectedOptions)) * item.quantity)}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button

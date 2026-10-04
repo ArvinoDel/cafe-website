@@ -113,7 +113,8 @@ export async function fetchBranchMenu(
       // Hidden: branch row exists and is_enabled = false → skip entirely
       if (bRow && !bRow.is_enabled) continue;
 
-      const sold_out = bRow ? !bRow.is_available : (item.is_sold_out === true || !item.is_available);
+      const globalSoldOut = item.is_sold_out === true || !item.is_available;
+      const sold_out = bRow ? (globalSoldOut || !bRow.is_available) : globalSoldOut;
       const price = bRow?.custom_price != null ? bRow.custom_price : item.price;
 
       result.push({

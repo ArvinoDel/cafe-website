@@ -29,6 +29,7 @@ import TableRequestModal from '@/components/ui/TableRequestModal';
 import { executeReorder } from '@/lib/menu-availability';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { clearLocalGroupSession, getLocalGroupSession } from '@/lib/group-cart';
+import { formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
 import {
   TABLE_KEY,
   ORDER_SNAPSHOT_PREFIX,
@@ -46,6 +47,7 @@ type OrderItem = {
   quantity: number;
   note?: string | null;
   added_by?: string | null;
+  selected_options?: SelectedOption[] | null;
 };
 
 type Order = {
@@ -846,6 +848,11 @@ export default function OrderStatusPage() {
                       </span>
                     )}
                   </div>
+                  {item.selected_options && formatItemOptionsSummary(item.selected_options) && (
+                    <p className="text-xs text-coffee-700 bg-coffee-50/80 border border-coffee-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                      {formatItemOptionsSummary(item.selected_options)}
+                    </p>
+                  )}
                   {item.note && (
                     <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                       Catatan: {item.note}

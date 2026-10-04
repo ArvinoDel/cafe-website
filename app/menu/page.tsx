@@ -12,7 +12,7 @@ import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import ItemNoteModal from '@/components/ui/ItemNoteModal';
 import ProductDetailModal from '@/components/ui/ProductDetailModal';
 import TableRequestModal from '@/components/ui/TableRequestModal';
-import { getItemLineKey, normalizeNote, type SelectedOption } from '@/lib/item-options';
+import { getItemLineKey, normalizeNote, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
@@ -784,7 +784,7 @@ function MenuPageInner() {
 
   const cartTotal = isGroupMode && groupCart
     ? groupCart.total
-    : cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+    : cart.reduce((sum, c) => sum + (c.price + calculateOptionsTotal(c.selectedOptions)) * c.quantity, 0);
 
   const goToCheckout = useCallback(() => {
     if (hasUnavailableItems) return;
@@ -1331,15 +1331,23 @@ function MenuPageInner() {
                         disabled={isPaused}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!isPaused) addToCart(item);
+                          if (isPaused) return;
+                          // Items with required options must go through the detail popup
+                          const optionGroups = Array.isArray(item.options) ? item.options as import('@/lib/item-options').ItemOptionGroup[] : [];
+                          const hasRequired = optionGroups.some((g) => g.required);
+                          if (hasRequired) {
+                            setDetailTarget(item);
+                          } else {
+                            addToCart(item);
+                          }
                         }}
                         className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all active:scale-90 ${
                           isPaused
                             ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
                             : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
                         }`}
-                        aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah cepat ${item.name}`}
-                        title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah langsung (tanpa opsi)'}
+                        aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
+                        title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
                       >
                         <Plus className="w-5 h-5" />
                       </button>
@@ -1545,11 +1553,9 @@ function MenuPageInner() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <p
-                                    className={`font-semibold text-sm truncate ${
-                                      unavailable ? 'text-charcoal/50' : 'text-coffee-900'
-                                    }`}
-                                  >
+                                  <p className={`font-semibold text-sm truncate ${
+                                    unavailable ? 'text-charcoal/50' : 'text-coffee-900'
+                                  }`}>
                                     {item.name}
                                   </p>
                                   {unavailable && (
@@ -1558,12 +1564,17 @@ function MenuPageInner() {
                                     </span>
                                   )}
                                 </div>
+                                {item.selectedOptions && formatItemOptionsSummary(item.selectedOptions) && (
+                                  <p className="text-xs text-coffee-700 font-medium mt-0.5">
+                                    {formatItemOptionsSummary(item.selectedOptions)}
+                                  </p>
+                                )}
                                 <p
                                   className={`text-sm font-bold ${
                                     unavailable ? 'text-charcoal/40 line-through' : 'text-coffee-600'
                                   }`}
                                 >
-                                  {formatPrice(item.price)}
+                                  {formatPrice((item.price + calculateOptionsTotal(item.selectedOptions)) * item.quantity)}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2">
