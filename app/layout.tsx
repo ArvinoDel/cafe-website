@@ -5,6 +5,7 @@ import { BrandProvider } from '@/components/providers/BrandProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { DEFAULT_THEME, DEFAULT_BRAND, DEFAULT_SEO } from '@/lib/site-defaults';
 import { getSiteContent } from '@/lib/site-data';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -97,6 +98,7 @@ export default async function RootLayout({
           {children}
           <Toaster richColors position="top-right" />
         </BrandProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
