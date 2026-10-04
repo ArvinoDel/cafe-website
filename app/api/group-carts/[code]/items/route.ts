@@ -140,7 +140,7 @@ export async function POST(
   if (isIncreasing) {
     const { data: menuItem, error: menuErr } = await supabaseAdmin
       .from('menu_items')
-      .select('id, name, is_available')
+      .select('id, name, is_available, options')
       .eq('id', menu_item_id)
       .maybeSingle();
 
@@ -148,6 +148,10 @@ export async function POST(
     if (!menuItem) return err409('Menu tidak ditemukan.');
     if (!menuItem.is_available) {
       return err409(`Menu "${menuItem.name}" sedang tidak tersedia.`);
+    }
+
+    if (Array.isArray(menuItem.options) && menuItem.options.length > 0) {
+      return err400('Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.');
     }
 
     const { data: branchRow } = await supabaseAdmin

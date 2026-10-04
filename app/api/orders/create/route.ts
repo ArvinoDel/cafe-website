@@ -74,13 +74,14 @@ const CreateOrderSchema = z.object({
         selected_options: z
           .array(
             z.object({
-              groupId: z.string(),
-              groupName: z.string(),
-              choiceId: z.string(),
-              choiceName: z.string(),
-              price: z.number().min(0),
+              groupId: z.string().max(100, 'groupId maksimal 100 karakter.'),
+              groupName: z.string().max(100, 'groupName maksimal 100 karakter.'),
+              choiceId: z.string().max(100, 'choiceId maksimal 100 karakter.'),
+              choiceName: z.string().max(100, 'choiceName maksimal 100 karakter.'),
+              price: z.number().finite('Harga harus berupa angka valid.').min(0, 'Harga tidak boleh negatif.'),
             }),
           )
+          .max(20, 'Opsi per item maksimal 20.')
           .nullish(),
       }),
     )

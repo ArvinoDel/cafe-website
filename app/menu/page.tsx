@@ -12,7 +12,7 @@ import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import ItemNoteModal from '@/components/ui/ItemNoteModal';
 import ProductDetailModal from '@/components/ui/ProductDetailModal';
 import TableRequestModal from '@/components/ui/TableRequestModal';
-import { getItemLineKey, normalizeNote, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
+import { getItemLineKey, normalizeNote, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption, type ItemOptionGroup } from '@/lib/item-options';
 import { CART_KEY } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
@@ -541,6 +541,11 @@ function MenuPageInner() {
       const cleanNote = normalizeNote(note);
 
       if (isGroupMode && groupSession) {
+        const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
+        if (optionGroups.length > 0) {
+          toast.error('Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.', { duration: 3500 });
+          return;
+        }
         const existing = groupCart?.items.find(
           (i) =>
             i.member_id === groupSession.member_id &&
@@ -1260,7 +1265,7 @@ function MenuPageInner() {
                 onClick={() => setDetailTarget(item)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailTarget(item); } }}
+                onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setDetailTarget(item); } }}
                 aria-label={item.sold_out ? `${item.name}, habis — lihat detail` : `${item.name} — lihat detail dan tambah ke pesanan`}
               >
                 <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
@@ -1332,8 +1337,15 @@ function MenuPageInner() {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isPaused) return;
+                          if (isGroupMode) {
+                            const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
+                            if (optionGroups.length > 0) {
+                              toast.error('Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.', { duration: 3500 });
+                              return;
+                            }
+                          }
                           // Items with required options must go through the detail popup
-                          const optionGroups = Array.isArray(item.options) ? item.options as import('@/lib/item-options').ItemOptionGroup[] : [];
+                          const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
                           const hasRequired = optionGroups.some((g) => g.required);
                           if (hasRequired) {
                             setDetailTarget(item);
@@ -1953,14 +1965,21 @@ function MenuPageInner() {
         item={detailTarget}
         allItems={items}
         isPaused={isPaused}
+        isGroupMode={isGroupMode}
         onClose={() => setDetailTarget(null)}
         onAddToCart={({ item, note, quantity, selectedOptions }) => {
           addToCartWithNote(item, note, quantity, selectedOptions);
           toast.success(`${item.name} ditambahkan ke pesanan!`, { duration: 2500 });
         }}
         onAddPairingItem={(pairingItem) => {
-          addToCartWithNote(pairingItem, null, 1);
-          toast.success(`${pairingItem.name} ditambahkan!`, { duration: 2000 });
+          const rawOptions = Array.isArray(pairingItem.options) ? (pairingItem.options as ItemOptionGroup[]) : [];
+          const hasRequired = rawOptions.some((g) => g.required);
+          if (hasRequired) {
+            setDetailTarget(pairingItem);
+          } else {
+            addToCartWithNote(pairingItem, null, 1);
+            toast.success(`${pairingItem.name} ditambahkan!`, { duration: 2000 });
+          }
         }}
       />
 

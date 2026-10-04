@@ -193,8 +193,16 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
 
       // Track which groups have been satisfied
       const seenGroups = new Map<string, number>(); // groupId -> count of choices selected
+      const seenPairs = new Set<string>(); // deduplicate (groupId + choiceId) pairs
 
       for (const sel of clientSelections) {
+        const pairKey = `${sel.groupId}::${sel.choiceId}`;
+        if (seenPairs.has(pairKey)) {
+          // Ignore duplicate (groupId + choiceId) pairs so the same choice is not counted twice
+          continue;
+        }
+        seenPairs.add(pairKey);
+
         const group = groupMap.get(sel.groupId);
         if (!group) {
           return {
@@ -205,6 +213,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
             unit_price: 0,
             sold_out: true,
             sold_out_reason: `Opsi "${sel.groupName}" tidak ditemukan pada menu "${menuItem.name}".`,
+            selected_options: undefined,
           };
         }
         const choice = group.choices.find((c) => c.id === sel.choiceId);
@@ -217,6 +226,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
             unit_price: 0,
             sold_out: true,
             sold_out_reason: `Pilihan "${sel.choiceName}" tidak ditemukan pada opsi "${group.name}" menu "${menuItem.name}".`,
+            selected_options: undefined,
           };
         }
         const count = seenGroups.get(group.id) ?? 0;
@@ -229,6 +239,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
             unit_price: 0,
             sold_out: true,
             sold_out_reason: `Opsi "${group.name}" hanya boleh dipilih satu untuk menu "${menuItem.name}".`,
+            selected_options: undefined,
           };
         }
         seenGroups.set(group.id, count + 1);
@@ -258,6 +269,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
             unit_price: 0,
             sold_out: true,
             sold_out_reason: `Wajib memilih opsi "${group.name}" untuk menu "${menuItem.name}".`,
+            selected_options: undefined,
           };
         }
       }
@@ -311,7 +323,7 @@ export async function evaluatePriceLines<T extends PricingLineInput>(
       unit_price: finalUnitPrice,
       sold_out: false,
       sold_out_reason: null,
-      selected_options: validatedOptions.length > 0 ? validatedOptions : (line.selected_options ?? undefined),
+      selected_options: validatedOptions.length > 0 ? validatedOptions : undefined,
     };
   });
 

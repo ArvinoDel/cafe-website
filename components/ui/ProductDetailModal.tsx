@@ -6,23 +6,19 @@
  * Rich product detail popup for menu items.
  *
  * Layout:
- * - Mobile (<640px): bottom sheet, slides up, max 90dvh, scrollable content,
- *   sticky bottom bar, safe-area inset respected.
- * - Tablet/Desktop (>=640px): centered modal max-w-2xl, two-column on wide screens.
+ * - Single responsive dialog layout that transitions between mobile bottom sheet
+ *   and desktop centered 2-column modal via responsive classes.
+ * - Single ref (dialogRef), single set of IDs, images load once.
+ * - Focus trap, Esc dismiss, and scroll-to-missing-option work on all viewports.
  *
  * Features:
- * - Swipeable photo carousel (multiple images) or single image or placeholder
- * - Badge (Best Seller / New / Habis), name, base price
- * - Diet & allergen chips
- * - Description, ingredients (hidden if empty)
- * - Prep time & calories info row (hidden if empty)
- * - Options/add-ons: single-choice or multiple-choice, required validation
- * - Notes textarea with quick-tap chips (reusing getSuggestedChips)
- * - "Goes well with" pairing items
- * - Sticky bottom bar: quantity selector + live total CTA
- * - Sold out: disabled UI + "Stok Habis" button
- * - Accessibility: role=dialog, aria-modal, focus trap, Esc dismiss, scroll lock
- * - Respects prefers-reduced-motion
+ * - Swipeable photo carousel (drag="x") with counter at top-left.
+ * - Swipe-down-to-close on mobile sheet handle/header.
+ * - Height capped by viewport (max-h-[35dvh] on short screens) so scrollable
+ *   area and sticky bottom bar stay visible in landscape (667x375, 844x390).
+ * - Shortened CTA button ("Tambah - Rp 125.000") that fits at 320px width.
+ * - Options, notes, and quantity disabled when paused or sold out.
+ * - Exit animation preserved with mounted AnimatePresence wrapper.
  */
 
 import {
@@ -30,7 +26,6 @@ import {
   useRef,
   useState,
   useCallback,
-  type KeyboardEvent,
 } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Transition } from 'framer-motion';
 import {
@@ -67,6 +62,7 @@ export type ProductDetailModalProps = {
   /** All loaded menu items — used for "Goes well with" pairings */
   allItems?: BranchMenuItem[];
   isPaused?: boolean;
+  isGroupMode?: boolean;
   onClose: () => void;
   /** Called when user confirms adding to cart */
   onAddToCart: (payload: {
@@ -75,7 +71,7 @@ export type ProductDetailModalProps = {
     quantity: number;
     selectedOptions: SelectedOption[];
   }) => void;
-  /** Called when user quick-adds a pairing item without options/notes */
+  /** Called when user quick-adds a pairing item */
   onAddPairingItem?: (item: BranchMenuItem) => void;
 };
 
@@ -86,7 +82,7 @@ function formatPrice(price: number): string {
 }
 
 function formatPriceFull(price: number): string {
-  return 'Rp ' + price.toLocaleString('id-ID') + ',-';
+  return 'Rp ' + price.toLocaleString('id-ID');
 }
 
 const DIET_ICONS: Record<string, React.ReactNode> = {
@@ -146,7 +142,11 @@ function useFocusTrap(isOpen: boolean, containerRef: React.RefObject<HTMLElement
 
 // ─── Photo Carousel ───────────────────────────────────────────────────────────
 
-function PhotoCarousel({ images, itemName, soldOut }: {
+function PhotoCarousel({
+  images,
+  itemName,
+  soldOut,
+}: {
   images: string[];
   itemName: string;
   soldOut: boolean;
@@ -157,35 +157,55 @@ function PhotoCarousel({ images, itemName, soldOut }: {
   const prev = useCallback(() => setIndex((i) => (i - 1 + images.length) % images.length), [images.length]);
   const next = useCallback(() => setIndex((i) => (i + 1) % images.length), [images.length]);
 
-  // Only reset index when the item's images actually change (not on every parent re-render)
   const imagesKey = images.join('|');
   useEffect(() => setIndex(0), [imagesKey]);
 
   if (images.length === 0) {
     return (
-      <div className="w-full aspect-[4/3] sm:aspect-auto sm:h-72 bg-coffee-50 flex flex-col items-center justify-center gap-2 text-coffee-200 flex-shrink-0">
-        <UtensilsCrossed className="w-14 h-14" />
+      <div className="w-full h-44 sm:h-56 lg:h-full min-h-[160px] bg-coffee-50 flex flex-col items-center justify-center gap-2 text-coffee-200 flex-shrink-0">
+        <UtensilsCrossed className="w-12 h-12" />
         <span className="text-xs text-coffee-300 font-medium">Belum ada foto</span>
       </div>
     );
   }
 
   return (
-    <div className="relative w-full aspect-[4/3] sm:aspect-auto sm:h-72 overflow-hidden flex-shrink-0 bg-coffee-50">
+    <motion.div
+      className="relative w-full h-48 sm:h-64 lg:h-full min-h-[160px] max-h-[35dvh] lg:max-h-none overflow-hidden flex-shrink-0 bg-coffee-50 touch-pan-y"
+      drag={images.length > 1 ? 'x' : false}
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.2}
+      onDragEnd={(_e, info) => {
+        if (images.length <= 1) return;
+        const threshold = 40;
+        if (info.offset.x < -threshold) {
+          next();
+        } else if (info.offset.x > threshold) {
+          prev();
+        }
+      }}
+    >
       <AnimatePresence mode="wait" initial={false}>
         <motion.img
           key={index}
           src={images[index]}
           alt={`${itemName} — foto ${index + 1}`}
-          className={`absolute inset-0 w-full h-full object-cover ${soldOut ? 'grayscale opacity-60' : ''}`}
-          initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: 30 }}
+          className={`absolute inset-0 w-full h-full object-cover select-none ${soldOut ? 'grayscale opacity-60' : ''}`}
+          initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: 25 }}
           animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, x: 0 }}
-          exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -30 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -25 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
           loading="eager"
           draggable={false}
         />
       </AnimatePresence>
+
+      {/* Top-left photo counter */}
+      {images.length > 1 && (
+        <div className="absolute top-2.5 left-2.5 bg-black/40 backdrop-blur-sm text-white text-xs font-semibold px-2 py-0.5 rounded-full z-10 select-none">
+          {index + 1}/{images.length}
+        </div>
+      )}
 
       {images.length > 1 && (
         <>
@@ -212,16 +232,15 @@ function PhotoCarousel({ images, itemName, soldOut }: {
                 type="button"
                 onClick={() => setIndex(i)}
                 aria-label={`Lihat foto ${i + 1}`}
-                className={`rounded-full transition-all ${i === index ? 'w-4 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50 hover:bg-white/75'}`}
+                className={`rounded-full transition-all ${
+                  i === index ? 'w-4 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50 hover:bg-white/75'
+                }`}
               />
             ))}
           </div>
-          <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-sm text-white text-xs font-semibold px-2 py-0.5 rounded-full z-10">
-            {index + 1}/{images.length}
-          </div>
         </>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -246,8 +265,8 @@ function OptionGroupSelector({
   const isSingleChosen = (choiceId: string) => groupSelections.some((s) => s.choiceId === choiceId);
 
   function handleSingleSelect(choiceId: string, choiceName: string, price: number) {
+    if (disabled) return;
     const withoutGroup = selected.filter((s) => s.groupId !== group.id);
-    // Toggle off if already selected
     if (isSingleChosen(choiceId)) {
       onChange(withoutGroup);
     } else {
@@ -257,6 +276,7 @@ function OptionGroupSelector({
   }
 
   function handleMultiSelect(choiceId: string, choiceName: string, price: number) {
+    if (disabled) return;
     if (isSingleChosen(choiceId)) {
       onChange(selected.filter((s) => !(s.groupId === group.id && s.choiceId === choiceId)));
     } else {
@@ -283,7 +303,7 @@ function OptionGroupSelector({
 
       {hasError && (
         <p className="text-xs text-red-600 font-semibold flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
+          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
           Pilih salah satu opsi untuk {group.name}
         </p>
       )}
@@ -327,258 +347,6 @@ function OptionGroupSelector({
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function ProductDetailModal({
-  item,
-  isOpen,
-  allItems = [],
-  isPaused = false,
-  onClose,
-  onAddToCart,
-  onAddPairingItem,
-}: ProductDetailModalProps) {
-  const shouldReduceMotion = useReducedMotion();
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-
-  const [quantity, setQuantity] = useState(1);
-  const [selectedOptions, setSelectedOptions] = useState<SelectedOption[]>([]);
-  const [note, setNote] = useState('');
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-
-  useFocusTrap(isOpen, dialogRef);
-
-  // Reset state on open/item change
-  useEffect(() => {
-    if (isOpen && item) {
-      setQuantity(1);
-      setSelectedOptions([]);
-      setNote('');
-      setValidationErrors([]);
-    }
-  }, [isOpen, item?.id]);
-
-  // Save/restore focus
-  useEffect(() => {
-    if (isOpen) {
-      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    } else {
-      setTimeout(() => previouslyFocusedRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
-
-  // Ref-counted scroll lock with scrollbar width compensation to prevent layout shift
-  useEffect(() => {
-    if (!isOpen) return;
-    const prev = parseInt(document.body.dataset.scrollLockCount ?? '0', 10);
-    const count = prev + 1;
-    document.body.dataset.scrollLockCount = String(count);
-    if (count === 1) {
-      const scrollbarW = window.innerWidth - document.documentElement.clientWidth;
-      document.body.style.overflow = 'hidden';
-      if (scrollbarW > 0) document.body.style.paddingRight = `${scrollbarW}px`;
-    }
-    return () => {
-      const current = parseInt(document.body.dataset.scrollLockCount ?? '1', 10);
-      const next = Math.max(0, current - 1);
-      document.body.dataset.scrollLockCount = String(next);
-      if (next === 0) {
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-      }
-    };
-  }, [isOpen]);
-
-  // Esc key dismiss
-  useEffect(() => {
-    function onKeyDown(e: globalThis.KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, onClose]);
-
-  const handleAddToCart = useCallback(() => {
-    if (!item) return;
-    const optionGroups: ItemOptionGroup[] = Array.isArray(item.options) ? item.options as ItemOptionGroup[] : [];
-    const { valid, missingGroups } = validateRequiredOptions(optionGroups, selectedOptions);
-    if (!valid) {
-      setValidationErrors(missingGroups);
-      // Scroll to options section
-      dialogRef.current?.querySelector('[data-options-section]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    setValidationErrors([]);
-    onAddToCart({ item, note: normalizeNote(note), quantity, selectedOptions });
-    onClose();
-  }, [item, note, quantity, selectedOptions, onAddToCart, onClose]);
-
-  const chips = getSuggestedChips(item?.category);
-  const optionGroups: ItemOptionGroup[] = (item && Array.isArray(item.options)) ? item.options as ItemOptionGroup[] : [];
-  const optionsTotal = calculateOptionsTotal(selectedOptions);
-  const lineTotal = item ? (item.price + optionsTotal) * quantity : 0;
-
-  // Build full image list: image_urls first, fall back to image_url
-  const images: string[] = item
-    ? [
-        ...((item.image_urls && item.image_urls.length > 0) ? item.image_urls : []),
-        ...((item.image_url && !(item.image_urls?.includes(item.image_url))) ? [item.image_url] : []),
-      ]
-    : [];
-
-  // Resolve pairing items
-  const pairingItems: BranchMenuItem[] = item?.pairing_item_ids?.length
-    ? item.pairing_item_ids
-        .map((id) => allItems.find((m) => m.id === id))
-        .filter((m): m is BranchMenuItem => !!m)
-    : [];
-
-  const isSoldOut = item?.sold_out ?? false;
-  const canOrder = !isSoldOut && !isPaused;
-
-  const mobileSheetVariants = {
-    hidden: { y: '100%', opacity: shouldReduceMotion ? 0 : 0.9 },
-    visible: { y: 0, opacity: 1 },
-    exit: { y: '100%', opacity: 0 },
-  };
-
-  const desktopModalVariants = {
-    hidden: { opacity: 0, scale: shouldReduceMotion ? 1 : 0.96, y: shouldReduceMotion ? 0 : 10 },
-    visible: { opacity: 1, scale: 1, y: 0 },
-    exit: { opacity: 0, scale: shouldReduceMotion ? 1 : 0.96, y: shouldReduceMotion ? 0 : 10 },
-  };
-
-  const springTransition: Transition = shouldReduceMotion
-    ? { duration: 0.15 }
-    : { type: 'spring' as const, damping: 28, stiffness: 300 };
-
-  if (!isOpen || !item) return null;
-
-  return (
-    <AnimatePresence>
-      <div
-        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-        aria-modal="true"
-        role="dialog"
-        aria-label={item.name}
-      >
-        {/* Backdrop */}
-        <motion.div
-          key="backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 bg-black/55 backdrop-blur-sm"
-          onClick={onClose}
-          aria-hidden="true"
-        />
-
-        {/* Mobile bottom sheet */}
-        <motion.div
-          key="sheet-mobile"
-          ref={dialogRef}
-          variants={mobileSheetVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          transition={springTransition}
-          className="sm:hidden relative w-full bg-white rounded-t-3xl shadow-2xl z-10 flex flex-col"
-          style={{ maxHeight: '90dvh' }}
-        >
-          <MobileContent
-            item={item}
-            images={images}
-            optionGroups={optionGroups}
-            selectedOptions={selectedOptions}
-            setSelectedOptions={setSelectedOptions}
-            validationErrors={validationErrors}
-            setValidationErrors={setValidationErrors}
-            note={note}
-            setNote={setNote}
-            chips={chips}
-            quantity={quantity}
-            setQuantity={setQuantity}
-            lineTotal={lineTotal}
-            pairingItems={pairingItems}
-            isSoldOut={isSoldOut}
-            canOrder={canOrder}
-            isPaused={isPaused}
-            onClose={onClose}
-            onAddToCart={handleAddToCart}
-            onAddPairingItem={onAddPairingItem}
-            dialogRef={dialogRef}
-          />
-        </motion.div>
-
-        {/* Desktop / Tablet centered modal */}
-        <motion.div
-          key="modal-desktop"
-          variants={desktopModalVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          transition={springTransition}
-          className="hidden sm:flex relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl z-10 flex-col overflow-hidden mx-4"
-          style={{ maxHeight: '90dvh' }}
-        >
-          <DesktopContent
-            item={item}
-            images={images}
-            optionGroups={optionGroups}
-            selectedOptions={selectedOptions}
-            setSelectedOptions={setSelectedOptions}
-            validationErrors={validationErrors}
-            setValidationErrors={setValidationErrors}
-            note={note}
-            setNote={setNote}
-            chips={chips}
-            quantity={quantity}
-            setQuantity={setQuantity}
-            lineTotal={lineTotal}
-            pairingItems={pairingItems}
-            isSoldOut={isSoldOut}
-            canOrder={canOrder}
-            isPaused={isPaused}
-            onClose={onClose}
-            onAddToCart={handleAddToCart}
-            onAddPairingItem={onAddPairingItem}
-          />
-        </motion.div>
-      </div>
-    </AnimatePresence>
-  );
-}
-
-// ─── Shared inner content props ───────────────────────────────────────────────
-
-type InnerContentProps = {
-  item: BranchMenuItem;
-  images: string[];
-  optionGroups: ItemOptionGroup[];
-  selectedOptions: SelectedOption[];
-  setSelectedOptions: (v: SelectedOption[]) => void;
-  validationErrors: string[];
-  setValidationErrors: (v: string[]) => void;
-  note: string;
-  setNote: (v: string) => void;
-  chips: string[];
-  quantity: number;
-  setQuantity: (v: number) => void;
-  lineTotal: number;
-  pairingItems: BranchMenuItem[];
-  isSoldOut: boolean;
-  canOrder: boolean;
-  isPaused: boolean;
-  onClose: () => void;
-  onAddToCart: () => void;
-  onAddPairingItem?: (item: BranchMenuItem) => void;
-  dialogRef?: React.RefObject<HTMLElement>;
-};
-
 // ─── Detail Content Sections ──────────────────────────────────────────────────
 
 function BadgesAndMeta({ item, isSoldOut }: { item: BranchMenuItem; isSoldOut: boolean }) {
@@ -592,16 +360,19 @@ function BadgesAndMeta({ item, isSoldOut }: { item: BranchMenuItem; isSoldOut: b
           </span>
         )}
         {!isSoldOut && item.badge && (
-          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-            item.badge === 'Bestseller' ? 'bg-coffee-700 text-cream' : 'bg-sand-300 text-coffee-900'
-          }`}>
-            {item.badge === 'Bestseller' ? '★ ' : '✦ '}{item.badge}
+          <span
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+              item.badge === 'Bestseller' ? 'bg-coffee-700 text-cream' : 'bg-sand-300 text-coffee-900'
+            }`}
+          >
+            {item.badge === 'Bestseller' ? '★ ' : '✦ '}
+            {item.badge}
           </span>
         )}
       </div>
 
-      {/* Name + price */}
-      <div className="flex items-start justify-between gap-3">
+      {/* Name + price row: reserved right padding on sm+ to prevent close button collision */}
+      <div className="flex items-start justify-between gap-3 sm:pr-12">
         <h2 className="text-xl font-bold text-coffee-900 leading-tight">{item.name}</h2>
         <span className="text-xl font-extrabold text-coffee-700 flex-shrink-0 mt-0.5">
           {formatPriceFull(item.price)}
@@ -641,22 +412,23 @@ function DietAllergenChips({ item }: { item: BranchMenuItem }) {
 }
 
 function InfoRow({ item }: { item: BranchMenuItem }) {
-  const hasPrepTime = !!item.prep_time_minutes;
-  const hasCalories = !!item.portion_calories;
-  if (!hasPrepTime && !hasCalories) return null;
+  const hasPrep = Boolean(item.prep_time_minutes);
+  const hasCal = Boolean(item.portion_calories);
+  if (!hasPrep && !hasCal) return null;
 
   return (
-    <div className="flex items-center gap-4 text-xs text-charcoal/55 font-medium">
-      {hasPrepTime && (
-        <span className="flex items-center gap-1.5">
-          <Clock className="w-3.5 h-3.5 text-coffee-400" />
-          ~{item.prep_time_minutes} menit
+    <div className="flex items-center gap-4 text-xs text-charcoal/60 bg-coffee-50/60 rounded-xl px-3 py-2 border border-coffee-100/60">
+      {hasPrep && (
+        <span className="flex items-center gap-1 font-medium">
+          <Clock className="w-3.5 h-3.5 text-coffee-600" />
+          {item.prep_time_minutes} menit penyajian
         </span>
       )}
-      {hasCalories && (
-        <span className="flex items-center gap-1.5">
-          <Flame className="w-3.5 h-3.5 text-coffee-400" />
-          {item.portion_calories}
+      {hasPrep && hasCal && <span className="text-coffee-200">•</span>}
+      {hasCal && (
+        <span className="flex items-center gap-1 font-medium">
+          <Flame className="w-3.5 h-3.5 text-amber-600" />
+          {item.portion_calories} kkal
         </span>
       )}
     </div>
@@ -688,14 +460,14 @@ function OptionsSection({
   setSelectedOptions,
   validationErrors,
   setValidationErrors,
-  isSoldOut,
+  disabled,
 }: {
   optionGroups: ItemOptionGroup[];
   selectedOptions: SelectedOption[];
   setSelectedOptions: (v: SelectedOption[]) => void;
   validationErrors: string[];
   setValidationErrors: (v: string[]) => void;
-  isSoldOut: boolean;
+  disabled: boolean;
 }) {
   if (optionGroups.length === 0) return null;
 
@@ -709,7 +481,7 @@ function OptionsSection({
           selected={selectedOptions}
           onChange={setSelectedOptions}
           hasError={validationErrors.includes(group.name)}
-          disabled={isSoldOut}
+          disabled={disabled}
           onErrorClear={(name) => setValidationErrors(validationErrors.filter((e) => e !== name))}
         />
       ))}
@@ -721,16 +493,20 @@ function NotesSection({
   note,
   setNote,
   chips,
-  isSoldOut,
+  disabled,
 }: {
   note: string;
   setNote: (v: string) => void;
   chips: string[];
-  isSoldOut: boolean;
+  disabled: boolean;
 }) {
   function handleChipClick(chip: string) {
+    if (disabled) return;
     const current = note.trim();
-    if (!current) { setNote(chip); return; }
+    if (!current) {
+      setNote(chip);
+      return;
+    }
     const parts = current.split(',').map((p) => p.trim()).filter(Boolean);
     const existingIdx = parts.findIndex((p) => p.toLowerCase() === chip.toLowerCase());
     if (existingIdx >= 0) {
@@ -760,13 +536,13 @@ function NotesSection({
             <button
               key={chip}
               type="button"
-              disabled={isSoldOut}
+              disabled={disabled}
               onClick={() => handleChipClick(chip)}
               className={`text-xs font-semibold px-3 py-1.5 min-h-[36px] rounded-full transition-all active:scale-95 border ${
                 active
                   ? 'bg-coffee-700 text-cream border-coffee-700 shadow-sm'
                   : 'bg-coffee-50/80 text-charcoal/70 border-coffee-100 hover:bg-coffee-100 hover:text-coffee-900'
-              } ${isSoldOut ? 'opacity-40 cursor-not-allowed' : ''}`}
+              } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
               aria-pressed={active}
             >
               {chip}
@@ -780,14 +556,14 @@ function NotesSection({
         <textarea
           id="product-detail-note"
           rows={3}
-          disabled={isSoldOut}
+          disabled={disabled}
           value={note}
           onChange={(e) => setNote(e.target.value.slice(0, MAX_ITEM_NOTE_LENGTH))}
           placeholder="Contoh: less sugar, no vegetables, extra pedas…"
           className="w-full resize-none px-3.5 py-2.5 rounded-xl bg-coffee-50/50 border border-coffee-100 text-charcoal text-sm placeholder:text-charcoal/35 focus:outline-none focus:border-coffee-400 focus:bg-white transition-colors disabled:opacity-40"
         />
         <div className="absolute bottom-2 right-2.5 flex items-center gap-2">
-          {note.length > 0 && !isSoldOut && (
+          {note.length > 0 && !disabled && (
             <button
               type="button"
               onClick={() => setNote('')}
@@ -818,43 +594,55 @@ function PairingsSection({
     <div className="space-y-2.5">
       <h3 className="text-xs font-bold text-coffee-900 uppercase tracking-wide">Cocok Dipadukan</h3>
       <div className="flex gap-2.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-        {pairingItems.slice(0, 4).map((pairing) => (
-          <div
-            key={pairing.id}
-            className="flex-shrink-0 w-28 bg-coffee-50 rounded-2xl overflow-hidden border border-coffee-100/80"
-          >
-            <div className="aspect-square bg-coffee-100/50 overflow-hidden">
-              {pairing.image_url ? (
-                <img
-                  src={pairing.image_url}
-                  alt={pairing.name}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-coffee-200">
-                  <UtensilsCrossed className="w-6 h-6" />
-                </div>
-              )}
+        {pairingItems.slice(0, 4).map((pairing) => {
+          const rawOptions = Array.isArray(pairing.options) ? (pairing.options as ItemOptionGroup[]) : [];
+          const hasRequired = rawOptions.some((g) => g.required);
+
+          return (
+            <div
+              key={pairing.id}
+              className="flex-shrink-0 w-28 bg-coffee-50 rounded-2xl overflow-hidden border border-coffee-100/80"
+            >
+              <div className="aspect-square bg-coffee-100/50 overflow-hidden">
+                {pairing.image_url ? (
+                  <img
+                    src={pairing.image_url}
+                    alt={pairing.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-coffee-200">
+                    <UtensilsCrossed className="w-6 h-6" />
+                  </div>
+                )}
+              </div>
+              <div className="p-2">
+                <p className="text-[11px] font-bold text-coffee-900 leading-tight line-clamp-2 mb-1">{pairing.name}</p>
+                <p className="text-[10px] text-coffee-600 font-semibold mb-1.5">{formatPrice(pairing.price)}</p>
+                <button
+                  type="button"
+                  disabled={pairing.sold_out}
+                  onClick={() => !pairing.sold_out && onAddPairingItem?.(pairing)}
+                  className={`w-full py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                    pairing.sold_out
+                      ? 'bg-charcoal/10 text-charcoal/40 cursor-not-allowed'
+                      : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
+                  }`}
+                  aria-label={
+                    pairing.sold_out
+                      ? `${pairing.name}, habis`
+                      : hasRequired
+                      ? `Pilih opsi untuk ${pairing.name}`
+                      : `Tambah ${pairing.name}`
+                  }
+                >
+                  {pairing.sold_out ? 'Habis' : '+ Tambah'}
+                </button>
+              </div>
             </div>
-            <div className="p-2">
-              <p className="text-[11px] font-bold text-coffee-900 leading-tight line-clamp-2 mb-1">{pairing.name}</p>
-              <p className="text-[10px] text-coffee-600 font-semibold mb-1.5">{formatPrice(pairing.price)}</p>
-              <button
-                type="button"
-                disabled={pairing.sold_out}
-                onClick={() => !pairing.sold_out && onAddPairingItem?.(pairing)}
-                className={`w-full py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                  pairing.sold_out
-                    ? 'bg-charcoal/10 text-charcoal/40 cursor-not-allowed'
-                    : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
-                }`}
-              >
-                {pairing.sold_out ? 'Habis' : '+ Tambah'}
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -885,7 +673,11 @@ function StickyBottomBar({
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
       {/* Quantity selector */}
-      <div className={`flex items-center gap-2 bg-coffee-50 rounded-xl p-1 border border-coffee-100/60 flex-shrink-0 ${!canOrder ? 'opacity-40' : ''}`}>
+      <div
+        className={`flex items-center gap-2 bg-coffee-50 rounded-xl p-1 border border-coffee-100/60 flex-shrink-0 ${
+          !canOrder ? 'opacity-40' : ''
+        }`}
+      >
         <button
           type="button"
           disabled={!canOrder || quantity <= 1}
@@ -914,27 +706,31 @@ function StickyBottomBar({
         type="button"
         disabled={!canOrder}
         onClick={onAddToCart}
-        className={`flex-1 min-h-[48px] py-3 px-4 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
-          isSoldOut
-            ? 'bg-charcoal/10 text-charcoal/40 cursor-not-allowed'
-            : isPaused
+        className={`flex-1 min-h-[48px] py-3 px-3 sm:px-4 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
+          isSoldOut || isPaused || !canOrder
             ? 'bg-charcoal/10 text-charcoal/40 cursor-not-allowed'
             : 'bg-coffee-700 hover:bg-coffee-800 text-cream shadow-sm'
         }`}
         aria-label={
           isSoldOut
             ? 'Stok habis'
-            : `Tambah ke pesanan — ${formatPriceFull(lineTotal)}`
+            : isPaused
+            ? 'Pemesanan dijeda'
+            : !canOrder
+            ? 'Pemesanan tidak tersedia'
+            : `Tambah - ${formatPrice(lineTotal)}`
         }
       >
         {isSoldOut ? (
           <span>Stok Habis</span>
         ) : isPaused ? (
           <span>Pemesanan Dijeda</span>
+        ) : !canOrder ? (
+          <span>Tidak Tersedia</span>
         ) : (
           <>
             <ShoppingCart className="w-4 h-4 flex-shrink-0" />
-            <span className="truncate">Tambah ke Pesanan — {formatPriceFull(lineTotal)}</span>
+            <span className="truncate">Tambah - {formatPrice(lineTotal)}</span>
           </>
         )}
       </button>
@@ -942,138 +738,255 @@ function StickyBottomBar({
   );
 }
 
-// ─── Mobile Content ───────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-function MobileContent(props: InnerContentProps & { dialogRef?: React.RefObject<HTMLElement> }) {
-  const { item, images, onClose, isSoldOut, ...rest } = props;
+export default function ProductDetailModal({
+  item,
+  isOpen,
+  allItems = [],
+  isPaused = false,
+  isGroupMode = false,
+  onClose,
+  onAddToCart,
+  onAddPairingItem,
+}: ProductDetailModalProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  const [quantity, setQuantity] = useState(1);
+  const [selectedOptions, setSelectedOptions] = useState<SelectedOption[]>([]);
+  const [note, setNote] = useState('');
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  useFocusTrap(isOpen, dialogRef);
+
+  // Reset state on open/item change
+  useEffect(() => {
+    if (isOpen && item) {
+      setQuantity(1);
+      setSelectedOptions([]);
+      setNote('');
+      setValidationErrors([]);
+    }
+  }, [isOpen, item?.id]);
+
+  // Save/restore focus
+  useEffect(() => {
+    if (isOpen) {
+      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    } else {
+      setTimeout(() => previouslyFocusedRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  // Ref-counted scroll lock with scrollbar width compensation
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = parseInt(document.body.dataset.scrollLockCount ?? '0', 10);
+    const count = prev + 1;
+    document.body.dataset.scrollLockCount = String(count);
+
+    if (count === 1) {
+      const scrollbarW = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = 'hidden';
+      if (scrollbarW > 0) document.body.style.paddingRight = `${scrollbarW}px`;
+    }
+    return () => {
+      const current = parseInt(document.body.dataset.scrollLockCount ?? '1', 10);
+      const next = Math.max(0, current - 1);
+      document.body.dataset.scrollLockCount = String(next);
+      if (next === 0) {
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+      }
+    };
+  }, [isOpen]);
+
+  // Esc key dismiss
+  useEffect(() => {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
+  const handleAddToCart = useCallback(() => {
+    if (!item) return;
+    const optionGroups: ItemOptionGroup[] = Array.isArray(item.options) ? item.options as ItemOptionGroup[] : [];
+    const { valid, missingGroups } = validateRequiredOptions(optionGroups, selectedOptions);
+    if (!valid) {
+      setValidationErrors(missingGroups);
+      // Scroll to options section inside dialogRef
+      dialogRef.current?.querySelector('[data-options-section]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setValidationErrors([]);
+    onAddToCart({ item, note: normalizeNote(note), quantity, selectedOptions });
+    onClose();
+  }, [item, note, quantity, selectedOptions, onAddToCart, onClose]);
+
+  const chips = getSuggestedChips(item?.category);
+  const optionGroups: ItemOptionGroup[] = (item && Array.isArray(item.options)) ? item.options as ItemOptionGroup[] : [];
+  const optionsTotal = calculateOptionsTotal(selectedOptions);
+  const lineTotal = item ? (item.price + optionsTotal) * quantity : 0;
+
+  // Build full image list: image_urls first, fall back to image_url
+  const images: string[] = item
+    ? [
+        ...((item.image_urls && item.image_urls.length > 0) ? item.image_urls : []),
+        ...((item.image_url && !(item.image_urls?.includes(item.image_url))) ? [item.image_url] : []),
+      ]
+    : [];
+
+  // Resolve pairing items
+  const pairingItems: BranchMenuItem[] = item?.pairing_item_ids?.length
+    ? item.pairing_item_ids
+        .map((id) => allItems.find((m) => m.id === id))
+        .filter((m): m is BranchMenuItem => !!m)
+    : [];
+
+  const isSoldOut = item?.sold_out ?? false;
+  const isGroupBlocked = isGroupMode && optionGroups.length > 0;
+  const canOrder = !isSoldOut && !isPaused && !isGroupBlocked;
+
+  const dialogVariants = {
+    hidden: shouldReduceMotion
+      ? { opacity: 0 }
+      : { opacity: 0, y: 24, scale: 0.98 },
+    visible: { opacity: 1, y: 0, scale: 1 },
+    exit: shouldReduceMotion
+      ? { opacity: 0 }
+      : { opacity: 0, y: 24, scale: 0.98 },
+  };
+
+  const springTransition: Transition = shouldReduceMotion
+    ? { duration: 0.15 }
+    : { type: 'spring', damping: 28, stiffness: 300 };
+
   return (
-    <>
-      {/* Drag handle */}
-      <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-        <div className="w-10 h-1 rounded-full bg-coffee-200" aria-hidden="true" />
-      </div>
-
-      {/* Header: close button + image */}
-      <div className="relative flex-shrink-0">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-2 right-3 z-20 w-8 h-8 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/50 transition-colors"
-          aria-label="Tutup"
+    <AnimatePresence>
+      {isOpen && item && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          aria-modal="true"
+          role="dialog"
+          aria-label={item.name}
         >
-          <X className="w-4 h-4" />
-        </button>
-        <PhotoCarousel images={images} itemName={item.name} soldOut={isSoldOut} />
-      </div>
+          {/* Backdrop */}
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm"
+            onClick={onClose}
+            aria-hidden="true"
+          />
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
-        <BadgesAndMeta item={item} isSoldOut={isSoldOut} />
-        <DietAllergenChips item={item} />
-        <InfoRow item={item} />
-        <DescriptionIngredients item={item} />
-        <OptionsSection
-          optionGroups={rest.optionGroups}
-          selectedOptions={rest.selectedOptions}
-          setSelectedOptions={rest.setSelectedOptions}
-          validationErrors={rest.validationErrors}
-          setValidationErrors={rest.setValidationErrors}
-          isSoldOut={isSoldOut}
-        />
-        <NotesSection
-          note={rest.note}
-          setNote={rest.setNote}
-          chips={rest.chips}
-          isSoldOut={isSoldOut}
-        />
-        <PairingsSection
-          pairingItems={rest.pairingItems}
-          onAddPairingItem={rest.onAddPairingItem}
-        />
-        {/* Safe area spacer */}
-        <div style={{ height: '1px' }} />
-      </div>
+          {/* Single responsive dialog container */}
+          <motion.div
+            key="dialog-container"
+            ref={dialogRef}
+            variants={dialogVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            transition={springTransition}
+            className="relative w-full max-h-[92dvh] sm:max-h-[90dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl z-10 flex flex-col overflow-hidden sm:max-w-2xl lg:max-w-4xl"
+          >
+            {/* Mobile swipe-down drag handle */}
+            <motion.div
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0, bottom: 0.5 }}
+              onDragEnd={(_e, info) => {
+                if (info.offset.y > 60 || info.velocity.y > 300) {
+                  onClose();
+                }
+              }}
+              className="cursor-grab active:cursor-grabbing touch-none flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden z-20"
+              aria-label="Tarik ke bawah untuk menutup"
+            >
+              <div className="w-10 h-1 rounded-full bg-coffee-200" aria-hidden="true" />
+            </motion.div>
 
-      {/* Sticky bottom bar */}
-      <StickyBottomBar
-        item={item}
-        quantity={rest.quantity}
-        setQuantity={rest.setQuantity}
-        lineTotal={rest.lineTotal}
-        isSoldOut={isSoldOut}
-        canOrder={rest.canOrder}
-        isPaused={rest.isPaused}
-        onAddToCart={rest.onAddToCart}
-      />
-    </>
-  );
-}
+            {/* Close button: absolute top-right, never overlapping price */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-2.5 right-3 sm:top-4 sm:right-4 z-30 w-8 h-8 sm:w-9 sm:h-9 rounded-full sm:rounded-xl bg-black/30 sm:bg-coffee-50 sm:hover:bg-coffee-100 text-white sm:text-charcoal/60 flex items-center justify-center backdrop-blur-sm sm:backdrop-blur-none transition-colors"
+              aria-label="Tutup"
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
 
-// ─── Desktop Content ──────────────────────────────────────────────────────────
+            {/* Body: stacked on mobile, 2-column on desktop */}
+            <div className="flex flex-col lg:flex-row overflow-hidden flex-1 min-h-0">
+              {/* Photo column */}
+              <div className="relative flex-shrink-0 w-full lg:w-80 xl:w-96 flex flex-col bg-coffee-50 max-h-[35dvh] lg:max-h-none lg:h-full">
+                <PhotoCarousel images={images} itemName={item.name} soldOut={isSoldOut} />
+              </div>
 
-function DesktopContent(props: InnerContentProps) {
-  const { item, images, onClose, isSoldOut } = props;
-  return (
-    <>
-      {/* Close button */}
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute top-4 right-4 z-20 w-9 h-9 rounded-xl bg-coffee-50 hover:bg-coffee-100 text-charcoal/60 flex items-center justify-center transition-colors"
-        aria-label="Tutup"
-      >
-        <X className="w-5 h-5" />
-      </button>
+              {/* Detail content column */}
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 space-y-4">
+                  <BadgesAndMeta item={item} isSoldOut={isSoldOut} />
+                  <DietAllergenChips item={item} />
+                  <InfoRow item={item} />
+                  <DescriptionIngredients item={item} />
 
-      <div className="flex flex-col overflow-hidden flex-1">
-        {/* Two columns on wide, stacked on medium */}
-        <div className="flex flex-col lg:flex-row overflow-hidden flex-1">
-          {/* Left: photo */}
-          <div className="lg:w-72 xl:w-80 flex-shrink-0">
-            <PhotoCarousel images={images} itemName={item.name} soldOut={isSoldOut} />
-          </div>
+                  {isGroupBlocked && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <span>Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.</span>
+                    </div>
+                  )}
 
-          {/* Right: scrollable detail */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-4">
-              <BadgesAndMeta item={item} isSoldOut={isSoldOut} />
-              <DietAllergenChips item={item} />
-              <InfoRow item={item} />
-              <DescriptionIngredients item={item} />
-              <OptionsSection
-                optionGroups={props.optionGroups}
-                selectedOptions={props.selectedOptions}
-                setSelectedOptions={props.setSelectedOptions}
-                validationErrors={props.validationErrors}
-                setValidationErrors={props.setValidationErrors}
-                isSoldOut={isSoldOut}
-              />
-              <NotesSection
-                note={props.note}
-                setNote={props.setNote}
-                chips={props.chips}
-                isSoldOut={isSoldOut}
-              />
-              <PairingsSection
-                pairingItems={props.pairingItems}
-                onAddPairingItem={props.onAddPairingItem}
-              />
+                  <OptionsSection
+                    optionGroups={optionGroups}
+                    selectedOptions={selectedOptions}
+                    setSelectedOptions={setSelectedOptions}
+                    validationErrors={validationErrors}
+                    setValidationErrors={setValidationErrors}
+                    disabled={isSoldOut || isPaused}
+                  />
+
+                  <NotesSection
+                    note={note}
+                    setNote={setNote}
+                    chips={chips}
+                    disabled={isSoldOut || isPaused}
+                  />
+
+                  <PairingsSection
+                    pairingItems={pairingItems}
+                    onAddPairingItem={onAddPairingItem}
+                  />
+
+                  <div style={{ height: '1px' }} />
+                </div>
+
+                {/* Sticky bottom bar */}
+                <StickyBottomBar
+                  item={item}
+                  quantity={quantity}
+                  setQuantity={setQuantity}
+                  lineTotal={lineTotal}
+                  isSoldOut={isSoldOut}
+                  canOrder={canOrder}
+                  isPaused={isPaused}
+                  onAddToCart={handleAddToCart}
+                />
+              </div>
             </div>
-
-            {/* Bottom bar inside the modal */}
-            <StickyBottomBar
-              item={item}
-              quantity={props.quantity}
-              setQuantity={props.setQuantity}
-              lineTotal={props.lineTotal}
-              isSoldOut={isSoldOut}
-              canOrder={props.canOrder}
-              isPaused={props.isPaused}
-              onAddToCart={props.onAddToCart}
-            />
-          </div>
+          </motion.div>
         </div>
-      </div>
-    </>
+      )}
+    </AnimatePresence>
   );
 }
