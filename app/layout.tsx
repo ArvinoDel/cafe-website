@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import { BrandProvider } from '@/components/providers/BrandProvider';
 import { Toaster } from '@/components/ui/sonner';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import { DEFAULT_THEME, DEFAULT_BRAND, DEFAULT_SEO } from '@/lib/site-defaults';
 import { getSiteContent } from '@/lib/site-data';
 
@@ -95,6 +96,7 @@ export default async function RootLayout({
       <body className="font-sans antialiased">
         <BrandProvider initialBrand={brand}>
           {children}
+          <SpeedInsights />
           <Toaster richColors position="top-right" />
         </BrandProvider>
       </body>
