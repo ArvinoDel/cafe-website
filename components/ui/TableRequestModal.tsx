@@ -172,12 +172,12 @@ export default function TableRequestModal({
         whileHover={{ scale: 1.03 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(true)}
-        className={`fixed z-30 flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/95 backdrop-blur-md text-coffee-900 border border-coffee-200/90 shadow-soft-lg hover:bg-coffee-50/90 transition-all text-xs font-extrabold ${positionClassName}`}
+        className={`fixed z-30 flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 min-h-[40px] rounded-full bg-white/95 backdrop-blur-md text-coffee-900 border border-coffee-200/90 shadow-soft-lg hover:bg-coffee-50/90 transition-all text-xs font-extrabold ${positionClassName}`}
         title="Panggil barista atau minta air/tisu"
       >
         <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-        <HelpCircle className="w-4 h-4 text-coffee-700" />
-        <span>Butuh sesuatu?</span>
+        <HelpCircle className="w-4 h-4 text-coffee-700 flex-shrink-0" />
+        <span className="truncate">Butuh sesuatu?</span>
       </motion.button>
 
       {/* Bottom Sheet Modal */}

@@ -80,6 +80,7 @@ function MenuPageInner() {
   const [showQrGuide, setShowQrGuide] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [tableChangeNotice, setTableChangeNotice] = useState<string | null>(null);
+  const [canHover, setCanHover] = useState(false);
 
   // Branch info (wifi, wait time, accepting_orders)
   const { info: branchInfo, refresh: refreshBranchInfo } = useBranchInfo(branchId);
@@ -168,6 +169,17 @@ function MenuPageInner() {
     }, 6000);
     return () => clearTimeout(timer);
   }, [tableChangeNotice]);
+
+  // Enable hover lift only on sm+ screens with pointer/hover support
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const media = window.matchMedia('(hover: hover) and (min-width: 640px)');
+      setCanHover(media.matches);
+      const listener = (e: MediaQueryListEvent) => setCanHover(e.matches);
+      media.addEventListener('change', listener);
+      return () => media.removeEventListener('change', listener);
+    }
+  }, []);
 
   const handleScanSuccess = useCallback(
     (scanned: string, scannedBranchId: string | null) => {
@@ -1219,16 +1231,25 @@ function MenuPageInner() {
       </div>
 
       {/* Menu grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-32">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 pb-32">
         {loading ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <div className="flex flex-col gap-2.5 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="bg-white rounded-2xl overflow-hidden border border-coffee-100/80 animate-pulse">
-                <div className="aspect-[4/5] bg-coffee-50" />
-                <div className="p-5 space-y-3">
-                  <div className="h-4 bg-coffee-50 rounded w-3/4" />
-                  <div className="h-3 bg-coffee-50 rounded w-full" />
-                  <div className="h-3 bg-coffee-50 rounded w-1/2" />
+              <div
+                key={i}
+                className="bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-coffee-100/80 animate-pulse flex flex-row sm:flex-col p-2.5 sm:p-0 gap-3 sm:gap-0"
+              >
+                <div className="w-[88px] h-[88px] flex-shrink-0 rounded-xl bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none" />
+                <div className="p-0 sm:p-5 flex-1 flex flex-col justify-between sm:space-y-3 min-w-0">
+                  <div className="space-y-1.5 sm:space-y-3">
+                    <div className="h-4 bg-coffee-50 rounded w-3/4" />
+                    <div className="h-3 bg-coffee-50 rounded w-full" />
+                    <div className="h-3 bg-coffee-50 rounded w-1/2 sm:hidden" />
+                  </div>
+                  <div className="flex items-center justify-between mt-2 sm:mt-0">
+                    <div className="h-4 bg-coffee-50 rounded w-1/3" />
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-coffee-50" />
+                  </div>
                 </div>
               </div>
             ))}
@@ -1252,14 +1273,14 @@ function MenuPageInner() {
             variants={staggerContainer}
             initial="hidden"
             animate="visible"
-            className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+            className="flex flex-col gap-2.5 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5"
           >
             {sortedItems.map((item) => (
               <motion.div
                 key={item.id}
                 variants={fadeInUp}
-                whileHover={item.sold_out ? undefined : { y: -6 }}
-                className={`group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 transition-shadow duration-300 flex flex-col ${
+                whileHover={item.sold_out || !canHover ? undefined : { y: -6 }}
+                className={`group bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-coffee-100/80 transition-shadow duration-300 flex flex-row sm:flex-col p-2.5 sm:p-0 gap-3 sm:gap-0 ${
                   item.sold_out ? 'opacity-75' : 'hover:shadow-soft-lg cursor-pointer'
                 }`}
                 onClick={() => setDetailTarget(item)}
@@ -1268,7 +1289,7 @@ function MenuPageInner() {
                 onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setDetailTarget(item); } }}
                 aria-label={item.sold_out ? `${item.name}, habis — lihat detail` : `${item.name} — lihat detail dan tambah ke pesanan`}
               >
-                <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
+                <div className="relative w-[88px] h-[88px] flex-shrink-0 rounded-xl overflow-hidden bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none">
                   {item.image_url ? (
                     <img
                       src={item.image_url}
@@ -1280,16 +1301,16 @@ function MenuPageInner() {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-coffee-200">
-                      <QrCode className="w-12 h-12" />
+                      <QrCode className="w-8 h-8 sm:w-12 sm:h-12" />
                     </div>
                   )}
                   {item.sold_out ? (
-                    <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold bg-charcoal/85 text-white backdrop-blur-sm shadow-xs border border-white/20 flex items-center gap-1">
+                    <span className="absolute top-1.5 left-1.5 sm:top-3 sm:left-3 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold bg-charcoal/85 text-white backdrop-blur-sm shadow-xs border border-white/20 flex items-center gap-1">
                       Habis
                     </span>
                   ) : item.badge ? (
                     <span
-                      className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold ${
+                      className={`absolute top-1.5 left-1.5 sm:top-3 sm:left-3 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold ${
                         item.badge === 'Bestseller'
                           ? 'bg-coffee-700 text-cream'
                           : 'bg-sand-300 text-coffee-900'
@@ -1300,24 +1321,26 @@ function MenuPageInner() {
                   ) : null}
                 </div>
 
-                <div className="p-5 flex flex-col flex-1">
-                  <h3
-                    className={`font-bold text-base leading-snug mb-1 ${
-                      item.sold_out ? 'text-charcoal/40' : 'text-coffee-900'
-                    }`}
-                  >
-                    {item.name}
-                  </h3>
-                  <p
-                    className={`text-sm leading-relaxed mb-4 line-clamp-2 flex-1 ${
-                      item.sold_out ? 'text-charcoal/35' : 'text-charcoal/50'
-                    }`}
-                  >
-                    {item.description}
-                  </p>
-                  <div className="flex items-center justify-between">
+                <div className="p-0 sm:p-5 flex flex-col flex-1 min-w-0 justify-between">
+                  <div>
+                    <h3
+                      className={`font-bold text-sm sm:text-base leading-snug line-clamp-1 sm:line-clamp-none sm:mb-1 ${
+                        item.sold_out ? 'text-charcoal/40' : 'text-coffee-900'
+                      }`}
+                    >
+                      {item.name}
+                    </h3>
+                    <p
+                      className={`text-xs sm:text-sm leading-relaxed line-clamp-1 sm:line-clamp-2 mt-0.5 sm:mt-0 sm:mb-4 sm:flex-1 ${
+                        item.sold_out ? 'text-charcoal/35' : 'text-charcoal/50'
+                      }`}
+                    >
+                      {item.description}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between mt-2 sm:mt-auto">
                     <span
-                      className={`text-lg font-extrabold ${
+                      className={`text-sm sm:text-lg font-extrabold ${
                         item.sold_out ? 'text-charcoal/40' : 'text-coffee-700'
                       }`}
                     >
@@ -1325,7 +1348,7 @@ function MenuPageInner() {
                     </span>
                     {item.sold_out ? (
                       <span
-                        className="px-3 py-1.5 rounded-xl bg-charcoal/10 text-charcoal/50 text-xs font-bold cursor-not-allowed select-none"
+                        className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-charcoal/10 text-charcoal/50 text-[10px] sm:text-xs font-bold cursor-not-allowed select-none"
                         aria-hidden="true"
                       >
                         Habis
@@ -1353,7 +1376,7 @@ function MenuPageInner() {
                             addToCart(item);
                           }
                         }}
-                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all active:scale-90 ${
+                        className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl transition-all active:scale-90 ${
                           isPaused
                             ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
                             : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
@@ -1361,7 +1384,7 @@ function MenuPageInner() {
                         aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
                         title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
                       >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
                     )}
                   </div>
@@ -1933,11 +1956,17 @@ function MenuPageInner() {
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           onClick={() => setCartOpen(true)}
-          className="fixed bottom-6 right-6 sm:hidden flex items-center gap-3 px-5 py-4 rounded-2xl bg-coffee-700 text-cream shadow-soft-lg z-40 active:scale-95"
+          style={{ bottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
+          className="fixed right-4 sm:hidden flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-coffee-700 text-cream shadow-soft-lg z-40 active:scale-95 min-h-[40px] text-sm"
+          aria-label={`Buka keranjang, ${cartCount} item, total ${formatPrice(cartTotal)}`}
         >
-          <ShoppingCart className="w-5 h-5" />
-          <span className="font-bold">{cartCount} item</span>
-          <span className="font-bold">{formatPrice(cartTotal)}</span>
+          <div className="relative flex items-center justify-center">
+            <ShoppingCart className="w-4 h-4" />
+            <span className="absolute -top-1.5 -right-2 bg-amber-400 text-coffee-950 text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center border border-coffee-700 shadow-xs">
+              {cartCount}
+            </span>
+          </div>
+          <span className="font-extrabold text-sm">{formatPrice(cartTotal)}</span>
         </motion.button>
       )}
 
@@ -1988,7 +2017,7 @@ function MenuPageInner() {
         <TableRequestModal
           tableNumber={tableNumber}
           branchId={branchId}
-          positionClassName="bottom-6 left-4 sm:left-6"
+          positionClassName="bottom-4 bottom-[max(1rem,env(safe-area-inset-bottom,1rem))] left-4 sm:bottom-6 sm:left-6"
         />
       )}
 
