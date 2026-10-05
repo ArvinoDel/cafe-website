@@ -17,7 +17,7 @@ import {
   Camera,
   Sparkles,
 } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useAdminProfile } from '../../AdminShell';
 import { useBrand } from '@/components/providers/BrandProvider';
 
@@ -32,12 +32,7 @@ function buildTableNumbers(prefix: string, count: number): string[] {
 }
 
 function getSupabase() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      '',
-  );
+  return getSupabaseBrowserClient();
 }
 
 export default function TableQrPage() {
@@ -185,7 +180,7 @@ export default function TableQrPage() {
           <div className="flex flex-wrap items-end gap-4">
             {/* Target URL Configuration */}
             <div className="flex-1 min-w-[280px]">
-              <label className="block text-xs font-semibold text-charcoal/60 mb-1.5 flex items-center gap-1.5">
+              <label className="text-xs font-semibold text-charcoal/60 mb-1.5 flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-coffee-600" />
                 Target URL Tujuan QR (Google Lens &amp; Kamera HP)
               </label>

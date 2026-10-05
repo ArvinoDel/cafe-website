@@ -64,7 +64,7 @@ export function BrandProvider({
       .select('content')
       .eq('section', 'navbar')
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data }: any) => {
         if (data?.content) {
           const content = data.content as Record<string, string>;
           if (content.brandName) {

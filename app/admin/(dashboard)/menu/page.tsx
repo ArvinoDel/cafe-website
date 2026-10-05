@@ -27,7 +27,7 @@ import {
   Flame,
   Link,
 } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useAdminProfile } from '../../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { toast } from 'sonner';
@@ -104,12 +104,7 @@ function formatPrice(price: number): string {
 }
 
 function getSupabase() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      '',
-  );
+  return getSupabaseBrowserClient();
 }
 
 async function updateBranchMenuItem(payload: {
@@ -187,7 +182,7 @@ export default function MenuManagementPage() {
         .from('branches')
         .select('*')
         .order('name')
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           if (data) setBranches(data as Branch[]);
         });
     }

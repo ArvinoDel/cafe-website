@@ -19,7 +19,7 @@ import {
   ToggleRight,
   Pencil,
 } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useAdminProfile } from '../../AdminShell';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -29,12 +29,7 @@ import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 // ─── Supabase client ──────────────────────────────────────────────────────────
 
 function getSupabase() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      '',
-  );
+  return getSupabaseBrowserClient();
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

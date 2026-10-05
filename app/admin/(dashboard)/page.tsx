@@ -28,7 +28,7 @@ import {
   PlayCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useAdminProfile } from '../AdminShell';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { playOrderChime, unlockAudio } from '@/lib/audio';
@@ -151,12 +151,7 @@ const NEXT_LABELS: Partial<Record<OrderStatus, string>> = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getSupabase() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      '',
-  );
+  return getSupabaseBrowserClient();
 }
 
 function formatPrice(n: number) {
@@ -416,7 +411,7 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => {
+        (payload: any) => {
           const newOrder = payload.new as Order;
 
           setOrders((prev) => {
@@ -440,7 +435,7 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
+        (payload: any) => {
           const updated = payload.new as Order;
           setOrders((prev) =>
             prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)),
@@ -450,7 +445,7 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'orders' },
-        (payload) => {
+        (payload: any) => {
           const removed = payload.old as { id: string };
           setOrders((prev) => prev.filter((o) => o.id !== removed.id));
         },
@@ -458,7 +453,7 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'table_requests' },
-        (payload) => {
+        (payload: any) => {
           const newReq = payload.new as TableRequest;
           const isRelevant =
             profile.role === 'admin'
@@ -486,7 +481,7 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'table_requests' },
-        (payload) => {
+        (payload: any) => {
           const updated = payload.new as TableRequest;
           if (updated.status === 'done') {
             setTableRequests((prev) => prev.filter((r) => r.id !== updated.id));
@@ -500,12 +495,12 @@ export default function AdminDashboard() {
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'table_requests' },
-        (payload) => {
+        (payload: any) => {
           const removed = payload.old as { id: string };
           setTableRequests((prev) => prev.filter((r) => r.id !== removed.id));
         },
       )
-      .subscribe((status) => {
+      .subscribe((status: any) => {
         // Re-fetch when the channel reconnects to catch any missed events
         if (status === 'SUBSCRIBED') {
           fetchOrders();

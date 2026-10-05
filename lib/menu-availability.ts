@@ -51,13 +51,22 @@ export type ReorderItem = {
 
 // ─── Supabase anon client (read-only, same as app/menu/page.tsx) ──────────────
 
+let anonClient: ReturnType<typeof createClient> | null = null;
+
 function getSupabase() {
+  if (anonClient) return anonClient;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     '';
-  return createClient(url, key);
+  anonClient = createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+  return anonClient;
 }
 
 // ─── fetchBranchMenu ─────────────────────────────────────────────────────────

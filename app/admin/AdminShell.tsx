@@ -3,7 +3,7 @@
 import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette, FileText } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useBrand } from '@/components/providers/BrandProvider';
 
 // ─── Profile type ─────────────────────────────────────────────────────────────
@@ -49,12 +49,7 @@ export function AdminHeader() {
   const pathname = usePathname();
 
   async function handleLogout() {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-        '',
-    );
+    const supabase = getSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push('/admin/login');
     router.refresh();
@@ -178,12 +173,7 @@ export function UnlinkedAdminNotice({ email }: { email?: string }) {
   const router = useRouter();
 
   async function handleLogout() {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-        '',
-    );
+    const supabase = getSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push('/admin/login');
     router.refresh();
