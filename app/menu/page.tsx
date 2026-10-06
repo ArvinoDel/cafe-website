@@ -1231,25 +1231,23 @@ function MenuPageInner() {
       </div>
 
       {/* Menu grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 pb-32">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 sm:py-8 pb-32">
         {loading ? (
-          <div className="flex flex-col gap-2.5 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5">
+          <div className="bg-white rounded-2xl px-4 border border-coffee-100/80 shadow-soft-xs flex flex-col sm:bg-transparent sm:border-0 sm:shadow-none sm:rounded-none sm:p-0 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
               <div
                 key={i}
-                className="bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-coffee-100/80 animate-pulse flex flex-row sm:flex-col p-2.5 sm:p-0 gap-3 sm:gap-0"
+                className="border-b border-coffee-100 last:border-b-0 py-3.5 pb-4 flex flex-row items-start justify-between gap-3 animate-pulse sm:border-b-0 sm:p-0 sm:pb-0 sm:gap-0 sm:flex-col sm:bg-white sm:rounded-2xl sm:overflow-hidden sm:border sm:border-coffee-100/80"
               >
-                <div className="w-[88px] h-[88px] flex-shrink-0 rounded-xl bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none" />
-                <div className="p-0 sm:p-5 flex-1 flex flex-col justify-between sm:space-y-3 min-w-0">
-                  <div className="space-y-1.5 sm:space-y-3">
-                    <div className="h-4 bg-coffee-50 rounded w-3/4" />
-                    <div className="h-3 bg-coffee-50 rounded w-full" />
-                    <div className="h-3 bg-coffee-50 rounded w-1/2 sm:hidden" />
-                  </div>
-                  <div className="flex items-center justify-between mt-2 sm:mt-0">
-                    <div className="h-4 bg-coffee-50 rounded w-1/3" />
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-coffee-50" />
-                  </div>
+                <div className="flex-1 min-w-0 space-y-2 sm:order-2 sm:p-5 sm:space-y-3">
+                  <div className="h-4 bg-coffee-50 rounded w-3/4" />
+                  <div className="h-3 bg-coffee-50 rounded w-full" />
+                  <div className="h-3.5 bg-coffee-50 rounded w-1/3 sm:hidden mt-2" />
+                  <div className="h-3 bg-coffee-50 rounded w-1/2 hidden sm:block" />
+                </div>
+                <div className="relative flex-shrink-0 sm:order-1 sm:w-full">
+                  <div className="w-[84px] h-[84px] rounded-xl bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none" />
+                  <div className="w-7 h-7 rounded-full bg-coffee-100 border border-coffee-200 absolute -bottom-3 left-1/2 -translate-x-1/2 sm:hidden" />
                 </div>
               </div>
             ))}
@@ -1273,124 +1271,181 @@ function MenuPageInner() {
             variants={staggerContainer}
             initial="hidden"
             animate="visible"
-            className="flex flex-col gap-2.5 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5"
+            className="bg-white rounded-2xl px-4 border border-coffee-100/80 shadow-soft-xs flex flex-col sm:bg-transparent sm:border-0 sm:shadow-none sm:rounded-none sm:p-0 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5"
           >
-            {sortedItems.map((item) => (
-              <motion.div
-                key={item.id}
-                variants={fadeInUp}
-                whileHover={item.sold_out || !canHover ? undefined : { y: -6 }}
-                className={`group bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-coffee-100/80 transition-shadow duration-300 flex flex-row sm:flex-col p-2.5 sm:p-0 gap-3 sm:gap-0 ${
-                  item.sold_out ? 'opacity-75' : 'hover:shadow-soft-lg cursor-pointer'
-                }`}
-                onClick={() => setDetailTarget(item)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setDetailTarget(item); } }}
-                aria-label={item.sold_out ? `${item.name}, habis — lihat detail` : `${item.name} — lihat detail dan tambah ke pesanan`}
-              >
-                <div className="relative w-[88px] h-[88px] flex-shrink-0 rounded-xl overflow-hidden bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none">
-                  {item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className={`w-full h-full object-cover transition-transform duration-500 ${
-                        item.sold_out ? 'grayscale contrast-75 opacity-70' : 'group-hover:scale-110'
-                      }`}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-coffee-200">
-                      <QrCode className="w-8 h-8 sm:w-12 sm:h-12" />
-                    </div>
-                  )}
-                  {item.sold_out ? (
-                    <span className="absolute top-1.5 left-1.5 sm:top-3 sm:left-3 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold bg-charcoal/85 text-white backdrop-blur-sm shadow-xs border border-white/20 flex items-center gap-1">
-                      Habis
-                    </span>
-                  ) : item.badge ? (
-                    <span
-                      className={`absolute top-1.5 left-1.5 sm:top-3 sm:left-3 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold ${
-                        item.badge === 'Bestseller'
-                          ? 'bg-coffee-700 text-cream'
-                          : 'bg-sand-300 text-coffee-900'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  ) : null}
-                </div>
+            {sortedItems.map((item) => {
+              const handleAddItem = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                if (isPaused) return;
+                if (isGroupMode) {
+                  const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
+                  if (optionGroups.length > 0) {
+                    toast.error('Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.', { duration: 3500 });
+                    return;
+                  }
+                }
+                // Items with required options must go through the detail popup
+                const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
+                const hasRequired = optionGroups.some((g) => g.required);
+                if (hasRequired) {
+                  setDetailTarget(item);
+                } else {
+                  addToCart(item);
+                }
+              };
 
-                <div className="p-0 sm:p-5 flex flex-col flex-1 min-w-0 justify-between">
-                  <div>
+              return (
+                <motion.div
+                  key={item.id}
+                  variants={fadeInUp}
+                  whileHover={item.sold_out || !canHover ? undefined : { y: -6 }}
+                  className={`group transition-shadow duration-300 flex cursor-pointer
+                    border-b border-coffee-100 last:border-b-0 py-3.5 pb-4 flex-row items-start justify-between gap-3 relative
+                    sm:flex-col sm:p-0 sm:gap-0 sm:border sm:border-coffee-100/80 sm:rounded-2xl sm:overflow-hidden sm:bg-white
+                    ${item.sold_out ? 'opacity-75 sm:opacity-75' : 'sm:hover:shadow-soft-lg'}`}
+                  onClick={() => setDetailTarget(item)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setDetailTarget(item); } }}
+                  aria-label={item.sold_out ? `${item.name}, habis — lihat detail` : `${item.name} — lihat detail dan tambah ke pesanan`}
+                >
+                  {/* LEFT: Text column on mobile (order-2 on desktop) */}
+                  <div className="flex-1 min-w-0 pr-2 sm:pr-0 sm:order-2 sm:p-5 sm:flex sm:flex-col sm:flex-1">
+                    {/* Badge: plain text on mobile only */}
+                    {!item.sold_out && item.badge ? (
+                      <span className="block sm:hidden text-[11px] font-semibold text-amber-600 mb-0.5">
+                        {item.badge}
+                      </span>
+                    ) : null}
+
                     <h3
-                      className={`font-bold text-sm sm:text-base leading-snug line-clamp-1 sm:line-clamp-none sm:mb-1 ${
+                      className={`text-[15px] sm:text-base font-semibold sm:font-bold leading-snug line-clamp-2 sm:line-clamp-none sm:mb-1 ${
                         item.sold_out ? 'text-charcoal/40' : 'text-coffee-900'
                       }`}
                     >
                       {item.name}
                     </h3>
+
                     <p
-                      className={`text-xs sm:text-sm leading-relaxed line-clamp-1 sm:line-clamp-2 mt-0.5 sm:mt-0 sm:mb-4 sm:flex-1 ${
+                      className={`text-xs sm:text-sm leading-relaxed line-clamp-2 mt-0.5 sm:mt-0 sm:mb-4 sm:flex-1 ${
                         item.sold_out ? 'text-charcoal/35' : 'text-charcoal/50'
                       }`}
                     >
                       {item.description}
                     </p>
-                  </div>
-                  <div className="flex items-center justify-between mt-2 sm:mt-auto">
-                    <span
-                      className={`text-sm sm:text-lg font-extrabold ${
-                        item.sold_out ? 'text-charcoal/40' : 'text-coffee-700'
-                      }`}
-                    >
-                      {formatPrice(item.price)}
-                    </span>
-                    {item.sold_out ? (
+
+                    {/* Price on mobile (under description) */}
+                    <div className="sm:hidden mt-2">
                       <span
-                        className="px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-charcoal/10 text-charcoal/50 text-[10px] sm:text-xs font-bold cursor-not-allowed select-none"
-                        aria-hidden="true"
-                      >
-                        Habis
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isPaused}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isPaused) return;
-                          if (isGroupMode) {
-                            const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
-                            if (optionGroups.length > 0) {
-                              toast.error('Pesan Bareng belum mendukung menu dengan opsi tambahan. Silakan pesan menu ini secara terpisah.', { duration: 3500 });
-                              return;
-                            }
-                          }
-                          // Items with required options must go through the detail popup
-                          const optionGroups = Array.isArray(item.options) ? (item.options as ItemOptionGroup[]) : [];
-                          const hasRequired = optionGroups.some((g) => g.required);
-                          if (hasRequired) {
-                            setDetailTarget(item);
-                          } else {
-                            addToCart(item);
-                          }
-                        }}
-                        className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl transition-all active:scale-90 ${
-                          isPaused
-                            ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
-                            : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
+                        className={`text-sm font-semibold ${
+                          item.sold_out ? 'text-charcoal/40' : 'text-coffee-900'
                         }`}
-                        aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
-                        title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
                       >
-                        <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    )}
+                        {formatPrice(item.price)}
+                      </span>
+                    </div>
+
+                    {/* Desktop price and action (hidden on mobile, visible on sm+) */}
+                    <div className="hidden sm:flex items-center justify-between mt-auto">
+                      <span
+                        className={`text-lg font-extrabold ${
+                          item.sold_out ? 'text-charcoal/40' : 'text-coffee-700'
+                        }`}
+                      >
+                        {formatPrice(item.price)}
+                      </span>
+                      {item.sold_out ? (
+                        <span
+                          className="px-3 py-1.5 rounded-xl bg-charcoal/10 text-charcoal/50 text-xs font-bold cursor-not-allowed select-none"
+                          aria-hidden="true"
+                        >
+                          Habis
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isPaused}
+                          onClick={handleAddItem}
+                          className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all active:scale-90 ${
+                            isPaused
+                              ? 'bg-charcoal/10 text-charcoal/35 cursor-not-allowed'
+                              : 'bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream'
+                          }`}
+                          aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
+                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
+                        >
+                          <Plus className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            ))}
+
+                  {/* RIGHT: Photo column on mobile (order-1 on desktop) */}
+                  <div className="relative flex-shrink-0 sm:order-1 sm:w-full">
+                    <div className="relative w-[84px] h-[84px] flex-shrink-0 rounded-xl overflow-hidden bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className={`w-full h-full object-cover transition-transform duration-500 ${
+                            item.sold_out
+                              ? 'grayscale opacity-60 sm:contrast-75 sm:opacity-70'
+                              : 'sm:group-hover:scale-110'
+                          }`}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-coffee-200">
+                          <QrCode className="w-8 h-8 sm:w-12 sm:h-12" />
+                        </div>
+                      )}
+
+                      {/* Desktop overlay badges only (hidden on mobile) */}
+                      {item.sold_out ? (
+                        <span className="hidden sm:flex absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold bg-charcoal/85 text-white backdrop-blur-sm shadow-xs border border-white/20 items-center gap-1">
+                          Habis
+                        </span>
+                      ) : item.badge ? (
+                        <span
+                          className={`hidden sm:inline-block absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold ${
+                            item.badge === 'Bestseller'
+                              ? 'bg-coffee-700 text-cream'
+                              : 'bg-sand-300 text-coffee-900'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* Mobile action button or Habis label overlapping photo bottom edge (hidden on sm+) */}
+                    <div className="sm:hidden absolute -bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center justify-center">
+                      {item.sold_out ? (
+                        <span
+                          className="text-xs font-semibold text-charcoal/40 bg-white/95 px-2 py-0.5 rounded-full border border-coffee-100 shadow-2xs whitespace-nowrap select-none"
+                          aria-hidden="true"
+                        >
+                          Habis
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isPaused}
+                          onClick={handleAddItem}
+                          className={`relative flex items-center justify-center w-7 h-7 rounded-full bg-white border border-coffee-700 text-coffee-700 shadow-xs active:scale-90 transition-transform after:absolute after:-inset-2 after:content-[''] ${
+                            isPaused ? 'opacity-40 cursor-not-allowed' : ''
+                          }`}
+                          aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
+                          title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
+                        >
+                          <Plus className="w-4 h-4 text-coffee-700" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </motion.div>
         )}
       </div>
