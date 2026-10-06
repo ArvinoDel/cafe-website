@@ -68,7 +68,32 @@ type BranchMenuItem = {
   custom_price: number | null;
 };
 
-/** Returned on validation / availability error. */
+/**
+ * One unavailable item in the ITEMS_UNAVAILABLE error payload.
+ * reason:
+ *   'sold_out'      — item exists but is not currently available
+ *   'not_found'     — item ID not present in database
+ *   'price_changed' — item available but price differs from what client expected
+ */
+export type UnavailableItem = {
+  id: string;
+  name: string;
+  reason: 'sold_out' | 'not_found' | 'price_changed';
+  /** Present only when reason === 'price_changed' */
+  new_price?: number;
+};
+
+/** Returned when one or more items fail availability or price checks. */
+export type ItemsUnavailableError = {
+  error: {
+    status: 409;
+    message: string;
+    code: 'ITEMS_UNAVAILABLE';
+    items: UnavailableItem[];
+  };
+};
+
+/** Returned on other validation / server errors. */
 export type PricingError = {
   error: {
     status: number;
@@ -336,15 +361,24 @@ export const auditPriceLines = evaluatePriceLines;
 /**
  * priceOrderLines
  *
- * Given an already-consolidated list of lines, calls evaluatePriceLines to
- * check availability and prices against the DB, returning a 409 error on
- * any sold-out/unavailable item, or building the authoritative snapshot on success.
+ * Validates availability and prices for ALL lines in a single pass.
+ *
+ * Behaviour:
+ *   - If ANY line is sold-out or missing: returns ItemsUnavailableError (409)
+ *     with the full list of bad items so the client can show them all at once.
+ *   - If ALL lines are available: returns PricingSuccess with the authoritative
+ *     snapshot, subtotal, and total (prices always come from the database).
+ *
+ * clientPrices (optional): map of menu_item_id → client-sent unit price.  When
+ *   provided, price mismatches are included in the unavailable-items list with
+ *   reason 'price_changed'.
  */
 export async function priceOrderLines(
   supabaseAdmin: AnySupabaseClient,
   branchId: string,
   lines: PricingLine[],
-): Promise<PricingError | PricingSuccess> {
+  clientPrices?: Map<string, number>,
+): Promise<PricingError | ItemsUnavailableError | PricingSuccess> {
   if (lines.length === 0) {
     return {
       error: { status: 400, message: 'Pesanan tidak boleh kosong.' },
@@ -356,26 +390,42 @@ export async function priceOrderLines(
     return { error: evalResult.error };
   }
 
+  // Collect ALL problem items before deciding to fail
+  const unavailableItems: UnavailableItem[] = [];
   const snapshot: OrderItemSnapshot[] = [];
   let subtotal = 0;
 
   for (const line of evalResult.lines) {
+    const menuItemId = line.menu_item_id;
+
+    // Determine failure reason
     if (line.sold_out) {
-      return {
-        error: {
-          status: 409,
-          message: line.sold_out_reason || `Menu "${line.name}" sedang tidak tersedia.`,
-        },
-      };
+      const reason: UnavailableItem['reason'] =
+        line.name === '(Menu tidak tersedia)' ? 'not_found' : 'sold_out';
+      unavailableItems.push({ id: menuItemId, name: line.name, reason });
+      continue;
+    }
+
+    // Price-changed check (only when caller supplies expected client prices)
+    if (clientPrices) {
+      const expectedBasePrice = clientPrices.get(menuItemId);
+      if (expectedBasePrice !== undefined && expectedBasePrice !== line.unit_price) {
+        unavailableItems.push({
+          id:        menuItemId,
+          name:      line.name,
+          reason:    'price_changed',
+          new_price: line.unit_price,
+        });
+        continue;
+      }
     }
 
     subtotal += line.unit_price * line.quantity;
     const combinedNote = buildCombinedNote(line.note, line.selected_options);
-    // Use server-validated options from evaluatePriceLines (stored in line.selected_options after eval)
     const serverOptions = (line as any).selected_options;
 
     snapshot.push({
-      id:               line.menu_item_id,
+      id:               menuItemId,
       name:             line.name,
       price:            line.unit_price,
       image_url:        line.image_url,
@@ -383,6 +433,17 @@ export async function priceOrderLines(
       note:             combinedNote || line.note,
       selected_options: serverOptions || undefined,
     });
+  }
+
+  if (unavailableItems.length > 0) {
+    return {
+      error: {
+        status: 409,
+        message: 'Maaf, beberapa menu sudah habis atau mengalami perubahan harga.',
+        code: 'ITEMS_UNAVAILABLE',
+        items: unavailableItems,
+      },
+    };
   }
 
   const total = subtotal;

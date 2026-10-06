@@ -29,7 +29,8 @@ import { fadeInUp } from '@/lib/animations';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { getItemLineKey, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
-import { CART_KEY } from '@/lib/cart';
+import { loadCart, saveCart, clearCart, CART_KEY } from '@/lib/cart';
+import { fetchBranchMenu } from '@/lib/menu-availability';
 import {
   getLocalGroupSession,
   useGroupCart,
@@ -54,6 +55,14 @@ type CartItem = {
   selectedOptions?: SelectedOption[] | null;
 };
 
+type UnavailableItem = {
+  id: string;
+  name: string;
+  reason: 'sold_out' | 'not_found' | 'price_changed';
+  old_price?: number;
+  new_price?: number;
+};
+
 // Shape returned by POST /api/orders/create and stored in localStorage
 type OrderSnapshot = {
   order_code: string;
@@ -75,9 +84,60 @@ function formatPrice(price: number): string {
   return 'Rp ' + price.toLocaleString('id-ID') + ',-';
 }
 
+function CheckoutSkeleton() {
+  return (
+    <div className="min-h-screen bg-cream pb-52 animate-pulse">
+      {/* Top bar skeleton */}
+      <div className="sticky top-0 z-40 bg-cream/80 backdrop-blur-xl border-b border-coffee-100/60">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="w-16 h-4 bg-coffee-200/50 rounded-lg" />
+          <div className="w-24 h-5 bg-coffee-200/60 rounded-lg" />
+          <div className="w-16 h-6 bg-coffee-200/50 rounded-lg" />
+        </div>
+      </div>
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+        {/* Order items skeleton */}
+        <div className="space-y-3">
+          <div className="w-24 h-4 bg-coffee-200/60 rounded" />
+          <div className="bg-white rounded-2xl border border-coffee-100/80 p-4 space-y-4">
+            {[1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-lg bg-coffee-100/70 flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="w-32 h-4 bg-coffee-200/60 rounded" />
+                  <div className="w-20 h-3 bg-coffee-100/70 rounded" />
+                </div>
+                <div className="w-16 h-4 bg-coffee-200/60 rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Customer details skeleton */}
+        <div className="space-y-3">
+          <div className="w-28 h-4 bg-coffee-200/60 rounded" />
+          <div className="bg-white rounded-2xl border border-coffee-100/80 p-4 space-y-4">
+            <div className="h-11 bg-coffee-100/50 rounded-xl" />
+            <div className="h-11 bg-coffee-100/50 rounded-xl" />
+          </div>
+        </div>
+      </div>
+      {/* Bottom bar skeleton */}
+      <div className="fixed bottom-0 left-0 right-0 bg-cream/95 border-t border-coffee-100/60 p-4">
+        <div className="max-w-2xl mx-auto space-y-3">
+          <div className="flex justify-between">
+            <div className="w-20 h-4 bg-coffee-200/60 rounded" />
+            <div className="w-24 h-6 bg-coffee-200/60 rounded" />
+          </div>
+          <div className="w-full h-12 bg-coffee-200/70 rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-cream" />}>
+    <Suspense fallback={<CheckoutSkeleton />}>
       <CheckoutPageInner />
     </Suspense>
   );
@@ -96,6 +156,13 @@ function CheckoutPageInner() {
   const [orderCode, setOrderCode]   = useState<string | null>(null);
   const [orderTotal, setOrderTotal] = useState<number>(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isNetworkError, setIsNetworkError] = useState(false);
+  const [unavailableModalData, setUnavailableModalData] = useState<{
+    items: UnavailableItem[];
+    error?: string;
+  } | null>(null);
+  const [cartUnavailableIds, setCartUnavailableIds] = useState<Set<string>>(new Set());
+  const idempotencyKeyRef = useRef<string>('');
   const [scannerOpen, setScannerOpen] = useState(false);
   // branchId may be null when there is exactly one branch (server resolves it)
   const [branchId, setBranchId]     = useState<string | null>(null);
@@ -192,20 +259,15 @@ function CheckoutPageInner() {
     }
 
     try {
-      const stored = localStorage.getItem(CART_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setCart(
-            parsed.map((item: any) => ({
-              ...item,
-              lineKey: item.lineKey || getItemLineKey(item.id, item.note),
-              note: item.note || undefined,
-            })),
-          );
-        } else {
-          setCart([]);
-        }
+      const storedItems = loadCart();
+      if (storedItems.length > 0) {
+        setCart(
+          storedItems.map((item: any) => ({
+            ...item,
+            lineKey: item.lineKey || getItemLineKey(item.id, item.note),
+            note: item.note || undefined,
+          })),
+        );
       } else {
         setCart([]);
       }
@@ -247,6 +309,27 @@ function CheckoutPageInner() {
     setLoaded(true);
   }, [searchParams]);
 
+  // Re-verify menu availability on mount and branchId change
+  useEffect(() => {
+    if (!loaded || cart.length === 0) return;
+    let active = true;
+    fetchBranchMenu(branchId).then((menuItems) => {
+      if (!active || !menuItems || menuItems.length === 0) return;
+      const soldOutSet = new Set<string>();
+      const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+      for (const item of cart) {
+        const found = menuMap.get(item.id);
+        if (!found || found.sold_out || found.is_available === false) {
+          soldOutSet.add(item.id);
+        }
+      }
+      setCartUnavailableIds(soldOutSet);
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [loaded, branchId, cart.length]);
+
   const { info: branchInfo, refresh: refreshBranchInfo } = useBranchInfo(branchId);
   const estWaitMinutes =
     typeof branchInfo?.est_wait_minutes === 'number' && branchInfo.est_wait_minutes > 0
@@ -276,8 +359,26 @@ function CheckoutPageInner() {
 
   const persistCart = useCallback((next: CartItem[]) => {
     setCart(next);
-    localStorage.setItem(CART_KEY, JSON.stringify(next));
-  }, []);
+    saveCart(next as any, tableNumber);
+  }, [tableNumber]);
+
+  const removeUnavailableItemsFromCart = useCallback(() => {
+    const next = cart.filter((c) => !cartUnavailableIds.has(c.id));
+    persistCart(next);
+    setCartUnavailableIds(new Set());
+    setUnavailableModalData(null);
+    idempotencyKeyRef.current = '';
+  }, [cart, cartUnavailableIds, persistCart]);
+
+  const acceptPriceChanges = useCallback((priceMap: Map<string, number>) => {
+    const next = cart.map((c) => {
+      const newPrice = priceMap.get(c.id);
+      return newPrice !== undefined ? { ...c, price: newPrice } : c;
+    });
+    persistCart(next);
+    setUnavailableModalData(null);
+    idempotencyKeyRef.current = '';
+  }, [cart, persistCart]);
 
   const updateQuantity = useCallback(
     (key: string, delta: number) => {
@@ -295,7 +396,15 @@ function CheckoutPageInner() {
 
   const removeItem = useCallback(
     (key: string) => {
-      persistCart(cart.filter((c) => (c.lineKey || c.id) !== key));
+      const next = cart.filter((c) => (c.lineKey || c.id) !== key);
+      persistCart(next);
+      // Clean up cartUnavailableIds if item removed
+      setCartUnavailableIds((prev) => {
+        const nextSet = new Set(prev);
+        const removedItem = cart.find((c) => (c.lineKey || c.id) === key);
+        if (removedItem) nextSet.delete(removedItem.id);
+        return nextSet;
+      });
     },
     [cart, persistCart],
   );
@@ -304,6 +413,14 @@ function CheckoutPageInner() {
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
   const handleConfirm = async () => {
+    setIsNetworkError(false);
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idem_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    }
+
     // Group order path
     if (isGroupMode && groupSession) {
       if (submitting) return;
@@ -321,6 +438,7 @@ function CheckoutPageInner() {
           notes: notes.trim() || undefined,
           group_cart_code: groupSession.code,
           member_token: groupSession.member_token,
+          idempotency_key: idempotencyKeyRef.current,
           ...(resolvedBranch ? { branch_id: resolvedBranch } : {}),
         };
 
@@ -333,7 +451,21 @@ function CheckoutPageInner() {
         const data = await res.json();
 
         if (!res.ok || !data?.order) {
-          if (res.status === 409 && data?.code === 'ORDERS_PAUSED') refreshBranchInfo();
+          if (res.status === 409 && data?.code === 'ITEMS_UNAVAILABLE') {
+            const items = (data.items || []) as UnavailableItem[];
+            setUnavailableModalData({ items, error: data.error });
+            setCartUnavailableIds(new Set(items.filter((i) => i.reason === 'sold_out' || i.reason === 'not_found').map((i) => i.id)));
+            idempotencyKeyRef.current = '';
+            setSubmitting(false);
+            return;
+          }
+          if (res.status === 503 || data?.code === 'ORDERING_PAUSED' || data?.code === 'ORDERS_PAUSED') {
+            refreshBranchInfo();
+            setSubmitError(data?.error || 'Pesanan sedang dijeda sementara. Silakan coba lagi sebentar lagi.');
+            setSubmitting(false);
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
           setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
           setSubmitting(false);
           if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -348,11 +480,13 @@ function CheckoutPageInner() {
           localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(snapshot));
         } catch {}
 
-        // Don't clear group session here — the polling hook will catch status=submitted
+        clearCart();
+        idempotencyKeyRef.current = '';
         setOrderTotal(order.total);
         setOrderCode(order.order_code);
       } catch {
-        setSubmitError('Koneksi bermasalah. Periksa internet kamu dan coba lagi.');
+        setIsNetworkError(true);
+        setSubmitError('Pesanan belum terkirim. Periksa koneksi internet kamu lalu coba lagi.');
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } finally {
         setSubmitting(false);
@@ -360,8 +494,8 @@ function CheckoutPageInner() {
       return;
     }
 
-    // Solo order path (unchanged)
-    if (submitting || cart.length === 0 || !name.trim() || !tableNumber.trim()) return;
+    // Solo order path
+    if (submitting || cart.length === 0 || !name.trim() || !tableNumber.trim() || cartUnavailableIds.size > 0) return;
     setSubmitting(true);
     setSubmitError(null);
 
@@ -372,10 +506,12 @@ function CheckoutPageInner() {
         table_number:   tableNumber.trim(),
         payment_method: payment,
         notes:          notes.trim() || undefined,
-        // Send menu_item id + quantity + optional note + selected options
+        idempotency_key: idempotencyKeyRef.current,
+        // Send menu_item id + quantity + expected_price + optional note + selected options
         items: cart.map((c) => ({
           id:              c.id,
           quantity:        c.quantity,
+          expected_price:  c.price,
           note:            c.note?.trim() || undefined,
           selected_options: c.selectedOptions?.length ? c.selectedOptions : undefined,
         })),
@@ -392,9 +528,23 @@ function CheckoutPageInner() {
       const data = await res.json();
 
       if (!res.ok || !data?.order) {
-        // Handle ORDERS_PAUSED race condition — refresh branch info to show banner
-        if (res.status === 409 && data?.code === 'ORDERS_PAUSED') {
+        if (res.status === 409 && data?.code === 'ITEMS_UNAVAILABLE') {
+          const items = (data.items || []) as UnavailableItem[];
+          setUnavailableModalData({ items, error: data.error });
+          const soldOuts = new Set(
+            items.filter((i) => i.reason === 'sold_out' || i.reason === 'not_found').map((i) => i.id),
+          );
+          setCartUnavailableIds(soldOuts);
+          idempotencyKeyRef.current = '';
+          setSubmitting(false);
+          return;
+        }
+        if (res.status === 503 || data?.code === 'ORDERING_PAUSED' || data?.code === 'ORDERS_PAUSED') {
           refreshBranchInfo();
+          setSubmitError(data?.error || 'Pesanan sedang dijeda sementara. Silakan coba lagi sebentar lagi.');
+          setSubmitting(false);
+          if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
         }
         // Server returned a structured error — show it inline, keep cart
         setSubmitError(data?.error || 'Gagal menyimpan pesanan. Silakan coba lagi.');
@@ -428,12 +578,14 @@ function CheckoutPageInner() {
         // Ignore storage errors — order is already saved server-side
       }
 
-      // Clear cart only after successful save
-      localStorage.removeItem(CART_KEY);
+      // Clear cart reliably after successful save
+      clearCart();
+      idempotencyKeyRef.current = '';
       setOrderTotal(order.total);
       setOrderCode(order.order_code);
     } catch {
-      setSubmitError('Koneksi bermasalah. Periksa internet kamu dan coba lagi.');
+      setIsNetworkError(true);
+      setSubmitError('Pesanan belum terkirim. Periksa koneksi internet kamu lalu coba lagi.');
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
@@ -443,7 +595,7 @@ function CheckoutPageInner() {
   };
 
   if (!loaded) {
-    return <div className="min-h-screen bg-cream" />;
+    return <CheckoutSkeleton />;
   }
 
   // ── Success state ────────────────────────────────────────────────────────────
@@ -704,9 +856,34 @@ function CheckoutPageInner() {
 
         {/* Order items */}
         <motion.section variants={fadeInUp} initial="hidden" animate="visible">
-          <h2 className="text-sm font-bold text-coffee-900 uppercase tracking-wide mb-3">
-            {isGroupMode ? 'Rincian Pesanan Bareng' : 'Pesananmu'}
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-coffee-900 uppercase tracking-wide">
+              {isGroupMode ? 'Rincian Pesanan Bareng' : 'Pesananmu'}
+            </h2>
+            {cartUnavailableIds.size > 0 && (
+              <span className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                {cartUnavailableIds.size} menu habis
+              </span>
+            )}
+          </div>
+
+          {/* Sold-out items action banner */}
+          {cartUnavailableIds.size > 0 && (
+            <div className="mb-3 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span className="font-semibold truncate">Ada menu yang habis di keranjangmu.</span>
+              </div>
+              <button
+                type="button"
+                onClick={removeUnavailableItemsFromCart}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs active:scale-95 transition-colors whitespace-nowrap shadow-2xs flex items-center gap-1 flex-shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Hapus yang Habis
+              </button>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-coffee-100/80 divide-y divide-coffee-100/60 overflow-hidden">
             {isGroupMode && groupCart ? (
               groupCart.items.length === 0 ? (
@@ -778,6 +955,7 @@ function CheckoutPageInner() {
               <AnimatePresence initial={false}>
                 {cart.map((item) => {
                   const itemKey = item.lineKey || item.id;
+                  const isSoldOut = cartUnavailableIds.has(item.id);
                   return (
                     <motion.div
                       key={itemKey}
@@ -791,12 +969,19 @@ function CheckoutPageInner() {
                           <img
                             src={item.image_url}
                             alt={item.name}
-                            className="w-full h-full object-cover"
+                            className={`w-full h-full object-cover ${isSoldOut ? 'grayscale opacity-60' : ''}`}
                           />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-coffee-900 text-sm truncate">{item.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className={`font-semibold text-sm truncate ${isSoldOut ? 'text-charcoal/40 line-through' : 'text-coffee-900'}`}>{item.name}</p>
+                          {isSoldOut && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200 text-[10px] font-bold uppercase tracking-wider">
+                              Habis
+                            </span>
+                          )}
+                        </div>
                         {item.selectedOptions && formatItemOptionsSummary(item.selectedOptions) && (
                           <p className="text-xs text-coffee-700 bg-coffee-50/80 border border-coffee-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                             {formatItemOptionsSummary(item.selectedOptions)}
@@ -807,7 +992,7 @@ function CheckoutPageInner() {
                             Catatan: {item.note}
                           </p>
                         )}
-                        <p className="text-coffee-600 text-sm font-bold mt-0.5">{formatPrice((item.price + calculateOptionsTotal(item.selectedOptions)) * item.quantity)}</p>
+                        <p className={`text-sm font-bold mt-0.5 ${isSoldOut ? 'text-charcoal/40' : 'text-coffee-600'}`}>{formatPrice((item.price + calculateOptionsTotal(item.selectedOptions)) * item.quantity)}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -1004,18 +1189,40 @@ function CheckoutPageInner() {
               {isGroupMode && groupCart ? formatPrice(groupCart.total) : formatPrice(subtotal)}
             </span>
           </div>
+          {isNetworkError && (
+            <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="truncate">Pesanan belum terkirim. Periksa koneksi internet lalu coba lagi.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={submitting}
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs active:scale-95 transition-colors whitespace-nowrap shadow-2xs flex-shrink-0"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          )}
+
           <button
             onClick={handleConfirm}
             disabled={
               submitting ||
               isPaused ||
               isAwaitingOrderCode ||
+              cartUnavailableIds.size > 0 ||
               (isGroupMode
                 ? !groupSession || !groupCart || groupCart.items.length === 0 || !isGroupHost
                 : (!name.trim() || !tableNumber.trim() || cart.length === 0))
             }
             className={`w-full py-4 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-soft ${
-              isPaused ? 'bg-amber-500 text-white' : 'bg-coffee-700 text-cream hover:bg-coffee-800'
+              isPaused
+                ? 'bg-amber-500 text-white'
+                : cartUnavailableIds.size > 0
+                ? 'bg-charcoal/20 text-charcoal/50'
+                : 'bg-coffee-700 text-cream hover:bg-coffee-800'
             }`}
           >
             {submitting || isAwaitingOrderCode ? (
@@ -1025,6 +1232,8 @@ function CheckoutPageInner() {
               </span>
             ) : isPaused ? (
               'Pemesanan Sedang Dijeda'
+            ) : cartUnavailableIds.size > 0 ? (
+              'Hapus menu yang habis untuk lanjut'
             ) : isGroupMode && groupCart ? (
               isGroupHost
                 ? `Konfirmasi Pesanan Bareng — ${formatPrice(groupCart.total)}`
@@ -1033,7 +1242,7 @@ function CheckoutPageInner() {
               `Konfirmasi Pesanan — ${formatPrice(subtotal)}`
             )}
           </button>
-          {submitError && (
+          {submitError && !isNetworkError && (
             <p className="text-center text-xs text-red-600 font-semibold mt-2">
               {submitError}
             </p>
@@ -1079,6 +1288,138 @@ function CheckoutPageInner() {
             : 'Arahkan kamera ke stiker QR di mejamu untuk memesan'
         }
       />
+
+      {/* Unavailable / Changed Items Modal */}
+      <AnimatePresence>
+        {unavailableModalData && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setUnavailableModalData(null)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-cream rounded-t-3xl shadow-soft-xl p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] max-w-lg mx-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <h2 className="font-extrabold text-coffee-900 text-base sm:text-lg">
+                    {unavailableModalData.items.some((i) => i.reason === 'price_changed')
+                      ? 'Perubahan Menu & Harga'
+                      : 'Maaf, Beberapa Menu Habis'}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUnavailableModalData(null)}
+                  className="w-8 h-8 rounded-lg hover:bg-coffee-100/60 flex items-center justify-center text-charcoal/50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs sm:text-sm text-charcoal/70 mb-4 leading-relaxed">
+                {unavailableModalData.error || 'Beberapa menu di keranjangmu sudah habis atau mengalami perubahan harga.'}
+              </p>
+
+              <div className="space-y-2 mb-5 max-h-56 overflow-y-auto">
+                {unavailableModalData.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between p-3 rounded-xl bg-white border border-coffee-100 text-xs sm:text-sm"
+                  >
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className="font-bold text-coffee-900 truncate">{item.name}</p>
+                      {item.reason === 'price_changed' && item.old_price != null && item.new_price != null ? (
+                        <p className="text-[11px] text-coffee-700 font-medium mt-0.5">
+                          <span className="line-through text-charcoal/40">{formatPrice(item.old_price)}</span>
+                          {' → '}
+                          <span className="font-bold text-coffee-900">{formatPrice(item.new_price)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-charcoal/50 mt-0.5">
+                          {item.reason === 'sold_out' ? 'Stok saat ini habis' : 'Menu tidak tersedia'}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex-shrink-0 ${
+                        item.reason === 'price_changed'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}
+                    >
+                      {item.reason === 'price_changed' ? 'Harga Berubah' : 'Habis'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                {unavailableModalData.items.some((i) => i.reason === 'price_changed') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const priceMap = new Map<string, number>();
+                      for (const it of unavailableModalData.items) {
+                        if (it.reason === 'price_changed' && it.new_price != null) {
+                          priceMap.set(it.id, it.new_price);
+                        }
+                      }
+                      acceptPriceChanges(priceMap);
+                    }}
+                    className="w-full py-3.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-colors active:scale-95 shadow-soft"
+                  >
+                    Perbarui Harga & Lanjutkan
+                  </button>
+                )}
+
+                {unavailableModalData.items.some((i) => i.reason === 'sold_out' || i.reason === 'not_found') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const unavailableIds = new Set(
+                        unavailableModalData.items
+                          .filter((i) => i.reason === 'sold_out' || i.reason === 'not_found')
+                          .map((i) => i.id),
+                      );
+                      const next = cart.filter((c) => !unavailableIds.has(c.id));
+                      persistCart(next);
+                      setCartUnavailableIds(new Set());
+                      setUnavailableModalData(null);
+                      idempotencyKeyRef.current = '';
+                    }}
+                    className="w-full py-3.5 rounded-xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition-colors active:scale-95 shadow-soft flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Hapus dari Keranjang
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnavailableModalData(null);
+                    router.push('/menu');
+                  }}
+                  className="w-full py-3 rounded-xl border border-coffee-200 text-coffee-800 font-bold text-sm hover:bg-coffee-50 transition-colors active:scale-95"
+                >
+                  Kembali ke Menu
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -17,8 +17,11 @@ export const TABLE_KEY = 'cafe-table';
 /** The current branch UUID (set by QR scan). */
 export const BRANCH_KEY = 'cafe-branch';
 
-/** Solo cart items (array of CartItem). */
-export const CART_KEY = 'cafe-cart';
+/** Solo cart items — versioned payload with expiry (see lib/cart.ts). */
+export const CART_KEY = 'cafe_cart';
+
+/** Schema version stored alongside cart data. Bump when shape changes. */
+export const CART_SCHEMA_VERSION = 1;
 
 // ─── Order history keys ───────────────────────────────────────────────────────
 
@@ -62,7 +65,10 @@ export const LAST_DISPLAY_NAME_KEY = 'cafe-display-name';
 export const LEGACY_TABLE_KEY = 'kopi-nako-table';
 export const LEGACY_BRANCH_KEY = 'kopi-nako-branch';
 export const LEGACY_CART_KEY = 'kopi-nako-cart';
+/** Previous neutral cart key (dash) — migrate to cafe_cart on load. */
+export const LEGACY_CAFE_CART_KEY = 'cafe-cart';
 export const LEGACY_ORDER_HISTORY_KEYS = ['kopi-nako-customer-history', 'kopi-nako-order-history'];
 export const LEGACY_ORDER_SNAPSHOT_PREFIX = 'kopi-nako-order-';
 export const LEGACY_LAST_ORDER_KEY = 'kopi-nako-last-order';
 export const LEGACY_SOUND_KEY = 'kopi-nako-sound-enabled';
+

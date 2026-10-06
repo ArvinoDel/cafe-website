@@ -69,6 +69,18 @@ function getSupabase() {
   return anonClient;
 }
 
+// ─── In-memory session cache (SWR) ───────────────────────────────────────────
+
+type MenuCache = {
+  data: BranchMenuItem[];
+  fetchedAt: number;
+};
+
+// Keyed by branchId (or '__all__' when no branchId is provided).
+const menuCache = new Map<string, MenuCache>();
+// Minimum gap between background revalidations (30 s).
+const REVALIDATE_INTERVAL_MS = 30_000;
+
 // ─── fetchBranchMenu ─────────────────────────────────────────────────────────
 
 /**
@@ -85,9 +97,35 @@ function getSupabase() {
  * custom_price overrides are applied regardless of availability.
  * Items are returned ordered by sort_order ascending.
  * Returns an empty array on error.
+ *
+ * Caching: results are stored in a module-level Map for the session lifetime.
+ * On repeated calls the cached copy is returned immediately, then a background
+ * revalidation is triggered (at most once per REVALIDATE_INTERVAL_MS) so data
+ * stays fresh without blocking the UI.
  */
 export async function fetchBranchMenu(
   branchId?: string | null,
+  opts?: { forceRefresh?: boolean },
+): Promise<BranchMenuItem[]> {
+  const cacheKey = branchId ?? '__all__';
+  const cached = menuCache.get(cacheKey);
+  const now = Date.now();
+
+  // Return cached data immediately if available (stale-while-revalidate)
+  if (cached && !opts?.forceRefresh) {
+    // Kick off background revalidation if stale but don't await it
+    if (now - cached.fetchedAt > REVALIDATE_INTERVAL_MS) {
+      fetchFromDB(branchId, cacheKey).catch(() => {});
+    }
+    return cached.data;
+  }
+
+  return fetchFromDB(branchId, cacheKey);
+}
+
+async function fetchFromDB(
+  branchId: string | null | undefined,
+  cacheKey: string,
 ): Promise<BranchMenuItem[]> {
   const supabase = getSupabase();
 
@@ -103,7 +141,7 @@ export async function fetchBranchMenu(
         .eq('branch_id', branchId),
     ]);
 
-    if (menuRes.error) return [];
+    if (menuRes.error) return menuCache.get(cacheKey)?.data ?? [];
 
     const rawItems = (menuRes.data || []) as AvailableMenuItem[];
     const branchRows = (branchMenuRes.data || []) as {
@@ -133,6 +171,7 @@ export async function fetchBranchMenu(
         sold_out,
       });
     }
+    menuCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
     return result;
   }
 
@@ -142,12 +181,14 @@ export async function fetchBranchMenu(
     .select('*')
     .order('sort_order', { ascending: true });
 
-  if (error) return [];
+  if (error) return menuCache.get(cacheKey)?.data ?? [];
 
-  return ((data || []) as AvailableMenuItem[]).map((item) => ({
+  const result = ((data || []) as AvailableMenuItem[]).map((item) => ({
     ...item,
     sold_out: item.is_sold_out === true || !item.is_available,
   }));
+  menuCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 // ─── fetchCurrentAvailableMenu ────────────────────────────────────────────────

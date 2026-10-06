@@ -13,7 +13,7 @@ import ItemNoteModal from '@/components/ui/ItemNoteModal';
 import ProductDetailModal from '@/components/ui/ProductDetailModal';
 import TableRequestModal from '@/components/ui/TableRequestModal';
 import { getItemLineKey, normalizeNote, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption, type ItemOptionGroup } from '@/lib/item-options';
-import { CART_KEY } from '@/lib/cart';
+import { CART_KEY, loadCart, saveCart, validateCartAgainstMenu } from '@/lib/cart';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { fetchBranchMenu, type BranchMenuItem } from '@/lib/menu-availability';
 import { useBranchInfo } from '@/lib/branch-info';
@@ -140,26 +140,29 @@ function MenuPageInner() {
   const isAwaitingOrderCode = groupCart?.status === 'submitted' && !groupCart?.order_code;
   const submittedSinceRef = useRef<number | null>(null);
 
-  // Restore cart from localStorage on mount (with lineKey backward compatibility)
+  // addedItemId tracks the last menu item added so the + button can flash a
+  // brief checkmark (clear after 700 ms) without blocking the add action.
+  const [addedItemId, setAddedItemId] = useState<string | null>(null);
+  const addedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore cart from localStorage on mount using the versioned cart helper
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(CART_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setCart(
-            parsed.map((item: any) => ({
-              ...item,
-              lineKey: item.lineKey || getItemLineKey(item.id, item.note),
-              note: item.note || undefined,
-            })),
-          );
-        }
-      }
-    } catch {
-      // ignore parse error
-    }
+    const restored = loadCart();
+    setCart(
+      restored.map((item: any) => ({
+        ...item,
+        lineKey: item.lineKey || getItemLineKey(item.id, item.note),
+        note:    item.note || undefined,
+      })),
+    );
   }, []);
+
+  // Prefetch /checkout as soon as the cart has items (perceived speed)
+  useEffect(() => {
+    if (cart.length > 0) {
+      router.prefetch('/checkout');
+    }
+  }, [cart.length, router]);
 
   // Auto-dismiss table notice after 6 seconds
   useEffect(() => {
@@ -234,6 +237,8 @@ function MenuPageInner() {
     }
   }, [searchParams]);
 
+  // fetchMenu — also called silently when the cart drawer opens so the
+  // "Habis" badges on cart items update without a full page refresh.
   const fetchMenu = useCallback(
     async (silent = false) => {
       if (!silent) {
@@ -242,6 +247,18 @@ function MenuPageInner() {
       try {
         const data = await fetchBranchMenu(branchId);
         setItems(data);
+        // Validate & remove cart items that no longer exist in the menu,
+        // and update prices to the latest DB values.
+        if (data.length > 0) {
+          setCart((prev) => {
+            const validated = validateCartAgainstMenu(prev, data);
+            if (validated.length !== prev.length) {
+              saveCart(validated, typeof window !== 'undefined' ? localStorage.getItem('cafe-table') ?? undefined : undefined);
+              return validated as typeof prev;
+            }
+            return prev;
+          });
+        }
         setMenuLoaded(true);
         setError(null);
       } catch {
@@ -609,7 +626,7 @@ function MenuPageInner() {
           ];
         }
         try {
-          localStorage.setItem(CART_KEY, JSON.stringify(next));
+          saveCart(next, typeof window !== 'undefined' ? localStorage.getItem('cafe-table') ?? undefined : undefined);
         } catch {}
         return next;
       });
@@ -622,6 +639,10 @@ function MenuPageInner() {
       // Defense in depth: refuse sold-out items
       if (item.sold_out) return;
       addToCartWithNote(item, null, 1);
+      // Tap feedback: briefly show checkmark on the + button
+      if (addedTimerRef.current) clearTimeout(addedTimerRef.current);
+      setAddedItemId(item.id);
+      addedTimerRef.current = setTimeout(() => setAddedItemId(null), 700);
     },
     [addToCartWithNote],
   );
@@ -672,7 +693,7 @@ function MenuPageInner() {
       setCart((prev) => {
         const next = prev.filter((c) => c.lineKey !== lineKey);
         try {
-          localStorage.setItem(CART_KEY, JSON.stringify(next));
+          saveCart(next, typeof window !== 'undefined' ? localStorage.getItem('cafe-table') ?? undefined : undefined);
         } catch {}
         return next;
       });
@@ -717,7 +738,7 @@ function MenuPageInner() {
           .map((c) => (c.lineKey === lineKey ? { ...c, quantity: c.quantity + delta } : c))
           .filter((c) => c.quantity > 0);
         try {
-          localStorage.setItem(CART_KEY, JSON.stringify(next));
+          saveCart(next, typeof window !== 'undefined' ? localStorage.getItem('cafe-table') ?? undefined : undefined);
         } catch {}
         return next;
       });
@@ -906,7 +927,7 @@ function MenuPageInner() {
               </button>
 
               <button
-                onClick={() => setCartOpen(true)}
+                onClick={() => { setCartOpen(true); fetchMenu(true); }}
                 className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-coffee-700 text-cream hover:bg-coffee-800 transition-colors active:scale-95"
                 aria-label="Cart"
               >
@@ -1273,7 +1294,7 @@ function MenuPageInner() {
             animate="visible"
             className="bg-white rounded-2xl px-4 border border-coffee-100/80 shadow-soft-xs flex flex-col sm:bg-transparent sm:border-0 sm:shadow-none sm:rounded-none sm:p-0 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5"
           >
-            {sortedItems.map((item) => {
+            {sortedItems.map((item, index) => {
               const handleAddItem = (e: React.MouseEvent) => {
                 e.stopPropagation();
                 if (isPaused) return;
@@ -1392,7 +1413,11 @@ function MenuPageInner() {
                               ? 'grayscale opacity-60 sm:contrast-75 sm:opacity-70'
                               : 'sm:group-hover:scale-110'
                           }`}
-                          loading="lazy"
+                          loading={index < 4 ? 'eager' : 'lazy'}
+                          decoding="async"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-coffee-200">
@@ -1432,13 +1457,19 @@ function MenuPageInner() {
                           type="button"
                           disabled={isPaused}
                           onClick={handleAddItem}
-                          className={`relative flex items-center justify-center w-7 h-7 rounded-full bg-white border border-coffee-700 text-coffee-700 shadow-xs active:scale-90 transition-transform after:absolute after:-inset-2 after:content-[''] ${
-                            isPaused ? 'opacity-40 cursor-not-allowed' : ''
+                          className={`relative flex items-center justify-center w-7 h-7 rounded-full bg-white border shadow-xs active:scale-90 transition-all after:absolute after:-inset-2 after:content-[''] ${
+                            addedItemId === item.id
+                              ? 'border-green-500 text-green-500 scale-110'
+                              : isPaused
+                                ? 'border-coffee-300 text-coffee-300 opacity-40 cursor-not-allowed'
+                                : 'border-coffee-700 text-coffee-700'
                           }`}
                           aria-label={isPaused ? 'Pemesanan dijeda' : `Tambah ${item.name}`}
                           title={isPaused ? 'Pemesanan sedang dijeda' : 'Tambah ke pesanan'}
                         >
-                          <Plus className="w-4 h-4 text-coffee-700" />
+                          {addedItemId === item.id
+                            ? <CheckCircle2 className="w-4 h-4" />
+                            : <Plus className="w-4 h-4" />}
                         </button>
                       )}
                     </div>
@@ -1521,7 +1552,16 @@ function MenuPageInner() {
                               <div className="flex items-center gap-3">
                                 <div className="w-12 h-12 rounded-lg overflow-hidden bg-coffee-50 flex-shrink-0">
                                   {item.image_url && (
-                                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                                    <img
+                                    src={item.image_url}
+                                    alt={item.name}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -1638,6 +1678,11 @@ function MenuPageInner() {
                                     className={`w-full h-full object-cover ${
                                       unavailable ? 'grayscale contrast-75 opacity-70' : ''
                                     }`}
+                                    loading="lazy"
+                                    decoding="async"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLElement).style.display = 'none';
+                                    }}
                                   />
                                 )}
                               </div>
@@ -1885,7 +1930,11 @@ function MenuPageInner() {
                               : 'bg-coffee-700 text-cream hover:bg-coffee-800 active:scale-95'
                           }`}
                         >
-                          {isPaused ? 'Pemesanan Sedang Dijeda' : `Pesan Sekarang — ${formatPrice(cartTotal)}`}
+                          {isPaused
+                            ? 'Pemesanan Sedang Dijeda'
+                            : hasUnavailableItems
+                              ? 'Hapus menu yang habis untuk lanjut'
+                              : `Pesan Sekarang — ${formatPrice(cartTotal)}`}
                         </button>
                       </>
                     ) : (
@@ -2010,7 +2059,7 @@ function MenuPageInner() {
         <motion.button
           initial={{ y: 100 }}
           animate={{ y: 0 }}
-          onClick={() => setCartOpen(true)}
+          onClick={() => { setCartOpen(true); fetchMenu(true); }}
           style={{ bottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
           className="fixed right-4 sm:hidden flex items-center gap-2.5 px-3.5 py-2.5 rounded-full bg-coffee-700 text-cream shadow-soft-lg z-40 active:scale-95 min-h-[40px] text-sm"
           aria-label={`Buka keranjang, ${cartCount} item, total ${formatPrice(cartTotal)}`}

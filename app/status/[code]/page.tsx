@@ -525,11 +525,65 @@ export default function OrderStatusPage() {
     };
   }, [code, isTerminal, fetchOrder]);
 
-  const stepIndex = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
+function StatusSkeleton() {
+  return (
+    <div className="min-h-screen bg-cream pb-12 animate-pulse">
+      {/* Top bar skeleton */}
+      <div className="sticky top-0 z-40 bg-cream/80 backdrop-blur-xl border-b border-coffee-100/60">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="w-16 h-4 bg-coffee-200/50 rounded-lg" />
+          <div className="w-28 h-5 bg-coffee-200/60 rounded-lg" />
+          <div className="w-16 h-7 bg-coffee-200/50 rounded-xl" />
+        </div>
+      </div>
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+        {/* Order header card skeleton */}
+        <div className="bg-white rounded-2xl border border-coffee-100/80 p-5 text-center shadow-soft space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-coffee-100/60 mx-auto" />
+          <div className="w-24 h-3 bg-coffee-200/50 rounded mx-auto" />
+          <div className="w-36 h-7 bg-coffee-200/70 rounded-lg mx-auto" />
+          <div className="w-28 h-4 bg-coffee-100/70 rounded mx-auto" />
+          <div className="w-32 h-6 bg-coffee-100/60 rounded-xl mx-auto mt-2" />
+        </div>
+        {/* Progress tracker stepper skeleton */}
+        <div className="bg-white rounded-2xl border border-coffee-100/80 p-5 shadow-soft space-y-4">
+          <div className="w-28 h-4 bg-coffee-200/60 rounded" />
+          <div className="space-y-4 pt-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-coffee-100/70 flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="w-32 h-4 bg-coffee-200/60 rounded" />
+                  <div className="w-48 h-3 bg-coffee-100/50 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Order items summary skeleton */}
+        <div className="bg-white rounded-2xl border border-coffee-100/80 p-5 shadow-soft space-y-3">
+          <div className="w-24 h-4 bg-coffee-200/60 rounded" />
+          {[1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 py-2 border-b border-coffee-50 last:border-0">
+              <div className="w-10 h-10 rounded-lg bg-coffee-100/70 flex-shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="w-28 h-4 bg-coffee-200/60 rounded" />
+                <div className="w-16 h-3 bg-coffee-100/60 rounded" />
+              </div>
+              <div className="w-14 h-4 bg-coffee-200/60 rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
   if (loading) {
-    return <div className="min-h-screen bg-cream" />;
+    return <StatusSkeleton />;
   }
+
+  const stepIndex = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
 
   if (notFound || !order) {
     return (

@@ -36,7 +36,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
-import { priceOrderLines, pricingLinesFromGroupItems, evaluatePriceLines } from '@/lib/order-pricing';
+import {
+  priceOrderLines,
+  pricingLinesFromGroupItems,
+  evaluatePriceLines,
+  type ItemsUnavailableError,
+} from '@/lib/order-pricing';
 import { getItemLineKey, type SelectedOption } from '@/lib/item-options';
 import type { SupabaseEnv } from '@supabase/server';
 
@@ -59,11 +64,13 @@ function resolveEnv(): Partial<SupabaseEnv> {
 // ─── Zod schema ──────────────────────────────────────────────────────────────
 
 const CreateOrderSchema = z.object({
-  customer_name:  z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(100, 'Nama terlalu panjang.').optional(),
-  table_number:   z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.').optional(),
-  branch_id:      z.string().uuid('Branch ID tidak valid.').optional(),
-  payment_method: z.enum(['cash', 'qris'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
-  notes:          z.string().trim().max(500, 'Catatan terlalu panjang.').optional(),
+  customer_name:    z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(100, 'Nama terlalu panjang.').optional(),
+  table_number:     z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.').optional(),
+  branch_id:        z.string().uuid('Branch ID tidak valid.').optional(),
+  payment_method:   z.enum(['cash', 'qris'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
+  notes:            z.string().trim().max(500, 'Catatan terlalu panjang.').optional(),
+  // Client-generated UUID per checkout attempt — prevents duplicate orders
+  idempotency_key:  z.string().uuid('Idempotency key tidak valid.').optional(),
   // Solo order items — required unless group_cart_code is present
   items: z
     .array(
@@ -74,11 +81,11 @@ const CreateOrderSchema = z.object({
         selected_options: z
           .array(
             z.object({
-              groupId: z.string().max(100, 'groupId maksimal 100 karakter.'),
-              groupName: z.string().max(100, 'groupName maksimal 100 karakter.'),
-              choiceId: z.string().max(100, 'choiceId maksimal 100 karakter.'),
+              groupId:    z.string().max(100, 'groupId maksimal 100 karakter.'),
+              groupName:  z.string().max(100, 'groupName maksimal 100 karakter.'),
+              choiceId:   z.string().max(100, 'choiceId maksimal 100 karakter.'),
               choiceName: z.string().max(100, 'choiceName maksimal 100 karakter.'),
-              price: z.number().finite('Harga harus berupa angka valid.').min(0, 'Harga tidak boleh negatif.'),
+              price:      z.number().finite('Harga harus berupa angka valid.').min(0, 'Harga tidak boleh negatif.'),
             }),
           )
           .max(20, 'Opsi per item maksimal 20.')
@@ -151,11 +158,12 @@ async function resolveBranch(
       return {
         response: NextResponse.json(
           {
+            ok: false,
             error: branch.pause_message ||
-              'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
-            code: 'ORDERS_PAUSED',
+              'Maaf, pemesanan sedang dijeda sementara. Silakan coba lagi sebentar lagi.',
+            code: 'ORDERING_PAUSED',
           },
-          { status: 409 },
+          { status: 503 },
         ),
       };
     }
@@ -196,16 +204,16 @@ async function resolveBranch(
 
     const singleBranch = branches[0];
 
-    // Guard: branch is paused
     if (singleBranch.accepting_orders === false) {
       return {
         response: NextResponse.json(
           {
+            ok: false,
             error: singleBranch.pause_message ||
-              'Maaf, pemesanan sedang dijeda sementara. Silakan hubungi barista ya.',
-            code: 'ORDERS_PAUSED',
+              'Maaf, pemesanan sedang dijeda sementara. Silakan coba lagi sebentar lagi.',
+            code: 'ORDERING_PAUSED',
           },
-          { status: 409 },
+          { status: 503 },
         ),
       };
     }
@@ -231,7 +239,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: firstError }, { status: 400 });
   }
 
-  const { customer_name, table_number, branch_id: clientBranchId, payment_method, notes, items, group_cart_code, member_token } = parsed.data;
+  const {
+    customer_name,
+    table_number,
+    branch_id: clientBranchId,
+    payment_method,
+    notes,
+    items,
+    group_cart_code,
+    member_token,
+    idempotency_key,
+  } = parsed.data;
 
   const isGroupOrder = !!group_cart_code && !!member_token;
 
@@ -340,10 +358,22 @@ export async function POST(request: NextRequest) {
     const pricingResult = await priceOrderLines(supabaseAdmin as any, cartRow.branch_id, pricingLines);
 
     if ('error' in pricingResult) {
+        if (pricingResult.error.code === 'ITEMS_UNAVAILABLE') {
+      const unavailableErr = pricingResult as ItemsUnavailableError;
       return NextResponse.json(
-        { error: pricingResult.error.message, code: pricingResult.error.code },
-        { status: pricingResult.error.status },
+        {
+          ok: false,
+          error: unavailableErr.error.message,
+          code: 'ITEMS_UNAVAILABLE',
+          items: unavailableErr.error.items,
+        },
+        { status: 409 },
       );
+    }
+    return NextResponse.json(
+      { ok: false, error: pricingResult.error.message, code: pricingResult.error.code },
+      { status: pricingResult.error.status },
+    );
     }
 
     // Attach added_by to each snapshot item
@@ -428,7 +458,7 @@ export async function POST(request: NextRequest) {
         .eq('id', cartRow.id);
       await (supabaseAdmin as any).rpc('bump_group_cart_version', { p_cart_id: cartRow.id });
 
-      return NextResponse.json({ order: inserted }, { status: 201 });
+      return NextResponse.json({ ok: true, order: inserted }, { status: 201 });
     }
 
     return NextResponse.json({ error: 'Gagal membuat kode pesanan. Silakan coba lagi.' }, { status: 500 });
@@ -471,11 +501,49 @@ export async function POST(request: NextRequest) {
   const consolidatedLines = Array.from(consolidatedMap.values());
 
   // 4–6. Validate items and build snapshot via shared helper
+  // Build a clientPrices map for price-change detection so the error
+  // response can tell the customer what the new price is.
+  const clientPrices = new Map<string, number>();
+  for (const item of items!) {
+    // Use the first occurrence's price per id (options total excluded here;
+    // the server will re-price everything from DB anyway)
+    if (!clientPrices.has(item.id)) {
+      // We don't have the client's base price in the request body,
+      // so price-change detection is skipped for this release.
+      // (The server enforces DB prices regardless.)
+    }
+  }
+
+  // Check for existing idempotent order before pricing
+  if (idempotency_key) {
+    const { data: existing } = await supabaseAdmin
+      .from('orders')
+      .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
+      .eq('idempotency_key', idempotency_key)
+      .maybeSingle();
+    if (existing) {
+      // Idempotent replay — return the already-created order
+      return NextResponse.json({ ok: true, order: existing }, { status: 200 });
+    }
+  }
+
   const pricingResult = await priceOrderLines(supabaseAdmin as any, resolvedBranchId, consolidatedLines);
 
   if ('error' in pricingResult) {
+    if ((pricingResult.error as any).code === 'ITEMS_UNAVAILABLE') {
+      const unavailableErr = pricingResult as ItemsUnavailableError;
+      return NextResponse.json(
+        {
+          ok: false,
+          error: unavailableErr.error.message,
+          code: 'ITEMS_UNAVAILABLE',
+          items: unavailableErr.error.items,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
-      { error: pricingResult.error.message, code: pricingResult.error.code },
+      { ok: false, error: pricingResult.error.message, code: pricingResult.error.code },
       { status: pricingResult.error.status },
     );
   }
@@ -490,16 +558,17 @@ export async function POST(request: NextRequest) {
     const { data: inserted, error: insertErr } = await supabaseAdmin
       .from('orders')
       .insert({
-        order_code:     orderCode,
-        customer_name:  customer_name!,
-        table_number:   table_number!,
-        branch_id:      resolvedBranchId,
-        items:          snapshot,
+        order_code:      orderCode,
+        customer_name:   customer_name!,
+        table_number:    table_number!,
+        branch_id:       resolvedBranchId,
+        items:           snapshot,
         subtotal,
         total,
         payment_method,
-        notes:          notes?.trim() || null,
-        status:         'pending',
+        notes:           notes?.trim() || null,
+        status:          'pending',
+        idempotency_key: idempotency_key ?? null,
       })
       .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
       .single();
@@ -512,12 +581,12 @@ export async function POST(request: NextRequest) {
       }
       console.error('[orders/create] insert error:', insertErr.message);
       return NextResponse.json(
-        { error: 'Gagal menyimpan pesanan. Silakan coba lagi.' },
+        { ok: false, error: 'Gagal menyimpan pesanan. Silakan coba lagi.' },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({ order: inserted }, { status: 201 });
+    return NextResponse.json({ ok: true, order: inserted }, { status: 201 });
   }
 
   // Should be unreachable

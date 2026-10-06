@@ -185,6 +185,9 @@ function PhotoCarousel({
         }
       }}
     >
+      <div className="absolute inset-0 flex items-center justify-center bg-coffee-100/60 text-coffee-300">
+        <UtensilsCrossed className="w-10 h-10" />
+      </div>
       <AnimatePresence mode="wait" initial={false}>
         <motion.img
           key={index}
@@ -196,7 +199,11 @@ function PhotoCarousel({
           exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -25 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
           loading="eager"
+          decoding="async"
           draggable={false}
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
         />
       </AnimatePresence>
 
@@ -610,6 +617,10 @@ function PairingsSection({
                     alt={pairing.name}
                     className="w-full h-full object-cover"
                     loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-coffee-200">
