@@ -30,6 +30,7 @@ import {
   type GroupCartState,
 } from '@/lib/group-cart';
 import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
+import { MenuGridSkeleton, CategoryTabsSkeleton } from '@/components/ui/MenuCardSkeleton';
 
 type MenuItem = BranchMenuItem;
 
@@ -1230,49 +1231,35 @@ function MenuPageInner() {
         </div>
       </div>
 
-      {/* Category tabs */}
+      {/* Category tabs — show skeletons while menu data is loading */}
       <div className="sticky top-16 z-30 bg-cream/90 backdrop-blur-md border-b border-coffee-100/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide py-3">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                  activeCategory === cat.id
-                    ? 'bg-coffee-700 text-cream shadow-soft'
-                    : 'bg-white text-charcoal/60 hover:bg-coffee-50 border border-coffee-100'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
+          {loading ? (
+            <CategoryTabsSkeleton />
+          ) : (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide py-3">
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                    activeCategory === cat.id
+                      ? 'bg-coffee-700 text-cream shadow-soft'
+                      : 'bg-white text-charcoal/60 hover:bg-coffee-50 border border-coffee-100'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Menu grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 sm:py-8 pb-32">
         {loading ? (
-          <div className="bg-white rounded-2xl px-4 border border-coffee-100/80 shadow-soft-xs flex flex-col sm:bg-transparent sm:border-0 sm:shadow-none sm:rounded-none sm:p-0 sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:gap-5">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div
-                key={i}
-                className="border-b border-coffee-100 last:border-b-0 py-3.5 pb-4 flex flex-row items-start justify-between gap-3 animate-pulse sm:border-b-0 sm:p-0 sm:pb-0 sm:gap-0 sm:flex-col sm:bg-white sm:rounded-2xl sm:overflow-hidden sm:border sm:border-coffee-100/80"
-              >
-                <div className="flex-1 min-w-0 space-y-2 sm:order-2 sm:p-5 sm:space-y-3">
-                  <div className="h-4 bg-coffee-50 rounded w-3/4" />
-                  <div className="h-3 bg-coffee-50 rounded w-full" />
-                  <div className="h-3.5 bg-coffee-50 rounded w-1/3 sm:hidden mt-2" />
-                  <div className="h-3 bg-coffee-50 rounded w-1/2 hidden sm:block" />
-                </div>
-                <div className="relative flex-shrink-0 sm:order-1 sm:w-full">
-                  <div className="w-[84px] h-[84px] rounded-xl bg-coffee-50 sm:w-full sm:h-auto sm:aspect-[4/5] sm:rounded-none" />
-                  <div className="w-7 h-7 rounded-full bg-coffee-100 border border-coffee-200 absolute -bottom-3 left-1/2 -translate-x-1/2 sm:hidden" />
-                </div>
-              </div>
-            ))}
-          </div>
+          <MenuGridSkeleton />
         ) : error ? (
           <div className="text-center py-20">
             <p className="text-charcoal/60 text-lg">{error}</p>
