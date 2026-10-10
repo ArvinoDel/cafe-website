@@ -56,6 +56,9 @@ function normalizeCode(raw: string): string {
   return raw.trim().toUpperCase();
 }
 
+// Active order queue window: ignore stale pending/preparing orders older than 12 hours
+const QUEUE_WINDOW_HOURS   = 12;
+
 // ─── Rate limiting (in-memory, best-effort on serverless) ────────────────────
 
 const RATE_LIMIT_WINDOW_MS = 60_000;  // 60 seconds
@@ -226,12 +229,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Always count orders ahead — independent of whether wait time is configured.
+    // Lower-bounded by QUEUE_WINDOW_HOURS so stale/unclosed orders are ignored.
     // Privacy: only the COUNT is stored, no customer data is fetched or returned.
+    const since = new Date(Date.now() - QUEUE_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
     const { count: aheadCount } = await supabaseAdmin
       .from('orders')
       .select('id', { count: 'exact', head: true })
       .eq('branch_id', order.branch_id)
       .in('status', ['pending', 'preparing'])
+      .gte('created_at', since)
       .lt('created_at', order.created_at);
 
     ordersAhead = aheadCount ?? 0;

@@ -139,6 +139,7 @@ function QueueProgressCupInner({
   const liquidY = useMotionValue(targetY);
   // Spring makes the level change feel natural (~0.8 s effective)
   const springY = useSpring(liquidY, { stiffness: 120, damping: 20, mass: 0.8 });
+  const liquidLevel = reduceMotion ? liquidY : springY;
 
   // Animate liquid whenever status (and therefore targetY) changes
   useEffect(() => {
@@ -223,10 +224,10 @@ function QueueProgressCupInner({
 
           {/* ── Liquid fill, clipped to cup interior ───────────────── */}
           <g clipPath="url(#cup-liquid-clip)">
-            {/* The liquid body — rect top Y is spring-animated */}
+            {/* The liquid body — rect top Y is animated (instant if reduced motion) */}
             <motion.rect
               x="0"
-              y={springY}
+              y={liquidLevel}
               width="80"
               height="100"
               fill="#9c6638"
@@ -238,7 +239,7 @@ function QueueProgressCupInner({
               <motion.path
                 fill="#b5845e"
                 opacity="0.6"
-                style={{ translateY: springY }}
+                style={{ translateY: liquidLevel }}
                 animate={{
                   d: [
                     'M0 0 Q20 -5 40 0 Q60 5 80 0 L80 10 L0 10 Z',
@@ -263,7 +264,7 @@ function QueueProgressCupInner({
                 ry="4"
                 fill="#cdaa8b"
                 opacity="0.65"
-                style={{ translateY: springY }}
+                style={{ translateY: liquidLevel }}
               />
             )}
           </g>
