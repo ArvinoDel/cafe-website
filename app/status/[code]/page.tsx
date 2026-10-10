@@ -25,6 +25,7 @@ import { playOrderChime, unlockAudio } from '@/lib/audio';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import WifiInfoCard from '@/components/ui/WifiInfoCard';
 import OrderFeedbackCard from '@/components/ui/OrderFeedbackCard';
+import QueueProgressCup from '@/components/ui/QueueProgressCup';
 import TableRequestModal from '@/components/ui/TableRequestModal';
 import { executeReorder } from '@/lib/menu-availability';
 import { saveOrderToHistory } from '@/lib/order-history';
@@ -107,6 +108,7 @@ export default function OrderStatusPage() {
   const [notFound, setNotFound] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [waitMinutesRemaining, setWaitMinutesRemaining] = useState<number | null>(null);
+  const [ordersAhead, setOrdersAhead] = useState<number | null>(null);
   const isFirstLoad = useRef(true);
   const currentIntervalRef = useRef(BASE_POLL_INTERVAL);
   const orderRef = useRef<Order | null>(order);
@@ -413,6 +415,10 @@ export default function OrderStatusPage() {
           setOrder(newOrder);
           setWaitMinutesRemaining(
             typeof json.wait_minutes_remaining === 'number' ? json.wait_minutes_remaining : null,
+          );
+          // orders_ahead: scalar count from API, null on fallback or terminal status
+          setOrdersAhead(
+            typeof json.orders_ahead === 'number' ? json.orders_ahead : null,
           );
           setNotFound(false);
           setLastChecked(new Date());
@@ -734,9 +740,22 @@ function StatusSkeleton() {
             )}
           </div>
 
-          {/* Estimated wait time */}
+          {/* Queue progress cup — shown for pending, preparing, ready */}
+          {(order.status === 'pending' || order.status === 'preparing' || order.status === 'ready') && (
+            <div className="mt-3.5 border-t border-coffee-100/60 pt-3">
+              {/* hideWaitTimeBadge suppresses ±X menit line when the amber pill already shows it */}
+              <QueueProgressCup
+                status={order.status}
+                ordersAhead={ordersAhead}
+                waitMinutesRemaining={waitMinutesRemaining}
+                hideWaitTimeBadge={!!(estWaitMinutes && estWaitMinutes > 0)}
+              />
+            </div>
+          )}
+
+          {/* Estimated wait time pill */}
           {(order.status === 'pending' || order.status === 'preparing') && estWaitMinutes && estWaitMinutes > 0 ? (
-            <div className="mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50/90 border border-amber-200/80 text-amber-900 text-xs font-semibold text-center">
+            <div className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50/90 border border-amber-200/80 text-amber-900 text-xs font-semibold text-center">
               <Clock className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
               <span>
                 {(branchInfo?.wait_per_order_minutes ?? 0) > 0 && waitMinutesRemaining !== null

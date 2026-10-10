@@ -203,8 +203,11 @@ export async function GET(request: NextRequest) {
   }
 
   let waitMinutesRemaining: number | null = null;
+  // orders_ahead: always computed for active statuses; null for terminal/no-branch
+  let ordersAhead: number | null = null;
 
   if (order.branch_id && (order.status === 'pending' || order.status === 'preparing')) {
+    // Fetch branch wait settings (handles optional wait_per_order_minutes column)
     let { data: branch, error: branchErr } = await supabaseAdmin
       .from('branches')
       .select('est_wait_minutes, wait_per_order_minutes')
@@ -222,18 +225,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (branch?.est_wait_minutes && branch.est_wait_minutes > 0) {
-      const { count: aheadCount } = await supabaseAdmin
-        .from('orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('branch_id', order.branch_id)
-        .in('status', ['pending', 'preparing'])
-        .lt('created_at', order.created_at);
+    // Always count orders ahead — independent of whether wait time is configured.
+    // Privacy: only the COUNT is stored, no customer data is fetched or returned.
+    const { count: aheadCount } = await supabaseAdmin
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('branch_id', order.branch_id)
+      .in('status', ['pending', 'preparing'])
+      .lt('created_at', order.created_at);
 
+    ordersAhead = aheadCount ?? 0;
+
+    // Reuse aheadCount for wait-time computation (no extra DB round trip)
+    if (branch?.est_wait_minutes && branch.est_wait_minutes > 0) {
       const totalWait = computeWaitMinutes({
         base: branch.est_wait_minutes,
         perOrder: branch.wait_per_order_minutes ?? 0,
-        ahead: aheadCount ?? 0,
+        ahead: ordersAhead,
       });
 
       if (totalWait != null) {
@@ -243,5 +251,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ order, wait_minutes_remaining: waitMinutesRemaining });
+  return NextResponse.json({ order, wait_minutes_remaining: waitMinutesRemaining, orders_ahead: ordersAhead });
 }
