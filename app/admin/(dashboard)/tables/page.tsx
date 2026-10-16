@@ -23,7 +23,7 @@ import { useBrand } from '@/components/providers/BrandProvider';
 
 type Branch = { id: string; name: string };
 
-const DEFAULT_TARGET_URL = 'https://cafe-website-lac-kappa.vercel.app/menus';
+const DEFAULT_TARGET_URL = 'https://demoforcafe.vercel.app/menus';
 
 function buildTableNumbers(prefix: string, count: number): string[] {
   const clean = prefix.trim().toUpperCase() || 'A';
