@@ -52,6 +52,10 @@ const KNOWN_FOOTER_HREFS: Record<string, string> = {
   'cerita kami': '/#story',
   'our locations': '/#stores',
   'lokasi': '/#stores',
+  'reservasi': '/reservasi',
+  'reservation': '/reservasi',
+  'booking': '/reservasi',
+  'pesan meja': '/reservasi',
   'how it works': '/#how-it-works',
   'scan & order': '/#how-it-works',
 };

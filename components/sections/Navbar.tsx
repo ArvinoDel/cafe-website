@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Menu, X, Coffee, Camera } from 'lucide-react';
+import { Menu, X, Coffee, Camera, Calendar } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { TABLE_KEY, BRANCH_KEY, LEGACY_TABLE_KEY, LEGACY_BRANCH_KEY } from '@/lib/storage-keys';
@@ -34,7 +34,12 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
   const brandName     = content?.brandName     || brand.brandName     || DEFAULT_BRAND.brandName;
   const brandSubtitle = content?.brandSubtitle || brand.brandSubtitle || DEFAULT_BRAND.brandSubtitle;
   const ctaLabel      = content?.ctaLabel      || DEFAULT_NAVBAR.ctaLabel;
-  const links         = content?.links?.length ? content.links : DEFAULT_NAVBAR.links;
+  const rawLinks      = content?.links?.length ? content.links : DEFAULT_NAVBAR.links;
+
+  // Ensure 'Reservasi' is present in navigation
+  const links = rawLinks.some((l) => l.href === '/reservasi' || l.label.toLowerCase() === 'reservasi')
+    ? rawLinks
+    : [...rawLinks.slice(0, 2), { label: 'Reservasi', href: '/reservasi' }, ...rawLinks.slice(2)];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -97,7 +102,14 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
             </div>
 
             {/* CTA */}
-            <div className="hidden md:block">
+            <div className="hidden md:flex items-center gap-3">
+              <a
+                href="/reservasi"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-coffee-200/80 bg-white/70 text-coffee-800 text-sm font-semibold hover:bg-coffee-50 hover:border-coffee-300 transition-all active:scale-95 shadow-sm"
+              >
+                <Calendar className="w-4 h-4 text-coffee-600" />
+                Reservasi Meja
+              </a>
               <button
                 type="button"
                 onClick={() => setScannerOpen(true)}
@@ -137,17 +149,27 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
                   {link.label}
                 </a>
               ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileOpen(false);
-                  setScannerOpen(true);
-                }}
-                className="w-full flex items-center justify-center gap-2 mt-2 px-4 py-3 rounded-xl bg-coffee-700 text-cream font-semibold"
-              >
-                <Camera className="w-4 h-4" />
-                {ctaLabel}
-              </button>
+              <div className="pt-2 space-y-2">
+                <a
+                  href="/reservasi"
+                  onClick={() => setMobileOpen(false)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-coffee-200 bg-white text-coffee-800 font-semibold hover:bg-coffee-50 transition-colors shadow-sm"
+                >
+                  <Calendar className="w-4 h-4 text-coffee-600" />
+                  Reservasi Meja
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setScannerOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-coffee-700 text-cream font-semibold hover:bg-coffee-800 transition-colors"
+                >
+                  <Camera className="w-4 h-4" />
+                  {ctaLabel}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { QrCode, ArrowRight, Coffee, User } from 'lucide-react';
+import { QrCode, ArrowRight, Coffee, User, Calendar } from 'lucide-react';
 import { fadeInUp, staggerContainer, slideInRight, scaleIn } from '@/lib/animations';
 import { DEFAULT_HERO } from '@/lib/site-defaults';
 
@@ -84,7 +84,7 @@ export default function Hero({ content }: { content?: HeroContent }) {
 
             <motion.div
               variants={fadeInUp}
-              className="mt-8 flex flex-col sm:flex-row gap-4 w-full sm:w-auto"
+              className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto"
             >
               <a
                 href={primaryCta.href || '/menu'}
@@ -92,6 +92,13 @@ export default function Hero({ content }: { content?: HeroContent }) {
               >
                 <QrCode className="w-5 h-5" />
                 {primaryCta.label}
+              </a>
+              <a
+                href="/reservasi"
+                className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-sand-200/80 border border-coffee-200 text-coffee-900 font-semibold text-base hover:bg-sand-300/80 transition-all hover:shadow-soft active:scale-95"
+              >
+                <Calendar className="w-5 h-5 text-coffee-700" />
+                Reservasi Meja
               </a>
               <a
                 href={secondaryCta.href || '#how-it-works'}

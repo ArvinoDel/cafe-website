@@ -49,11 +49,12 @@ export type DefaultNavLink = { label: string; href: string };
 export const DEFAULT_NAVBAR = {
   ctaLabel: 'Pesan Sekarang',
   links: [
-    { label: 'Beranda',    href: '/#home'   },
-    { label: 'Menu',       href: '/menu'   },
-    { label: 'Riwayat',   href: '/orders' },
-    { label: 'Lokasi',     href: '/#stores' },
-    { label: 'Cerita Kami', href: '/#story' },
+    { label: 'Beranda',    href: '/#home'      },
+    { label: 'Menu',       href: '/menu'       },
+    { label: 'Reservasi',  href: '/reservasi'  },
+    { label: 'Riwayat',   href: '/orders'     },
+    { label: 'Lokasi',     href: '/#stores'    },
+    { label: 'Cerita Kami', href: '/#story'    },
   ] satisfies DefaultNavLink[],
 };
 
@@ -177,10 +178,11 @@ export const DEFAULT_FOOTER = {
     {
       title: 'Jelajahi',
       links: [
-        { label: 'Menu',       href: '/menu'    },
-        { label: 'Riwayat',   href: '/orders'  },
-        { label: 'Lokasi',     href: '/#stores' },
-        { label: 'Cerita Kami', href: '/#story' },
+        { label: 'Menu',       href: '/menu'       },
+        { label: 'Reservasi',  href: '/reservasi'  },
+        { label: 'Riwayat',   href: '/orders'     },
+        { label: 'Lokasi',     href: '/#stores'    },
+        { label: 'Cerita Kami', href: '/#story'    },
       ],
     },
     {
