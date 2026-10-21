@@ -101,6 +101,7 @@ async function handleLookup(
       notes:                  result.notes,
       items:                  result.items,
       total:                  result.total,
+      preorder_total:         result.total,
       hold_countdown_seconds: result.hold_countdown_seconds,
       refund_status:          result.refund_status,
     },

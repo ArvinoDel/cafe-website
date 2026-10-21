@@ -71,7 +71,8 @@ type ReservationPublic = {
     note?: string | null;
     selected_options?: any[] | null;
   }>;
-  preorder_total: number;
+  preorder_total?: number;
+  total?: number;
   hold_expires_at: string | null;
   refund_status: 'none' | 'needs_refund' | 'refunded';
 };
@@ -383,6 +384,14 @@ export default function ReservationDetailPage({
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
+  const displayTotal = reservation
+    ? (reservation.preorder_total ?? (reservation as any).total ?? (
+        Array.isArray(reservation.items)
+          ? reservation.items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
+          : 0
+      ))
+    : 0;
+
   return (
     <div className="min-h-screen bg-[#FAF8F5] pb-24 text-charcoal">
       {/* Header */}
@@ -505,7 +514,7 @@ export default function ReservationDetailPage({
                           </span>
                         </div>
                         <p className="text-[11px] text-charcoal/60 leading-relaxed">
-                          Selesaikan pembayaran pre-order sejumlah <strong>{formatPrice(reservation.preorder_total)}</strong> lalu unggah tangkapan layar bukti transfer / QRIS di bawah ini.
+                          Selesaikan pembayaran pre-order sejumlah <strong>{formatPrice(displayTotal)}</strong> lalu unggah tangkapan layar bukti transfer / QRIS di bawah ini.
                         </p>
                         <label className={`w-full py-2.5 px-4 rounded-xl border border-dashed cursor-pointer text-center text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                           uploadingProof
@@ -585,7 +594,7 @@ export default function ReservationDetailPage({
               <div className="bg-white p-5 rounded-2xl border border-coffee-100 shadow-soft space-y-3 text-xs">
                 <div className="flex items-center justify-between border-b border-coffee-50 pb-2">
                   <h3 className="font-bold text-coffee-900 text-sm">Pre-Order Menu</h3>
-                  <span className="font-bold text-coffee-900">{formatPrice(reservation.preorder_total)}</span>
+                  <span className="font-bold text-coffee-900">{formatPrice(displayTotal)}</span>
                 </div>
                 <div className="divide-y divide-coffee-50">
                   {reservation.items.map((item, idx) => (
