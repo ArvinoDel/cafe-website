@@ -31,6 +31,8 @@ import {
 } from '@/lib/group-cart';
 import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 import { MenuGridSkeleton, CategoryTabsSkeleton } from '@/components/ui/MenuCardSkeleton';
+import { useTableSession, type ClaimTableResult } from '@/lib/table-session';
+import { formatHHMM } from '@/lib/datetime';
 
 type MenuItem = BranchMenuItem;
 
@@ -141,6 +143,19 @@ function MenuPageInner() {
   const isAwaitingOrderCode = groupCart?.status === 'submitted' && !groupCart?.order_code;
   const submittedSinceRef = useRef<number | null>(null);
 
+  // ── Table session (server-authoritative) ─────────────────────────────────────
+  // The actual lock lives server-side in an httpOnly cookie.
+  // We poll GET /api/tables/session every 30 s for display purposes.
+  const { session: tableSession, refresh: refreshTableSession, expiryLabel } = useTableSession();
+
+  // TABLE_TAKEN / TABLE_RESERVED claim state — shown in a modal
+  const [claimError, setClaimError] = useState<{
+    code: string;
+    message: string;
+    startsAt?: string;
+  } | null>(null);
+  const [reservationCodeInput, setReservationCodeInput] = useState('');
+
   // addedItemId tracks the last menu item added so the + button can flash a
   // brief checkmark (clear after 700 ms) without blocking the add action.
   const [addedItemId, setAddedItemId] = useState<string | null>(null);
@@ -186,8 +201,38 @@ function MenuPageInner() {
   }, []);
 
   const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null) => {
+    (scanned: string, scannedBranchId: string | null, claimResult?: ClaimTableResult) => {
       const prevTable = localStorage.getItem(TABLE_KEY);
+
+      // Handle claim errors first — show friendly state, don't update local state
+      if (claimResult && !claimResult.ok) {
+        if (claimResult.code === 'TABLE_TAKEN') {
+          setClaimError({
+            code:    'TABLE_TAKEN',
+            message: 'Meja ini sedang dipakai pelanggan lain.',
+          });
+          return;
+        }
+        if (claimResult.code === 'TABLE_RESERVED' || claimResult.code === 'TABLE_RESERVED_SOON') {
+          setClaimError({
+            code:     claimResult.code,
+            message:  claimResult.code === 'TABLE_RESERVED'
+              ? 'Meja ini sudah dipesan untuk reservasi.'
+              : 'Meja ini akan segera dipakai untuk reservasi (kurang dari 30 menit lagi).',
+            startsAt: (claimResult as any).startsAt ?? undefined,
+          });
+          return;
+        }
+        if (claimResult.code === 'TABLE_NOT_FOUND') {
+          toast.error('Meja tidak ditemukan atau tidak aktif. Hubungi staff ya.');
+          return;
+        }
+        // Generic error
+        toast.error(claimResult.error ?? 'Gagal mengklaim meja. Coba lagi.');
+        return;
+      }
+
+      // Claim succeeded or no claim result (legacy fallback)
       setTableNumber(scanned);
       localStorage.setItem(TABLE_KEY, scanned);
       if (scannedBranchId) {
@@ -201,12 +246,16 @@ function MenuPageInner() {
       } else {
         setTableChangeNotice(`Terhubung ke Meja ${scanned}! Selamat memesan.`);
       }
+
+      // Refresh server session display
+      refreshTableSession();
+
       const url = scannedBranchId
         ? `/menu?table=${scanned}&branch=${scannedBranchId}`
         : `/menu?table=${scanned}`;
       router.replace(url);
     },
-    [router],
+    [router, refreshTableSession],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and
@@ -859,19 +908,23 @@ function MenuPageInner() {
             </a>
 
             <div className="flex items-center gap-2">
-              {tableNumber ? (
+              {/* Active table chip — shows server session data with expiry */}
+              {(tableSession?.tableCode ?? tableNumber) ? (
                 <button
                   type="button"
                   onClick={() => setScannerOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold hover:bg-coffee-100/80 transition-all active:scale-95 group"
-                  title={`Terhubung ke Meja ${tableNumber}. Klik untuk scan meja baru jika pindah meja.`}
+                  title={tableSession ? `Meja ${tableSession.tableCode} ${expiryLabel ?? ''}. Klik untuk scan meja baru jika pindah meja.` : `Meja ${tableNumber}. Klik untuk scan meja baru.`}
                 >
                   <QrCode className="w-4 h-4 text-coffee-600" />
-                  <span className="hidden sm:inline">Meja {tableNumber}</span>
-                  <span className="sm:hidden">{tableNumber}</span>
-                  <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-coffee-700 font-medium bg-coffee-100/90 px-1.5 py-0.5 rounded border border-coffee-200/50 ml-0.5 group-hover:bg-coffee-200/70">
-                    <RefreshCw className="w-2.5 h-2.5 text-coffee-600" /> Pindah
-                  </span>
+                  <span className="hidden sm:inline">Meja {tableSession?.tableCode ?? tableNumber}</span>
+                  <span className="sm:hidden">{tableSession?.tableCode ?? tableNumber}</span>
+                  {expiryLabel && (
+                    <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-coffee-700 font-medium bg-coffee-100/90 px-1.5 py-0.5 rounded border border-coffee-200/50 ml-0.5">
+                      <Clock className="w-2.5 h-2.5 text-coffee-500" />
+                      {expiryLabel}
+                    </span>
+                  )}
                 </button>
               ) : (
                 <button
@@ -2040,6 +2093,107 @@ function MenuPageInner() {
             : 'Arahkan kamera ke stiker QR di meja untuk memesan'
         }
       />
+
+      {/* Claim error modal — TABLE_TAKEN / TABLE_RESERVED */}
+      <AnimatePresence>
+        {claimError && (
+          <motion.div
+            key="claim-error-overlay"
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 space-y-4"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+            >
+              {claimError.code === 'TABLE_TAKEN' ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                      <Lock className="w-5 h-5 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-coffee-900">Meja Sedang Dipakai</p>
+                      <p className="text-sm text-charcoal/60">Meja ini sudah diklaim pelanggan lain.</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-charcoal/80">
+                    Bareng teman? Masukkan kode <strong>Pesan Bareng</strong> mereka, atau pilih meja lain.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <Clock className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-coffee-900">
+                        {claimError.code === 'TABLE_RESERVED_SOON' ? 'Reservasi Hampir Dimulai' : 'Meja Sudah Dipesan'}
+                      </p>
+                      <p className="text-sm text-charcoal/60">{claimError.message}</p>
+                    </div>
+                  </div>
+                  {claimError.startsAt && (
+                    <p className="text-sm text-charcoal/80">
+                      Reservasi mulai pukul{' '}
+                      <strong>{formatHHMM(claimError.startsAt)} WIB</strong>.
+                    </p>
+                  )}
+                  <div className="space-y-2">
+                    <p className="text-xs text-charcoal/50 font-medium uppercase tracking-wide">Punya kode reservasi?</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 px-3 py-2 rounded-xl border border-coffee-200/80 text-sm focus:outline-none focus:ring-2 focus:ring-coffee-400/40 font-mono uppercase"
+                        placeholder="Masukkan kode reservasi"
+                        value={reservationCodeInput}
+                        onChange={(e) => setReservationCodeInput(e.target.value.toUpperCase())}
+                        maxLength={8}
+                      />
+                      <button
+                        type="button"
+                        disabled={reservationCodeInput.length < 6}
+                        className="px-4 py-2 rounded-xl bg-coffee-700 text-cream text-sm font-bold disabled:opacity-50 hover:bg-coffee-800 transition-colors active:scale-95"
+                        onClick={async () => {
+                          if (!reservationCodeInput.trim()) return;
+                          const { claimTable: claimFn } = await import('@/lib/table-session');
+                          const res = await claimFn({
+                            code:             claimError.code,
+                            reservationCode:  reservationCodeInput.trim(),
+                          });
+                          if (res.ok) {
+                            setClaimError(null);
+                            setReservationCodeInput('');
+                            refreshTableSession();
+                            setTableChangeNotice(`Reservasi dikonfirmasi! Selamat menikmati waktu di meja kami.`);
+                          } else {
+                            toast.error('Kode reservasi tidak valid atau sudah dipakai.');
+                          }
+                        }}
+                      >
+                        Klaim
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { setClaimError(null); setReservationCodeInput(''); }}
+                className="w-full py-2.5 rounded-xl border border-coffee-200/80 text-sm font-semibold text-charcoal/60 hover:bg-coffee-50 transition-colors"
+              >
+                Pilih Meja Lain
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       {/* Floating cart button (mobile) */}
       {cartCount > 0 && !cartOpen && (

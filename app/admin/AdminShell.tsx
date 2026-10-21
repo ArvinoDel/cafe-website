@@ -2,7 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette, FileText } from 'lucide-react';
+import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette, FileText, CalendarDays } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { useBrand } from '@/components/providers/BrandProvider';
 
@@ -59,6 +59,7 @@ export function AdminHeader() {
     { href: '/admin', label: 'Orders', icon: LayoutDashboard },
     { href: '/admin/menu', label: 'Menu', icon: UtensilsCrossed },
     { href: '/admin/tables', label: 'QR Tables', icon: QrCode },
+    { href: '/admin/reservations', label: 'Reservasi', icon: CalendarDays },
     ...(profile?.role === 'superadmin'
       ? [
           { href: '/admin/branches', label: 'Branches & Accounts', icon: Building2 },

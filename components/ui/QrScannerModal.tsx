@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useBrand } from '@/components/providers/BrandProvider';
+import { claimTable, type ClaimTableResult } from '@/lib/table-session';
 
 export function extractTableCode(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
@@ -21,7 +22,11 @@ export function extractTableCode(raw: string): string | null {
 
   // Check URL query params (?table=..., ?meja=..., ?t=...)
   try {
-    const url = new URL(trimmed, 'https://kopi-nako.local');
+    // Use 'https://table.local' as a neutral base for relative URLs
+    const base = (typeof window !== 'undefined' && window.location.origin)
+      ? window.location.origin
+      : 'https://table.local';
+    const url = new URL(trimmed, base);
     const tableParam =
       url.searchParams.get('table') ||
       url.searchParams.get('meja') ||
@@ -68,7 +73,10 @@ export function extractTableAndBranch(raw: string): { table: string; branchId: s
   const trimmed = raw.trim();
 
   try {
-    const url = new URL(trimmed, 'https://kopi-nako.local');
+    const base = (typeof window !== 'undefined' && window.location.origin)
+      ? window.location.origin
+      : 'https://table.local';
+    const url = new URL(trimmed, base);
     const tableParam =
       url.searchParams.get('table') ||
       url.searchParams.get('meja') ||
@@ -80,7 +88,7 @@ export function extractTableAndBranch(raw: string): { table: string; branchId: s
 
     if (tableParam && tableParam.trim()) {
       return {
-        table: tableParam.trim().toUpperCase(),
+        table:    tableParam.trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
       };
     }
@@ -89,7 +97,7 @@ export function extractTableAndBranch(raw: string): { table: string; branchId: s
     const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-z0-9-]+)$/i);
     if (pathMatch && pathMatch[1]) {
       return {
-        table: pathMatch[1].trim().toUpperCase(),
+        table:    pathMatch[1].trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
       };
     }
@@ -105,7 +113,13 @@ export function extractTableAndBranch(raw: string): { table: string; branchId: s
 interface QrScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onScanSuccess: (tableNumber: string, branchId: string | null) => void;
+  /**
+   * Called after QR parsing succeeds.
+   * The caller is responsible for calling POST /api/tables/claim (via claimTable()).
+   * We pass the parsed code + branchId back so the parent can show claim-specific states
+   * (TABLE_TAKEN, TABLE_RESERVED, etc.) in its own UI.
+   */
+  onScanSuccess: (tableCode: string, branchId: string | null, claimResult?: ClaimTableResult) => void;
   title?: string;
   subtitle?: string;
   currentTable?: string | null;
@@ -155,27 +169,36 @@ export default function QrScannerModal({
       if (result) {
         // Haptic feedback if supported
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate(100);
-          } catch {}
+          try { navigator.vibrate(100); } catch {}
         }
 
         setScannedTable(result.table);
         await stopScanner();
 
+        // Call the table claim endpoint immediately after parsing the QR
+        let claimResult: ClaimTableResult | undefined;
+        try {
+          claimResult = await claimTable({
+            branchId: result.branchId ?? undefined,
+            code:     result.table,
+          });
+        } catch {
+          // Network error: let caller handle gracefully with null claimResult
+        }
+
         // Brief celebration delay so user sees confirmation
         setTimeout(() => {
-          onScanSuccess(result.table, result.branchId);
+          onScanSuccess(result.table, result.branchId, claimResult);
           onClose();
           setIsProcessing(false);
           setScannedTable(null);
         }, 1200);
       } else {
-        setErrorMsg(`QR code terdeteksi, namun bukan kode meja ${brandName} yang valid.`);
+        setErrorMsg('QR code terdeteksi, namun bukan kode meja yang valid.');
         setIsProcessing(false);
       }
     },
-    [isProcessing, onScanSuccess, onClose, stopScanner, brandName],
+    [isProcessing, onScanSuccess, onClose, stopScanner],
   );
 
   const startScanner = useCallback(async () => {

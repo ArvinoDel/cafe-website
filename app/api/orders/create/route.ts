@@ -44,6 +44,7 @@ import {
 } from '@/lib/order-pricing';
 import { getItemLineKey, type SelectedOption } from '@/lib/item-options';
 import type { SupabaseEnv } from '@supabase/server';
+import { TABLE_SESSION_COOKIE, getActiveSession } from '@/lib/table-session-server';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
 
@@ -65,7 +66,8 @@ function resolveEnv(): Partial<SupabaseEnv> {
 
 const CreateOrderSchema = z.object({
   customer_name:    z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(100, 'Nama terlalu panjang.').optional(),
-  table_number:     z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.').optional(),
+  // table_number is intentionally NOT accepted from the client.
+  // It is derived from the caller's active table session cookie (set by /api/tables/claim).
   branch_id:        z.string().uuid('Branch ID tidak valid.').optional(),
   payment_method:   z.enum(['cash', 'qris'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
   notes:            z.string().trim().max(500, 'Catatan terlalu panjang.').optional(),
@@ -241,7 +243,6 @@ export async function POST(request: NextRequest) {
 
   const {
     customer_name,
-    table_number,
     branch_id: clientBranchId,
     payment_method,
     notes,
@@ -253,13 +254,35 @@ export async function POST(request: NextRequest) {
 
   const isGroupOrder = !!group_cart_code && !!member_token;
 
+  // ── Resolve table from session cookie (source of truth) ──────────────────
+  // The token is httpOnly so it cannot be read or forged from JS.
+  const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
+  let sessionTableNumber: string | null = null;
+  let sessionBranchId: string | null    = null;
+
+  if (sessionToken) {
+    const activeSession = await getActiveSession(sessionToken);
+    if (activeSession) {
+      sessionTableNumber = activeSession.tableCode;
+      sessionBranchId    = activeSession.branchId;
+    }
+  }
+
   // Extra validation for solo path
   if (!isGroupOrder) {
     if (!customer_name) {
       return NextResponse.json({ error: 'Nama pemesan wajib diisi.' }, { status: 400 });
     }
-    if (!table_number) {
-      return NextResponse.json({ error: 'Nomor meja wajib diisi.' }, { status: 400 });
+    // Solo orders require a valid active session
+    if (!sessionTableNumber || !sessionBranchId) {
+      return NextResponse.json(
+        {
+          ok:    false,
+          error: 'Sesi meja Anda telah berakhir atau belum di-scan. Silakan scan ulang QR meja untuk melanjutkan.',
+          code:  'SESSION_EXPIRED',
+        },
+        { status: 409 },
+      );
     }
     if (!items || items.length === 0) {
       return NextResponse.json({ error: 'Pesanan tidak boleh kosong.' }, { status: 400 });
@@ -325,7 +348,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2b. Verify branch is not paused
+    // 2b. Verify the host's session matches this cart's table
+    if (sessionToken) {
+      const hostSession = await getActiveSession(sessionToken);
+      if (!hostSession || hostSession.tableCode.toUpperCase() !== cartRow.table_number.toUpperCase()) {
+        return NextResponse.json(
+          {
+            ok:    false,
+            error: 'Sesi meja host tidak sesuai dengan meja keranjang bersama. Silakan scan ulang QR meja.',
+            code:  'SESSION_EXPIRED',
+          },
+          { status: 409 },
+        );
+      }
+    } else {
+      // Host has no session cookie at all — reject
+      return NextResponse.json(
+        {
+          ok:    false,
+          error: 'Sesi meja host belum aktif. Silakan scan ulang QR meja untuk melanjutkan.',
+          code:  'SESSION_EXPIRED',
+        },
+        { status: 409 },
+      );
+    }
+
+    // 2c. Verify branch is not paused
     const branchResult = await resolveBranch(supabaseAdmin, cartRow.branch_id);
     if ('response' in branchResult) return branchResult.response;
 
@@ -466,8 +514,9 @@ export async function POST(request: NextRequest) {
 
   // ─── SOLO ORDER FLOW ──────────────────────────────────────────────────────
 
-  // 2. Resolve branch
-  const branchResult = await resolveBranch(supabaseAdmin, clientBranchId);
+  // 2. Resolve branch — prefer session-derived branch_id over client-provided one
+  const resolvedBranchIdForSolo = sessionBranchId ?? clientBranchId;
+  const branchResult = await resolveBranch(supabaseAdmin, resolvedBranchIdForSolo);
   if ('response' in branchResult) return branchResult.response;
   const resolvedBranchId = branchResult.branch.id;
 
@@ -560,7 +609,7 @@ export async function POST(request: NextRequest) {
       .insert({
         order_code:      orderCode,
         customer_name:   customer_name!,
-        table_number:    table_number!,
+        table_number:    sessionTableNumber!,  // derived from session, never from client
         branch_id:       resolvedBranchId,
         items:           snapshot,
         subtotal,

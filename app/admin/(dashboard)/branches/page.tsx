@@ -38,6 +38,17 @@ type Branch = {
   wait_per_order_minutes?: number | null;
   accepting_orders?: boolean;
   pause_message?: string | null;
+  walkin_lock_minutes?: number | null;
+  reservations_enabled?: boolean;
+  reservation_open_time?: string | null;
+  reservation_close_time?: string | null;
+  reservation_min_lead_minutes?: number | null;
+  reservation_max_days_ahead?: number | null;
+  reservation_hold_minutes?: number | null;
+  reservation_grace_minutes?: number | null;
+  reservation_buffer_minutes?: number | null;
+  reservation_min_preorder?: number | null;
+  qris_image_url?: string | null;
   created_at: string;
 };
 
@@ -337,6 +348,22 @@ function BranchFormModal({
   );
   const [acceptingOrders, setAcceptingOrders] = useState(initial?.accepting_orders ?? true);
   const [pauseMessage, setPauseMessage] = useState(initial?.pause_message ?? '');
+  const [walkinLockMinutes, setWalkinLockMinutes] = useState(
+    initial?.walkin_lock_minutes !== null && initial?.walkin_lock_minutes !== undefined
+      ? String(initial.walkin_lock_minutes)
+      : '180',
+  );
+  // Reservation settings
+  const [reservationsEnabled, setReservationsEnabled] = useState(initial?.reservations_enabled ?? false);
+  const [reservationOpenTime, setReservationOpenTime]     = useState(initial?.reservation_open_time ?? '08:00');
+  const [reservationCloseTime, setReservationCloseTime]   = useState(initial?.reservation_close_time ?? '21:00');
+  const [reservationMinLead, setReservationMinLead]       = useState(String(initial?.reservation_min_lead_minutes ?? 120));
+  const [reservationMaxDays, setReservationMaxDays]       = useState(String(initial?.reservation_max_days_ahead ?? 30));
+  const [reservationHold, setReservationHold]             = useState(String(initial?.reservation_hold_minutes ?? 15));
+  const [reservationGrace, setReservationGrace]           = useState(String(initial?.reservation_grace_minutes ?? 15));
+  const [reservationBuffer, setReservationBuffer]         = useState(String(initial?.reservation_buffer_minutes ?? 15));
+  const [reservationMinPreorder, setReservationMinPreorder] = useState(String(initial?.reservation_min_preorder ?? 0));
+  const [qrisImageUrl, setQrisImageUrl]                   = useState(initial?.qris_image_url ?? '');
   const [showWifiPwd, setShowWifiPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -351,6 +378,9 @@ function BranchFormModal({
     const parsedWaitPerOrder = waitPerOrderMinutes.trim() ? parseInt(waitPerOrderMinutes.trim(), 10) : 0;
     const safeWaitPerOrder = isNaN(parsedWaitPerOrder) ? 0 : Math.min(30, Math.max(0, parsedWaitPerOrder));
 
+    const parsedLockMin = walkinLockMinutes.trim() ? parseInt(walkinLockMinutes.trim(), 10) : 180;
+    const safeLockMin   = isNaN(parsedLockMin) ? 180 : Math.min(720, Math.max(15, parsedLockMin));
+
     const payload = {
       name: name.trim(),
       address: address.trim() || null,
@@ -362,6 +392,17 @@ function BranchFormModal({
       wait_per_order_minutes: safeWaitPerOrder,
       accepting_orders: acceptingOrders,
       pause_message: pauseMessage.trim() || null,
+      walkin_lock_minutes: safeLockMin,
+      reservations_enabled: reservationsEnabled,
+      reservation_open_time: reservationOpenTime,
+      reservation_close_time: reservationCloseTime,
+      reservation_min_lead_minutes: Math.min(1440, Math.max(15, parseInt(reservationMinLead, 10) || 120)),
+      reservation_max_days_ahead:   Math.min(365, Math.max(1, parseInt(reservationMaxDays, 10) || 30)),
+      reservation_hold_minutes:     Math.min(60, Math.max(5, parseInt(reservationHold, 10) || 15)),
+      reservation_grace_minutes:    Math.min(60, Math.max(0, parseInt(reservationGrace, 10) || 15)),
+      reservation_buffer_minutes:   Math.min(60, Math.max(0, parseInt(reservationBuffer, 10) || 15)),
+      reservation_min_preorder:     Math.max(0, parseInt(reservationMinPreorder, 10) || 0),
+      qris_image_url: qrisImageUrl.trim() || null,
     };
 
     if (initial) {
@@ -528,7 +569,145 @@ function BranchFormModal({
               </div>
             </div>
 
-            {/* Section 3: Wi-Fi Tamu */}
+            {/* Section 3b: Klaim Meja (Walk-in Lock) */}
+            <div className="pt-4 border-t border-coffee-100/70">
+              <div className="flex items-center gap-1.5 mb-3">
+                <Clock className="w-3.5 h-3.5 text-coffee-600" />
+                <h4 className="text-xs font-bold text-coffee-900 uppercase tracking-wide">
+                  Klaim Meja (Walk-in)
+                </h4>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-charcoal/70 mb-1">
+                  Durasi Kunci Meja (menit)
+                </label>
+                <input
+                  type="number"
+                  min={15}
+                  max={720}
+                  value={walkinLockMinutes}
+                  onChange={(e) => setWalkinLockMinutes(e.target.value)}
+                  placeholder="180"
+                  className="w-full max-w-[180px] px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                />
+                <p className="text-[11px] text-charcoal/40 mt-1">
+                  Berapa lama (dalam menit) meja terkunci setelah pelanggan scan QR. Default: 180 menit (3 jam). Minimum: 15, maksimum: 720.
+                </p>
+              </div>
+            </div>
+
+            {/* Section 3c: Reservasi */}
+            <div className="pt-4 border-t border-coffee-100/70">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-coffee-600" />
+                  <h4 className="text-xs font-bold text-coffee-900 uppercase tracking-wide">Reservasi Meja</h4>
+                </div>
+                {/* Enable toggle */}
+                <button
+                  type="button"
+                  onClick={() => setReservationsEnabled((v) => !v)}
+                  aria-pressed={reservationsEnabled}
+                  aria-label={reservationsEnabled ? 'Nonaktifkan reservasi' : 'Aktifkan reservasi'}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 focus:outline-none ${
+                    reservationsEnabled ? 'bg-emerald-600' : 'bg-charcoal/20'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                    reservationsEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+
+              {reservationsEnabled && (
+                <div className="space-y-3">
+                  {/* Open / close time */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Jam Buka Slot</label>
+                      <input
+                        type="time"
+                        value={reservationOpenTime}
+                        onChange={(e) => setReservationOpenTime(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Jam Tutup Slot</label>
+                      <input
+                        type="time"
+                        value={reservationCloseTime}
+                        onChange={(e) => setReservationCloseTime(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Min lead / max days */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Min. Pemesanan Awal (menit)</label>
+                      <input type="number" min={15} max={1440} value={reservationMinLead}
+                        onChange={(e) => setReservationMinLead(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                      <p className="text-[10px] text-charcoal/40 mt-0.5">Sebelum waktu mulai reservasi.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Maks. Hari ke Depan</label>
+                      <input type="number" min={1} max={365} value={reservationMaxDays}
+                        onChange={(e) => setReservationMaxDays(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                    </div>
+                  </div>
+
+                  {/* Hold / grace / buffer */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Tahan (mnt)</label>
+                      <input type="number" min={5} max={60} value={reservationHold}
+                        onChange={(e) => setReservationHold(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                      <p className="text-[10px] text-charcoal/40 mt-0.5">Batas bayar.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Toleransi (mnt)</label>
+                      <input type="number" min={0} max={60} value={reservationGrace}
+                        onChange={(e) => setReservationGrace(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                      <p className="text-[10px] text-charcoal/40 mt-0.5">Keterlambatan.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-charcoal/70 mb-1">Buffer (mnt)</label>
+                      <input type="number" min={0} max={60} value={reservationBuffer}
+                        onChange={(e) => setReservationBuffer(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                      <p className="text-[10px] text-charcoal/40 mt-0.5">Jarak antar sesi.</p>
+                    </div>
+                  </div>
+
+                  {/* Min pre-order */}
+                  <div>
+                    <label className="block text-xs font-semibold text-charcoal/70 mb-1">Min. Pre-order (Rp, 0 = tidak wajib)</label>
+                    <input type="number" min={0} value={reservationMinPreorder}
+                      onChange={(e) => setReservationMinPreorder(e.target.value)}
+                      placeholder="0"
+                      className="w-full max-w-[200px] px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                  </div>
+
+                  {/* QRIS image URL */}
+                  <div>
+                    <label className="block text-xs font-semibold text-charcoal/70 mb-1">URL Gambar QRIS (opsional)</label>
+                    <input type="url" value={qrisImageUrl}
+                      onChange={(e) => setQrisImageUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors" />
+                    <p className="text-[10px] text-charcoal/40 mt-0.5">Ditampilkan saat pelanggan harus bayar pre-order.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 4: Wi-Fi Tamu */}
             <div className="pt-4 border-t border-coffee-100/70">
               <div className="flex items-center gap-1.5 mb-3">
                 <Wifi className="w-3.5 h-3.5 text-coffee-600" />

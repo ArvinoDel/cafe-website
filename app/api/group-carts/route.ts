@@ -17,12 +17,15 @@ import {
   generateGroupCode, generateMemberToken,
   err400, err500, pausedRes,
 } from '@/lib/group-cart-server';
+import { TABLE_SESSION_COOKIE, getActiveSession } from '@/lib/table-session-server';
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const CreateGroupCartSchema = z.object({
   branch_id:    z.string().uuid('Branch ID tidak valid.').optional(),
-  table_number: z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.'),
+  // table_number from client is used as a hint only; source of truth is the session cookie.
+  // For backwards compatibility we still accept it but will override from session.
+  table_number: z.string().trim().min(1, 'Nomor meja wajib diisi.').max(50, 'Nomor meja terlalu panjang.').optional(),
   name:         z.string().min(1, 'Nama wajib diisi.').max(30, 'Nama maksimal 30 karakter.'),
 });
 
@@ -102,14 +105,41 @@ export async function POST(request: NextRequest) {
     return err400(parsed.error.errors[0]?.message ?? 'Input tidak valid.');
   }
 
-  const { branch_id, table_number, name: rawName } = parsed.data;
+  const { branch_id, table_number: clientTableNumber, name: rawName } = parsed.data;
   const name = sanitizeName(rawName);
   if (!name) return err400('Nama tidak boleh kosong.');
 
+  // Verify host has an active table claim (httpOnly cookie)
+  const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
+  let sessionTableNumber: string | null = null;
+  let sessionBranchId: string | null    = null;
+
+  if (sessionToken) {
+    const activeSession = await getActiveSession(sessionToken);
+    if (activeSession) {
+      sessionTableNumber = activeSession.tableCode;
+      sessionBranchId    = activeSession.branchId;
+    }
+  }
+
+  if (!sessionTableNumber || !sessionBranchId) {
+    return NextResponse.json(
+      {
+        ok:    false,
+        error: 'Silakan scan QR meja terlebih dahulu untuk memulai Pesan Bareng.',
+        code:  'SESSION_EXPIRED',
+      },
+      { status: 409 },
+    );
+  }
+
+  // Use session-derived table number and branch as the authoritative values
+  const resolvedTableNumber = sessionTableNumber;
+
   const supabaseAdmin = getAdminClient();
 
-  // Resolve branch (same logic + messages as orders/create)
-  const branchResult = await resolveBranch(supabaseAdmin, branch_id);
+  // Resolve branch — prefer session-derived branch_id
+  const branchResult = await resolveBranch(supabaseAdmin, sessionBranchId ?? branch_id);
   if ('response' in branchResult) return branchResult.response;
   const { branchId } = branchResult;
 
@@ -123,9 +153,9 @@ export async function POST(request: NextRequest) {
       .from('group_carts')
       .insert({
         code,
-        branch_id:  branchId,
-        table_number: table_number.trim(),
-        status:     'open',
+        branch_id:    branchId,
+        table_number: resolvedTableNumber,
+        status:       'open',
       })
       .select('id')
       .single();
