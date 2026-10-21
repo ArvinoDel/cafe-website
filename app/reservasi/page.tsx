@@ -434,13 +434,17 @@ export default function ReservasiPage() {
 
   async function handleClaimPayment() {
     if (!reservation?.code) return;
+    if (!proofUploadedPath) {
+      toast.error('Silakan pilih dan unggah bukti transfer / pembayaran terlebih dahulu.');
+      return;
+    }
     setClaimingPayment(true);
     try {
       const res = await fetch(`/api/reservations/${reservation.code}/payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          proof_path: proofUploadedPath || undefined,
+          proof_path: proofUploadedPath,
         }),
       });
 
@@ -1309,21 +1313,30 @@ export default function ReservasiPage() {
                       )}
                     </div>
 
-                    {/* Optional Proof Upload */}
+                    {/* Mandatory Proof Upload */}
                     <div className="border-t border-coffee-100 pt-4 space-y-2">
-                      <label className="text-xs font-bold text-charcoal/70 uppercase tracking-wide flex items-center gap-1.5">
-                        <Upload className="w-4 h-4 text-coffee-700" /> Unggah Bukti Transfer (Opsional)
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-charcoal/70 uppercase tracking-wide flex items-center gap-1.5">
+                          <Upload className="w-4 h-4 text-coffee-700" /> Unggah Bukti Transfer
+                        </label>
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          Wajib Diunggah
+                        </span>
+                      </div>
                       <div className="flex items-center gap-3">
-                        <label className="flex-1 px-4 py-2.5 rounded-xl border border-dashed border-coffee-300 hover:border-coffee-500 cursor-pointer text-center text-xs font-semibold text-coffee-800 bg-coffee-50/50">
+                        <label className={`flex-1 px-4 py-2.5 rounded-xl border border-dashed cursor-pointer text-center text-xs font-semibold transition-all ${
+                          proofUploadedPath
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold'
+                            : 'border-coffee-300 hover:border-coffee-500 text-coffee-800 bg-coffee-50/50'
+                        }`}>
                           {uploadingProof
                             ? 'Mengunggah...'
                             : proofUploadedPath
-                            ? 'Bukti Terunggah ✓'
-                            : 'Pilih Foto / Screenshot'}
+                            ? 'Bukti Pembayaran Terunggah ✓'
+                            : 'Pilih Foto / Screenshot Transfer'}
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/png,image/webp"
                             disabled={uploadingProof}
                             onChange={(e) => {
                               const f = e.target.files?.[0];
@@ -1334,16 +1347,16 @@ export default function ReservasiPage() {
                         </label>
                       </div>
                       <p className="text-[11px] text-charcoal/50">
-                        Berkas disimpan secara privat dan hanya dapat dilihat oleh staf yang berwenang.
+                        Unggah foto atau tangkapan layar bukti transfer / QRIS (JPG, PNG, atau WebP, maks 5MB). Berkas disimpan secara privat.
                       </p>
                     </div>
 
                     {/* "Saya Sudah Bayar" Button */}
                     <button
                       type="button"
-                      disabled={claimingPayment || liveStatus === 'awaiting_confirmation'}
+                      disabled={claimingPayment || uploadingProof || !proofUploadedPath || liveStatus === 'awaiting_confirmation'}
                       onClick={handleClaimPayment}
-                      className="w-full py-3.5 rounded-xl bg-emerald-700 text-white font-bold text-sm shadow-md hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 transition-all"
+                      className="w-full py-3.5 rounded-xl bg-emerald-700 text-white font-bold text-sm shadow-md hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 transition-all"
                     >
                       {claimingPayment ? (
                         <>
@@ -1352,10 +1365,17 @@ export default function ReservasiPage() {
                         </>
                       ) : liveStatus === 'awaiting_confirmation' ? (
                         'Menunggu Konfirmasi Staf...'
+                      ) : !proofUploadedPath ? (
+                        'Unggah Bukti untuk Konfirmasi'
                       ) : (
                         'Saya Sudah Bayar'
                       )}
                     </button>
+                    {!proofUploadedPath && (
+                      <p className="text-center text-[11px] text-amber-700 font-medium">
+                        * Wajib mengunggah bukti pembayaran di atas sebelum mengonfirmasi.
+                      </p>
+                    )}
                   </div>
                 )}
 

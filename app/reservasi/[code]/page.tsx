@@ -12,8 +12,8 @@
  *   6. Membatalkan reservasi (POST /api/reservations/[code]/cancel) dengan pemberitahuan refund.
  */
 
-import { useEffect, useState, useCallback, use } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays,
@@ -133,11 +133,16 @@ function formatPrice(num: number): string {
 export default function ReservationDetailPage({
   params,
 }: {
-  params: Promise<{ code: string }>;
+  params?: { code?: string } | Promise<{ code?: string }>;
 }) {
-  const { code: rawCode } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const routeParams = useParams();
+
+  const rawCode = (
+    (typeof routeParams?.code === 'string' ? routeParams.code : null) ||
+    (params && typeof (params as any)?.code === 'string' ? (params as any).code : '')
+  );
   const code = (rawCode || '').trim().toUpperCase();
 
   const [reservation, setReservation] = useState<ReservationPublic | null>(null);
@@ -480,13 +485,56 @@ export default function ReservationDetailPage({
                     <p className="text-xs text-charcoal/60 pt-1">{st.desc}</p>
                   </div>
 
-                  {/* Hold timer for pending payment */}
+                  {/* Hold timer & Proof upload for pending payment */}
                   {reservation.status === 'pending_payment' && (
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
-                      <span>Sisa waktu pembayaran:</span>
-                      <span className="font-mono font-bold text-sm text-red-600">
-                        {formatCountdown(holdSecondsLeft)}
-                      </span>
+                    <div className="space-y-3 pt-2">
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+                        <span>Sisa waktu pembayaran:</span>
+                        <span className="font-mono font-bold text-sm text-red-600">
+                          {formatCountdown(holdSecondsLeft)}
+                        </span>
+                      </div>
+
+                      <div className="p-4 bg-coffee-50/60 rounded-xl border border-coffee-200 space-y-3 text-left">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-coffee-900 flex items-center gap-1.5">
+                            <Upload className="w-4 h-4 text-coffee-700" /> Unggah Bukti Pembayaran
+                          </span>
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200">
+                            Wajib
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-charcoal/60 leading-relaxed">
+                          Selesaikan pembayaran pre-order sejumlah <strong>{formatPrice(reservation.preorder_total)}</strong> lalu unggah tangkapan layar bukti transfer / QRIS di bawah ini.
+                        </p>
+                        <label className={`w-full py-2.5 px-4 rounded-xl border border-dashed cursor-pointer text-center text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                          uploadingProof
+                            ? 'bg-coffee-100 border-coffee-400 text-coffee-700 cursor-not-allowed'
+                            : 'bg-white border-coffee-300 text-coffee-800 hover:border-coffee-500 hover:bg-coffee-50 shadow-sm'
+                        }`}>
+                          {uploadingProof ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-coffee-700" />
+                              Mengunggah & Mengonfirmasi Bukti...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-4 h-4 text-coffee-700" />
+                              Pilih Foto / Screenshot Bukti Transfer
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            disabled={uploadingProof}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) void handleUploadProof(f);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
                   )}
 
