@@ -150,11 +150,12 @@ export async function createOrderInternal(
         subtotal,
         total,
         payment_method:  paymentMethod,
+        payment_status:  notes?.includes('[LUNAS') ? 'paid' : 'unpaid',
         notes:           notes?.trim() || null,
         status:          'pending',
         idempotency_key: idempotencyKey ?? null,
       })
-      .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
+      .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, payment_status, notes, status, created_at')
       .single();
 
     if (insertErr) {

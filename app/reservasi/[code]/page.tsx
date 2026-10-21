@@ -176,8 +176,11 @@ export default function ReservationDetailPage({
     async (verifierArg?: string) => {
       setLoading(true);
       try {
-        const query = verifierArg ? `?v=${encodeURIComponent(verifierArg)}` : '';
-        const res = await fetch(`/api/reservations/${code}${query}`);
+        const headers: Record<string, string> = {};
+        if (verifierArg) {
+          headers['x-reservation-verifier'] = verifierArg;
+        }
+        const res = await fetch(`/api/reservations/${code}`, { headers });
         if (res.status === 404) {
           setNeedsVerifier(true);
           setReservation(null);

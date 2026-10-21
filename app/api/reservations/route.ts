@@ -17,6 +17,8 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 // ─── Validation Schema ────────────────────────────────────────────────────────
 
@@ -38,7 +40,7 @@ const ReservationBodySchema = z.object({
   duration_minutes: z.number().int().refine((d) => [60, 90, 120, 150, 180].includes(d)).optional().default(120),
   occasion:         z.string().max(100).trim().nullable().optional(),
   notes:            z.string().max(500).trim().nullable().optional(),
-  items:            z.array(ItemLineSchema).optional().default([]),
+  items:            z.array(ItemLineSchema).min(1, 'Pre-order minimal 1 menu wajib dipilih.'),
 });
 
 // ─── Code Generator (crypto.randomInt — strictly no Math.random) ─────────────
@@ -117,11 +119,15 @@ export async function POST(req: NextRequest) {
   }
   const ownerTokenHash = computeTokenHash(ownerToken);
 
-  // 3. Resolve client IP hash
-  const rawIp =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    '127.0.0.1';
+  // 3. Resolve client IP and check DB rate limit
+  const rawIp = getClientIp(req);
+  const ipLimit = await checkDbRateLimit(`res_create_ip:${rawIp}`, 30, 60, admin);
+  if (!ipLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak permintaan reservasi dari jaringan ini. Silakan coba lagi nanti.' },
+      { status: 429 },
+    );
+  }
   const ipHash = computeIpHash(rawIp);
 
   // 4. Call create_reservation_hold RPC with retry on CODE_COLLISION (up to 5 attempts, no pre-check SELECT)
@@ -172,6 +178,7 @@ export async function POST(req: NextRequest) {
       MIN_LEAD_VIOLATION:        409,
       MAX_DAYS_EXCEEDED:         409,
       OUTSIDE_HOURS:             409,
+      EXCEEDS_CLOSING_TIME:      409,
       PREORDER_REQUIRED:         409,
       PREORDER_BELOW_MINIMUM:    409,
       TABLE_CURRENTLY_OCCUPIED:  409,

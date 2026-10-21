@@ -1,17 +1,19 @@
 /**
- * GET /api/reservations/[code]
+ * /api/reservations/[code]
  *
  * Public endpoint: lookup reservation details by code + verifier.
  * Verifier may be provided via:
- *   - ?v=<last4_or_token> or ?verifier=<last4_or_token> query parameter
- *   - x-reservation-verifier header
+ *   - x-reservation-verifier header (preferred)
+ *   - POST body: { verifier: "..." }
  *   - reservation_owner_token httpOnly cookie
+ *   - ?verifier= query parameter (fallback)
  *
  * Security:
  *   - Calls SQL RPC lookup_reservation which verifies phone last 4 or owner_token_hash.
+ *   - Throttles wrong verifier guesses (locks code for 15 min on 5 failed attempts).
  *   - Returns uniform 404 for wrong code or wrong verifier.
  *   - Never returns payment_proof_url or customer phone.
- *   - Per-IP rate limiting (60 req / min).
+ *   - Distributed DB rate limiting (60 req / min per IP).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,59 +22,34 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
-// ─── Rate limiting (in-memory per-IP sliding window) ─────────────────────────
-
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 60; // 60 lookups/min per IP
-
-type RateLimitEntry = { count: number; windowStart: number };
-const ipRateMap = new Map<string, RateLimitEntry>();
-
-function isRateLimited(ip: string, now: number): boolean {
-  if (ipRateMap.size > 1000) {
-    ipRateMap.forEach((v, k) => {
-      if (now - v.windowStart > RATE_LIMIT_WINDOW_MS) ipRateMap.delete(k);
-    });
-  }
-  const entry = ipRateMap.get(ip);
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    ipRateMap.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  entry.count++;
-  return entry.count > RATE_LIMIT_MAX;
-}
-
-export async function GET(
+async function handleLookup(
   req: NextRequest,
-  { params }: { params: Promise<{ code: string }> },
+  params: { code: string },
+  explicitVerifier?: string | null,
 ) {
-  const { code } = await params;
-  const upperCode = code?.trim().toUpperCase();
+  const upperCode = params.code?.trim().toUpperCase();
 
   if (!upperCode || upperCode.length < 4 || upperCode.length > 12) {
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 
-  // Rate limiting check
-  const rawIp =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    '127.0.0.1';
+  const rawIp = getClientIp(req);
+  const admin = createAdminClient();
 
-  if (isRateLimited(rawIp, Date.now())) {
+  const ipLimit = await checkDbRateLimit(`res_lookup_ip:${rawIp}`, 60, 60, admin);
+  if (!ipLimit.allowed) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Silakan tunggu sebentar.' },
       { status: 429 },
     );
   }
 
-  // Extract verifier from query, header, or owner token cookie
-  const { searchParams } = req.nextUrl;
+  // Extract verifier: explicit argument > header > cookie > query param fallback
   let verifier =
-    searchParams.get('v')?.trim() ||
-    searchParams.get('verifier')?.trim() ||
+    explicitVerifier?.trim() ||
     req.headers.get('x-reservation-verifier')?.trim();
 
   if (!verifier) {
@@ -83,11 +60,13 @@ export async function GET(
   }
 
   if (!verifier) {
-    // Missing verifier -> return uniform 404 to prevent enumeration
-    return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
+    const { searchParams } = req.nextUrl;
+    verifier = searchParams.get('verifier')?.trim() || searchParams.get('v')?.trim();
   }
 
-  const admin = createAdminClient();
+  if (!verifier) {
+    return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
+  }
 
   const { data: rpcData, error } = await (admin as any).rpc('lookup_reservation', {
     p_code:     upperCode,
@@ -102,6 +81,9 @@ export async function GET(
   const result = typeof rpcData === 'string' ? JSON.parse(rpcData) : rpcData;
 
   if (!result?.ok) {
+    if (result?.code === 'CODE_LOCKED') {
+      return NextResponse.json({ error: result?.message, code: 'CODE_LOCKED' }, { status: 429 });
+    }
     // Uniform 404 for wrong code or wrong verifier
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
@@ -117,9 +99,30 @@ export async function GET(
       party_size:             result.party_size,
       occasion:               result.occasion,
       notes:                  result.notes,
+      items:                  result.items,
       total:                  result.total,
       hold_countdown_seconds: result.hold_countdown_seconds,
       refund_status:          result.refund_status,
     },
   });
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ code: string }> },
+) {
+  return handleLookup(req, await params);
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ code: string }> },
+) {
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    // optional body
+  }
+  return handleLookup(req, await params, body?.verifier);
 }

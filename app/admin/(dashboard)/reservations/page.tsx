@@ -87,6 +87,7 @@ type Reservation = {
   status:            ReservationStatus;
   hold_expires_at:   string | null;
   payment_proof_url: string | null;
+  needs_kitchen_order?: boolean;
   created_at:        string;
   table:             { code: string; label: string | null } | null;
 };
@@ -317,6 +318,29 @@ export default function ReservationsPage() {
     }
   };
 
+  const handleRetryKitchenOrder = async (res: Reservation) => {
+    if (!confirm(`Buat pesanan ulang ke dapur untuk reservasi ${res.code}?`)) return;
+    setActionLoading(res.id + '-retry_order');
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const resp = await fetch(`/api/admin/reservations/${res.id}/retry-kitchen-order`, {
+        method: 'POST',
+      });
+      const json = await resp.json();
+      if (!resp.ok) {
+        setErrorMsg(json.error || 'Gagal membuat pesanan dapur ulang.');
+      } else {
+        setSuccessMsg(json.message || 'Pesanan dapur berhasil dibuat ulang.');
+        await loadReservations();
+      }
+    } catch {
+      setErrorMsg('Terjadi kesalahan jaringan.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // ── Signed proof opener ────────────────────────────────────────────────────
 
   const handleOpenProof = async (reservationId: string) => {
@@ -523,6 +547,12 @@ export default function ReservationsPage() {
                           Refund Selesai
                         </span>
                       )}
+                      {res.needs_kitchen_order && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1">
+                          <ShoppingBag className="w-3 h-3 text-orange-600" />
+                          Pesanan Dapur Gagal
+                        </span>
+                      )}
                     </div>
 
                     {/* Time & Total */}
@@ -710,6 +740,23 @@ export default function ReservationsPage() {
                           <X className="w-3.5 h-3.5" />
                         )}
                         Batalkan
+                      </button>
+                    )}
+
+                    {/* Retry Kitchen Order */}
+                    {res.needs_kitchen_order && (
+                      <button
+                        type="button"
+                        disabled={actionLoading !== null}
+                        onClick={() => void handleRetryKitchenOrder(res)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold transition-all disabled:opacity-50 active:scale-95 shadow-sm"
+                      >
+                        {actionLoading === `${res.id}-retry_order` ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                        )}
+                        Buat pesanan ulang
                       </button>
                     )}
 

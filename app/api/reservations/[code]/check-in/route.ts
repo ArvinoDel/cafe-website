@@ -22,6 +22,8 @@ import {
   TABLE_SESSION_COOKIE,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const BodySchema = z.object({
   verifier: z.string().min(1).max(100).optional(),
@@ -34,6 +36,14 @@ export async function POST(
   const { code } = await params;
   const upperCode = code?.trim().toUpperCase();
 
+  const rawIp = getClientIp(req);
+  const admin = createAdminClient();
+
+  const ipLimit = await checkDbRateLimit(`res_checkin_ip:${rawIp}`, 30, 60, admin);
+  if (!ipLimit.allowed) {
+    return NextResponse.json({ error: 'Terlalu banyak permintaan check-in. Tunggu sebentar.' }, { status: 429 });
+  }
+
   let body: unknown = {};
   try {
     body = await req.json();
@@ -42,7 +52,10 @@ export async function POST(
   }
 
   const parsed = BodySchema.safeParse(body);
-  let verifier = parsed.success ? parsed.data.verifier?.trim() : undefined;
+  let verifier =
+    parsed.success && parsed.data.verifier?.trim()
+      ? parsed.data.verifier.trim()
+      : req.headers.get('x-reservation-verifier')?.trim();
 
   if (!verifier) {
     const ownerToken = req.cookies.get(RESERVATION_OWNER_COOKIE)?.value;
@@ -63,8 +76,6 @@ export async function POST(
     isNewSessionToken = true;
   }
 
-  const admin = createAdminClient();
-
   const { data: rpcData, error } = await (admin as any).rpc('check_in_reservation', {
     p_code:     upperCode,
     p_verifier: verifier,
@@ -80,6 +91,9 @@ export async function POST(
 
   if (!result?.ok) {
     const errCode = result?.code;
+    if (errCode === 'CODE_LOCKED') {
+      return NextResponse.json({ error: result?.message, code: 'CODE_LOCKED' }, { status: 429 });
+    }
     if (errCode === 'NOT_FOUND') {
       return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
     }
@@ -93,6 +107,7 @@ export async function POST(
 
   // If pre-ordered items exist, create the kitchen order through the SAME internal function as /api/orders/create
   let createdOrder: any = null;
+  let orderError: string | null = null;
   if (reservation?.items && Array.isArray(reservation.items) && reservation.items.length > 0) {
     const { createOrderInternal } = await import('@/lib/orders-server');
     const orderResult = await createOrderInternal(admin, {
@@ -110,6 +125,11 @@ export async function POST(
       createdOrder = orderResult.order;
     } else {
       console.error('[check-in] Kitchen order auto-create error:', orderResult.error);
+      orderError = orderResult.error || 'Gagal membuat pesanan dapur secara otomatis.';
+      await admin
+        .from('reservations')
+        .update({ needs_kitchen_order: true })
+        .eq('id', reservation.id);
     }
   }
 
@@ -121,6 +141,7 @@ export async function POST(
     table_code:   result.table_code,
     table_label:  result.table_label,
     order:        createdOrder,
+    order_error:  orderError ?? undefined,
     message:      `Check-in berhasil! Meja ${result.table_code} aktif.`,
   });
 

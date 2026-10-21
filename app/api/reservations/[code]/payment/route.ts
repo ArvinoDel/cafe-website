@@ -15,6 +15,8 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const BodySchema = z.object({
   proof_path:         z.string().max(500).nullish(),
@@ -28,6 +30,14 @@ export async function POST(
 ) {
   const { code } = await params;
   const upperCode = code?.trim().toUpperCase();
+
+  const rawIp = getClientIp(req);
+  const admin = createAdminClient();
+
+  const ipLimit = await checkDbRateLimit(`res_pay_ip:${rawIp}`, 30, 60, admin);
+  if (!ipLimit.allowed) {
+    return NextResponse.json({ error: 'Terlalu banyak permintaan pembayaran. Tunggu sebentar.' }, { status: 429 });
+  }
 
   let body: unknown;
   try {
@@ -56,8 +66,6 @@ export async function POST(
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 
-  const admin = createAdminClient();
-
   const { data: rpcData, error } = await (admin as any).rpc('claim_payment', {
     p_code:       upperCode,
     p_verifier:   verifier,
@@ -73,13 +81,19 @@ export async function POST(
 
   if (!result?.ok) {
     const errCode = result?.code;
+    if (errCode === 'CODE_LOCKED') {
+      return NextResponse.json({ error: result?.message, code: 'CODE_LOCKED' }, { status: 429 });
+    }
     if (errCode === 'NOT_FOUND') {
       return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
+    }
+    if (errCode === 'PROOF_REQUIRED') {
+      return NextResponse.json({ error: result?.message, code: 'PROOF_REQUIRED' }, { status: 400 });
     }
     if (errCode === 'HOLD_EXPIRED') {
       return NextResponse.json({ error: result?.message || 'Waktu hold pembayaran telah habis.' }, { status: 409 });
     }
-    return NextResponse.json({ error: result?.message || 'Gagal klaim pembayaran.' }, { status: 400 });
+    return NextResponse.json({ error: result?.message || 'Gagal klaim pembayaran.', code: errCode }, { status: 400 });
   }
 
   return NextResponse.json({

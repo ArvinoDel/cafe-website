@@ -31,41 +31,8 @@ import {
   resolveAdminEnv,
   computeIpHash,
 } from '@/lib/table-session-server';
-
-// ─── Rate Limiting (in-memory, sliding window) ─────────────────────────────────
-
-type RateLimitEntry = { count: number; windowStart: number };
-const claimIpMap    = new Map<string, RateLimitEntry>(); // 60/min per IP (cafe wifi)
-const claimTokenMap = new Map<string, RateLimitEntry>(); // 20/min per token
-
-function checkRateLimit(
-  map: Map<string, RateLimitEntry>,
-  key: string,
-  max: number,
-  windowMs: number,
-  now: number,
-): boolean {
-  const entry = map.get(key);
-  if (!entry || now - entry.windowStart > windowMs) {
-    map.set(key, { count: 1, windowStart: now });
-    return false;
-  }
-  entry.count++;
-  return entry.count > max;
-}
-
-function cleanupRateLimitMaps(now: number) {
-  if (claimIpMap.size > 2000) {
-    claimIpMap.forEach((v, k) => {
-      if (now - v.windowStart > 60_000) claimIpMap.delete(k);
-    });
-  }
-  if (claimTokenMap.size > 2000) {
-    claimTokenMap.forEach((v, k) => {
-      if (now - v.windowStart > 60_000) claimTokenMap.delete(k);
-    });
-  }
-}
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
@@ -119,26 +86,24 @@ async function resolveBranchId(
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  // 1. Rate limiting (per IP and per token)
-  const rawIp =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    '127.0.0.1';
-
+  // 1. Authoritative client IP & DB-backed rate limiting
+  const rawIp = getClientIp(request);
   const existingToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
   const token = existingToken || newSessionToken();
 
-  const now = Date.now();
-  cleanupRateLimitMaps(now);
+  const env = resolveAdminEnv();
+  const supabaseAdmin = createAdminClient({ env });
 
-  if (checkRateLimit(claimIpMap, rawIp, 60, 60_000, now)) {
+  const ipLimit = await checkDbRateLimit(`claim_ip:${rawIp}`, 60, 60, supabaseAdmin);
+  if (!ipLimit.allowed) {
     return NextResponse.json(
       { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim dari jaringan ini. Tunggu sebentar ya.' },
       { status: 429 },
     );
   }
 
-  if (checkRateLimit(claimTokenMap, token, 20, 60_000, now)) {
+  const tokenLimit = await checkDbRateLimit(`claim_token:${token}`, 20, 60, supabaseAdmin);
+  if (!tokenLimit.allowed) {
     return NextResponse.json(
       { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim meja. Silakan coba lagi sebentar.' },
       { status: 429 },
@@ -161,9 +126,7 @@ export async function POST(request: NextRequest) {
 
   const { branch_id, code } = parsed.data;
 
-  // 3. Build admin client & compute ip_hash
-  const env           = resolveAdminEnv();
-  const supabaseAdmin = createAdminClient({ env });
+  // 3. Compute ip_hash
   const ipHash        = computeIpHash(rawIp);
 
   // 4. Resolve branch
