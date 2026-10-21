@@ -42,21 +42,34 @@ type TableRow = {
 };
 
 type TableSessionRow = {
-  id:             string;
-  table_id:       string;
-  branch_id:      string;
-  status:         string;
-  expires_at:     string;
-  started_at:     string;
+  id:              string;
+  table_id:        string;
+  branch_id:       string;
+  status:          string;
+  expires_at:      string;
+  started_at:      string;
   released_reason: string | null;
+  upgraded_at:     string | null;
 };
 
-type TableStatus = 'empty' | 'occupied' | 'reserved';
+type UpcomingRes = {
+  id:            string;
+  starts_at:     string;
+  ends_at:       string;
+  party_size:    number;
+  customer_name: string;
+  status:        string;
+};
+
+type TableStatus = 'empty' | 'held' | 'occupied' | 'reserved' | 'inactive';
 
 type TableCard = TableRow & {
-  tableStatus: TableStatus;
-  session:     TableSessionRow | null;
-  remainingSec: number;
+  tableStatus:          TableStatus;
+  statusLabel:          string;
+  session:              TableSessionRow | null;
+  remainingSec:         number;
+  upcomingReservations: UpcomingRes[];
+  activeReservation:    UpcomingRes | null;
 };
 
 const DEFAULT_TARGET_URL = 'https://demoforcafe.vercel.app/menus';
@@ -92,6 +105,7 @@ export default function TableQrPage() {
   const [tableCards, setTableCards]     = useState<TableCard[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [releaseLoading, setReleaseLoading] = useState<string | null>(null);
+  const [toggleLoading, setToggleLoading]   = useState<string | null>(null);
 
   // Save-to-list modal
   const [saveModal, setSaveModal] = useState<{ code: string; label: string; seats: number } | null>(null);
@@ -140,34 +154,78 @@ export default function TableQrPage() {
 
     const supabase = getSupabase();
 
-    const [tablesRes, sessionsRes] = await Promise.all([
+    const nowIso = new Date().toISOString();
+    const [tablesRes, sessionsRes, reservationsRes] = await Promise.all([
       supabase
         .from('tables')
         .select('id, branch_id, code, label, seats, is_active')
         .eq('branch_id', selectedBranchId)
-        .eq('is_active', true)
         .order('code'),
       supabase
         .from('table_sessions')
-        .select('id, table_id, branch_id, status, expires_at, started_at, released_reason')
+        .select('id, table_id, branch_id, status, expires_at, started_at, released_reason, upgraded_at')
         .eq('branch_id', selectedBranchId)
         .eq('status', 'active'),
+      supabase
+        .from('reservations')
+        .select('id, table_id, starts_at, ends_at, party_size, customer_name, status')
+        .eq('branch_id', selectedBranchId)
+        .in('status', ['confirmed', 'seated'])
+        .gte('ends_at', nowIso)
+        .order('starts_at', { ascending: true }),
     ]);
 
-    const tables   = (tablesRes.data ?? [])   as TableRow[];
-    const sessions = (sessionsRes.data ?? []) as TableSessionRow[];
+    const tables       = (tablesRes.data ?? [])       as TableRow[];
+    const sessions     = (sessionsRes.data ?? [])     as TableSessionRow[];
+    const reservations = (reservationsRes.data ?? []) as (UpcomingRes & { table_id: string })[];
 
     const sessionByTable: Record<string, TableSessionRow> = {};
     for (const s of sessions) {
       sessionByTable[s.table_id] = s;
     }
 
+    const reservationsByTable: Record<string, UpcomingRes[]> = {};
+    for (const r of reservations) {
+      if (!reservationsByTable[r.table_id]) reservationsByTable[r.table_id] = [];
+      reservationsByTable[r.table_id].push(r);
+    }
+
     const cards: TableCard[] = tables.map((t) => {
       const sess = sessionByTable[t.id] ?? null;
       const remainingSec = sess ? secondsUntil(sess.expires_at) : 0;
+      const upcoming = reservationsByTable[t.id] ?? [];
+      const seatedRes = upcoming.find((r) => r.status === 'seated');
+      const nextRes = upcoming.find((r) => r.status === 'confirmed');
+
       let tableStatus: TableStatus = 'empty';
-      if (sess && remainingSec > 0) tableStatus = 'occupied';
-      return { ...t, tableStatus, session: sess, remainingSec };
+      let statusLabel = 'Kosong';
+      let activeReservation: UpcomingRes | null = null;
+
+      if (!t.is_active) {
+        tableStatus = 'inactive';
+        statusLabel = 'Tidak aktif';
+      } else if (seatedRes || (sess && sess.upgraded_at && remainingSec > 0)) {
+        tableStatus = 'occupied';
+        statusLabel = 'Terisi';
+        if (seatedRes) activeReservation = seatedRes;
+      } else if (sess && remainingSec > 0) {
+        tableStatus = 'held';
+        statusLabel = 'Ditahan';
+      } else if (nextRes) {
+        tableStatus = 'reserved';
+        statusLabel = `Reservasi (${formatHHMM(nextRes.starts_at)})`;
+        activeReservation = nextRes;
+      }
+
+      return {
+        ...t,
+        tableStatus,
+        statusLabel,
+        session: sess,
+        remainingSec,
+        upcomingReservations: upcoming,
+        activeReservation,
+      };
     });
 
     setTableCards(cards);
@@ -178,12 +236,12 @@ export default function TableQrPage() {
     loadTableStatus();
   }, [loadTableStatus]);
 
-  // Realtime subscription for table_sessions
+  // Realtime subscription for table_sessions & reservations
   useEffect(() => {
     if (!selectedBranchId) return;
     const supabase = getSupabase();
 
-    const channel = supabase
+    const channel1 = supabase
       .channel(`table-sessions-admin-${selectedBranchId}`)
       .on(
         'postgres_changes',
@@ -197,7 +255,24 @@ export default function TableQrPage() {
       )
       .subscribe();
 
-    return () => { void supabase.removeChannel(channel); };
+    const channel2 = supabase
+      .channel(`table-reservations-admin-${selectedBranchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  '*',
+          schema: 'public',
+          table:  'reservations',
+          filter: `branch_id=eq.${selectedBranchId}`,
+        },
+        () => { void loadTableStatus(); },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel1);
+      void supabase.removeChannel(channel2);
+    };
   }, [selectedBranchId, loadTableStatus]);
 
   // ── Release session ───────────────────────────────────────────────────────────
@@ -215,6 +290,24 @@ export default function TableQrPage() {
       // silent
     } finally {
       setReleaseLoading(null);
+    }
+  }, [loadTableStatus]);
+
+  // ── Toggle active (deactivate / activate instead of delete) ───────────────────
+
+  const handleToggleActive = useCallback(async (tableId: string, currentActive: boolean) => {
+    setToggleLoading(tableId);
+    try {
+      const supabase = getSupabase();
+      await supabase
+        .from('tables')
+        .update({ is_active: !currentActive })
+        .eq('id', tableId);
+      await loadTableStatus();
+    } catch {
+      // silent
+    } finally {
+      setToggleLoading(null);
     }
   }, [loadTableStatus]);
 
@@ -346,52 +439,121 @@ export default function TableQrPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {tableCards.map((t) => {
                   const remainSec = t.session ? secondsUntil(t.session.expires_at) : 0;
-                  const occupied  = t.tableStatus === 'occupied' && remainSec > 0;
+                  const hasActiveClaim = (t.tableStatus === 'occupied' || t.tableStatus === 'held') && remainSec > 0;
+                  const isReserved = t.tableStatus === 'reserved';
+                  const isInactive = t.tableStatus === 'inactive';
+                  const isOccupied = t.tableStatus === 'occupied';
+                  const isHeld = t.tableStatus === 'held';
+
                   return (
                     <div
                       key={t.id}
                       className={`relative rounded-2xl border p-3.5 flex flex-col gap-2 transition-all ${
-                        occupied
-                          ? 'bg-red-50 border-red-200'
-                          : 'bg-emerald-50 border-emerald-200'
+                        isInactive
+                          ? 'bg-charcoal/5 border-charcoal/20 opacity-75'
+                          : isOccupied
+                          ? 'bg-red-50/80 border-red-200'
+                          : isHeld
+                          ? 'bg-amber-50/80 border-amber-200'
+                          : isReserved
+                          ? 'bg-blue-50/80 border-blue-200'
+                          : 'bg-emerald-50/80 border-emerald-200'
                       }`}
                     >
                       {/* Status badge */}
-                      <div className={`flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide ${occupied ? 'text-red-600' : 'text-emerald-700'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${occupied ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
-                        {occupied ? 'Terisi' : 'Kosong'}
+                      <div
+                        className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide ${
+                          isInactive
+                            ? 'text-charcoal/60'
+                            : isOccupied
+                            ? 'text-red-700'
+                            : isHeld
+                            ? 'text-amber-800'
+                            : isReserved
+                            ? 'text-blue-800'
+                            : 'text-emerald-700'
+                        }`}
+                      >
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            isInactive
+                              ? 'bg-charcoal/40'
+                              : isOccupied
+                              ? 'bg-red-500 animate-pulse'
+                              : isHeld
+                              ? 'bg-amber-500 animate-pulse'
+                              : isReserved
+                              ? 'bg-blue-500'
+                              : 'bg-emerald-500'
+                          }`}
+                        />
+                        {t.statusLabel}
                       </div>
 
                       {/* Table code */}
                       <p className="text-lg font-extrabold text-coffee-900 leading-none">Meja {t.code}</p>
                       {t.label && <p className="text-[11px] text-charcoal/50 -mt-1 truncate">{t.label}</p>}
 
-                      {/* Occupied info */}
-                      {occupied && t.session && (
+                      {/* Session countdown info */}
+                      {hasActiveClaim && t.session && (
                         <div className="space-y-0.5">
-                          <div className="flex items-center gap-1 text-xs text-red-700 font-semibold">
+                          <div
+                            className={`flex items-center gap-1 text-xs font-semibold ${
+                              isOccupied ? 'text-red-700' : 'text-amber-800'
+                            }`}
+                          >
                             <Clock className="w-3 h-3" />
-                            {formatCountdown(Math.max(0, secondsUntil(t.session.expires_at)))}
+                            {formatCountdown(Math.max(0, remainSec))}
                           </div>
                           <p className="text-[11px] text-charcoal/50">
-                            Berakhir {formatHHMM(t.session.expires_at)} WIB
+                            {isHeld ? 'Batas pesan ' : 'Berakhir '}
+                            {formatHHMM(t.session.expires_at)} WIB
                           </p>
                         </div>
                       )}
 
                       {/* Seats info */}
-                      <div className="flex items-center gap-1 text-[11px] text-charcoal/40">
-                        <Users className="w-3 h-3" />
-                        {t.seats} kursi
+                      <div className="flex items-center justify-between text-[11px] text-charcoal/40">
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {t.seats} kursi
+                        </span>
+                        {isInactive && (
+                          <span className="px-1.5 py-0.5 rounded bg-charcoal/10 text-charcoal/60 font-semibold text-[10px]">
+                            Nonaktif
+                          </span>
+                        )}
                       </div>
 
-                      {/* Release button */}
-                      {occupied && (
+                      {/* Upcoming reservations per table */}
+                      {t.upcomingReservations.length > 0 && (
+                        <div className="mt-1 pt-1.5 border-t border-coffee-100/60 text-[10px] space-y-1">
+                          <span className="text-charcoal/40 font-semibold block">Reservasi:</span>
+                          {t.upcomingReservations.slice(0, 2).map((r) => (
+                            <div
+                              key={r.id}
+                              className="flex items-center justify-between text-blue-900 bg-blue-100/60 px-1.5 py-0.5 rounded text-[10px]"
+                            >
+                              <span className="font-bold">{formatHHMM(r.starts_at)} WIB</span>
+                              <span className="truncate max-w-[80px] text-[9px] text-blue-800">
+                                {r.customer_name} ({r.party_size}p)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Release button (Staff Kosongkan Meja) */}
+                      {hasActiveClaim && (
                         <button
                           type="button"
                           disabled={releaseLoading === t.id}
                           onClick={() => handleRelease(t.id)}
-                          className="mt-1 flex items-center justify-center gap-1 text-[11px] font-bold text-red-700 bg-red-100 hover:bg-red-200 rounded-lg py-1.5 transition-colors disabled:opacity-50 active:scale-95"
+                          className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-bold rounded-lg py-1.5 transition-colors disabled:opacity-50 active:scale-95 ${
+                            isOccupied
+                              ? 'text-red-700 bg-red-100 hover:bg-red-200'
+                              : 'text-amber-800 bg-amber-100 hover:bg-amber-200'
+                          }`}
                         >
                           {releaseLoading === t.id ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -401,6 +563,29 @@ export default function TableQrPage() {
                           Kosongkan Meja
                         </button>
                       )}
+
+                      {/* Deactivate / Activate button (replaces Delete) */}
+                      <button
+                        type="button"
+                        disabled={toggleLoading === t.id}
+                        onClick={() => handleToggleActive(t.id, t.is_active)}
+                        className={`text-[10px] font-semibold py-1 rounded transition-colors text-center disabled:opacity-50 ${
+                          t.is_active
+                            ? 'text-charcoal/40 hover:text-red-600'
+                            : 'text-emerald-700 bg-emerald-100/60 hover:bg-emerald-200/60'
+                        }`}
+                        title={t.is_active ? 'Nonaktifkan meja (meja tidak dapat dipesan/diklaim)' : 'Aktifkan kembali meja'}
+                      >
+                        {toggleLoading === t.id ? (
+                          <span className="flex items-center justify-center gap-1">
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> Memproses...
+                          </span>
+                        ) : t.is_active ? (
+                          'Nonaktifkan Meja'
+                        ) : (
+                          'Aktifkan Meja'
+                        )}
+                      </button>
                     </div>
                   );
                 })}

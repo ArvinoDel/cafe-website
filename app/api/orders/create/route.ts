@@ -45,6 +45,7 @@ import {
 import { getItemLineKey, type SelectedOption } from '@/lib/item-options';
 import type { SupabaseEnv } from '@supabase/server';
 import { TABLE_SESSION_COOKIE, getActiveSession } from '@/lib/table-session-server';
+import { createOrderInternal } from '@/lib/orders-server';
 
 // ─── Env helper ──────────────────────────────────────────────────────────────
 
@@ -506,6 +507,15 @@ export async function POST(request: NextRequest) {
         .eq('id', cartRow.id);
       await (supabaseAdmin as any).rpc('bump_group_cart_version', { p_cart_id: cartRow.id });
 
+      // 2h. Upgrade table session from soft hold to full walk-in lock
+      if (sessionToken) {
+        try {
+          await (supabaseAdmin as any).rpc('upgrade_table_session', { p_token: sessionToken });
+        } catch (upgradeErr) {
+          console.error('[orders/create] upgrade_table_session error (group):', upgradeErr);
+        }
+      }
+
       return NextResponse.json({ ok: true, order: inserted }, { status: 201 });
     }
 
@@ -520,124 +530,37 @@ export async function POST(request: NextRequest) {
   if ('response' in branchResult) return branchResult.response;
   const resolvedBranchId = branchResult.branch.id;
 
-  // 3. Consolidate requested items by (id + normalized note + options)
-  // Two entries with the exact same id, options, and note are summed; entries with different options/notes remain distinct lines.
-  type ConsolidatedLine = {
-    id: string;
-    quantity: number;
-    note: string | null;
-    selected_options?: SelectedOption[] | null;
-  };
+  const orderResult = await createOrderInternal(supabaseAdmin, {
+    customerName:   customer_name!,
+    tableNumber:    sessionTableNumber!,
+    branchId:       resolvedBranchId,
+    items:          items!,
+    paymentMethod:  payment_method,
+    notes:          notes?.trim() || null,
+    idempotencyKey: idempotency_key ?? null,
+    sessionToken:   sessionToken ?? null,
+  });
 
-  const consolidatedMap = new Map<string, ConsolidatedLine>();
-  for (const item of items!) {
-    const cleanNote = item.note?.trim() || null;
-    const lineKey = getItemLineKey(item.id, cleanNote, item.selected_options);
-
-    const existing = consolidatedMap.get(lineKey);
-    if (existing) {
-      existing.quantity = Math.min(99, existing.quantity + item.quantity);
-    } else {
-      consolidatedMap.set(lineKey, {
-        id: item.id,
-        quantity: item.quantity,
-        note: cleanNote,
-        selected_options: item.selected_options || null,
-      });
-    }
-  }
-
-  const consolidatedLines = Array.from(consolidatedMap.values());
-
-  // 4–6. Validate items and build snapshot via shared helper
-  // Build a clientPrices map for price-change detection so the error
-  // response can tell the customer what the new price is.
-  const clientPrices = new Map<string, number>();
-  for (const item of items!) {
-    // Use the first occurrence's price per id (options total excluded here;
-    // the server will re-price everything from DB anyway)
-    if (!clientPrices.has(item.id)) {
-      // We don't have the client's base price in the request body,
-      // so price-change detection is skipped for this release.
-      // (The server enforces DB prices regardless.)
-    }
-  }
-
-  // Check for existing idempotent order before pricing
-  if (idempotency_key) {
-    const { data: existing } = await supabaseAdmin
-      .from('orders')
-      .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
-      .eq('idempotency_key', idempotency_key)
-      .maybeSingle();
-    if (existing) {
-      // Idempotent replay — return the already-created order
-      return NextResponse.json({ ok: true, order: existing }, { status: 200 });
-    }
-  }
-
-  const pricingResult = await priceOrderLines(supabaseAdmin as any, resolvedBranchId, consolidatedLines);
-
-  if ('error' in pricingResult) {
-    if ((pricingResult.error as any).code === 'ITEMS_UNAVAILABLE') {
-      const unavailableErr = pricingResult as ItemsUnavailableError;
+  if (!orderResult.ok) {
+    if (orderResult.code === 'ITEMS_UNAVAILABLE') {
       return NextResponse.json(
         {
           ok: false,
-          error: unavailableErr.error.message,
+          error: orderResult.error,
           code: 'ITEMS_UNAVAILABLE',
-          items: unavailableErr.error.items,
+          items: orderResult.items,
         },
         { status: 409 },
       );
     }
     return NextResponse.json(
-      { ok: false, error: pricingResult.error.message, code: pricingResult.error.code },
-      { status: pricingResult.error.status },
+      { ok: false, error: orderResult.error, code: orderResult.code },
+      { status: orderResult.status },
     );
   }
 
-  const { snapshot, subtotal, total } = pricingResult;
-
-  // 7. Generate order code and insert (retry up to 3 times on unique violation)
-  const MAX_RETRIES = 3;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const orderCode = generateCode();
-
-    const { data: inserted, error: insertErr } = await supabaseAdmin
-      .from('orders')
-      .insert({
-        order_code:      orderCode,
-        customer_name:   customer_name!,
-        table_number:    sessionTableNumber!,  // derived from session, never from client
-        branch_id:       resolvedBranchId,
-        items:           snapshot,
-        subtotal,
-        total,
-        payment_method,
-        notes:           notes?.trim() || null,
-        status:          'pending',
-        idempotency_key: idempotency_key ?? null,
-      })
-      .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
-      .single();
-
-    if (insertErr) {
-      // 23505 = unique_violation — retry with a new code
-      const pgCode = (insertErr as unknown as { code?: string }).code;
-      if (pgCode === '23505' && attempt < MAX_RETRIES) {
-        continue;
-      }
-      console.error('[orders/create] insert error:', insertErr.message);
-      return NextResponse.json(
-        { ok: false, error: 'Gagal menyimpan pesanan. Silakan coba lagi.' },
-        { status: 500 },
-      );
-    }
-
-    return NextResponse.json({ ok: true, order: inserted }, { status: 201 });
-  }
-
-  // Should be unreachable
-  return NextResponse.json({ error: 'Gagal membuat kode pesanan. Silakan coba lagi.' }, { status: 500 });
+  return NextResponse.json(
+    { ok: true, order: orderResult.order },
+    { status: orderResult.isExisting ? 200 : 201 },
+  );
 }

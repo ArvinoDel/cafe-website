@@ -27,6 +27,8 @@ type PublicBranch = {
   reservation_max_days_ahead: number;
   reservation_hold_minutes: number;
   reservation_min_preorder: number;
+  timezone?: string | null;
+  qris_image_url?: string | null;
 };
 
 export async function GET() {
@@ -37,7 +39,7 @@ export async function GET() {
     .select(
       'id, name, reservations_enabled, reservation_open_time, reservation_close_time, ' +
       'reservation_min_lead_minutes, reservation_max_days_ahead, ' +
-      'reservation_hold_minutes, reservation_min_preorder'
+      'reservation_hold_minutes, reservation_min_preorder, timezone, qris_image_url'
     )
     .eq('reservations_enabled', true)
     .order('created_at');

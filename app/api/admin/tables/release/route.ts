@@ -71,54 +71,47 @@ export async function POST(request: NextRequest) {
   const input = parsed.data;
 
   // 4. Admin client
-  const env          = resolveAdminEnv();
+  const env           = resolveAdminEnv();
   const supabaseAdmin = createAdminClient({ env });
 
-  // 5. Find the active session
-  let query = supabaseAdmin
-    .from('table_sessions')
-    .select('id, branch_id, table_id')
-    .eq('status', 'active');
+  // 5. Check branch authorization if role === 'admin'
+  if (role === 'admin') {
+    let checkQuery = supabaseAdmin
+      .from('table_sessions')
+      .select('branch_id')
+      .eq('status', 'active');
 
-  if ('session_id' in input) {
-    query = query.eq('id', input.session_id);
-  } else {
-    query = query.eq('table_id', input.table_id);
+    if ('session_id' in input) {
+      checkQuery = checkQuery.eq('id', input.session_id);
+    } else {
+      checkQuery = checkQuery.eq('table_id', input.table_id);
+    }
+
+    const { data: activeRows } = await checkQuery;
+    if (activeRows && activeRows.length > 0 && activeRows[0].branch_id !== branchId) {
+      return NextResponse.json({ ok: false, error: 'Akses ditolak untuk cabang ini.' }, { status: 403 });
+    }
   }
 
-  const { data: sessions, error: fetchErr } = await query;
+  // 6. Release via SQL RPC (taking table row lock to synchronize with table claim)
+  const { data: rpcData, error: rpcErr } = await (supabaseAdmin as any).rpc('admin_release_table_session', {
+    p_table_id:   'table_id' in input ? input.table_id : null,
+    p_session_id: 'session_id' in input ? input.session_id : null,
+    p_reason:     'staff',
+  });
 
-  if (fetchErr) {
-    console.error('[admin/tables/release] fetch error:', fetchErr.message);
-    return NextResponse.json({ ok: false, error: 'Gagal memuat sesi meja.' }, { status: 500 });
-  }
-
-  if (!sessions || sessions.length === 0) {
-    return NextResponse.json({ ok: false, error: 'Tidak ada sesi aktif yang ditemukan.' }, { status: 404 });
-  }
-
-  const sess = sessions[0] as { id: string; branch_id: string; table_id: string };
-
-  // 6. Branch admin can only release their own branch's sessions
-  if (role === 'admin' && sess.branch_id !== branchId) {
-    return NextResponse.json({ ok: false, error: 'Akses ditolak untuk cabang ini.' }, { status: 403 });
-  }
-
-  // 7. Release the session
-  const { error: updateErr } = await supabaseAdmin
-    .from('table_sessions')
-    .update({
-      status:          'released',
-      released_reason: 'staff',
-      released_at:     new Date().toISOString(),
-    })
-    .eq('id', sess.id)
-    .eq('status', 'active');   // Optimistic lock: only update if still active
-
-  if (updateErr) {
-    console.error('[admin/tables/release] update error:', updateErr.message);
+  if (rpcErr) {
+    console.error('[admin/tables/release] rpc error:', rpcErr.message);
     return NextResponse.json({ ok: false, error: 'Gagal mengosongkan meja.' }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, message: 'Meja berhasil dikosongkan.' });
+  const result = typeof rpcData === 'string' ? JSON.parse(rpcData) : rpcData;
+  if (!result?.ok) {
+    return NextResponse.json(
+      { ok: false, error: result?.message || 'Gagal mengosongkan meja.' },
+      { status: result?.code === 'NO_ACTIVE_SESSION' ? 404 : 400 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, message: result.message || 'Meja berhasil dikosongkan.' });
 }

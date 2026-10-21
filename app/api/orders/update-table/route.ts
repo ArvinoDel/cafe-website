@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Call claim_table to atomically move the table session lock to the new table.
     //    The token lives in a httpOnly cookie and cannot be forged by JS.
-    const { TABLE_SESSION_COOKIE } = await import('@/lib/table-session-server');
+    const { TABLE_SESSION_COOKIE, computeIpHash } = await import('@/lib/table-session-server');
     const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
 
     if (!sessionToken) {
@@ -90,11 +90,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rawIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      '127.0.0.1';
+    const ipHash = computeIpHash(rawIp);
+
     const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {
-      p_branch_id:        (order as any).branch_id,
-      p_code:             newTableCode,
-      p_token:            sessionToken,
-      p_reservation_code: null,
+      p_branch_id: (order as any).branch_id,
+      p_code:      newTableCode,
+      p_token:     sessionToken,
+      p_ip_hash:   ipHash,
     });
 
     if (rpcError) {
@@ -114,6 +120,7 @@ export async function POST(request: NextRequest) {
         TABLE_TAKEN:         'Meja baru sedang dipakai pelanggan lain.',
         TABLE_RESERVED:      'Meja baru sudah dipesan (reservasi).',
         TABLE_RESERVED_SOON: 'Meja baru akan segera dipakai untuk reservasi.',
+        TOO_MANY_HOLDS:      'Terlalu banyak meja yang ditahan. Selesaikan pesanan Anda terlebih dahulu.',
       };
       return NextResponse.json(
         {
@@ -121,9 +128,14 @@ export async function POST(request: NextRequest) {
           code:  errCode,
           error: messages[errCode] ?? 'Meja baru tidak dapat diklaim.',
         },
-        { status: 409 },
+        { status: errCode === 'TOO_MANY_HOLDS' ? 429 : 409 },
       );
     }
+
+    // Since this order is already placed, upgrade the new table session immediately
+    await (supabaseAdmin as any).rpc('upgrade_table_session', {
+      p_token: sessionToken,
+    });
 
     // 4. Update table number on the order
     const { data: updated, error: updateErr } = await supabaseAdmin

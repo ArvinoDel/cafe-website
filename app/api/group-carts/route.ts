@@ -192,6 +192,18 @@ export async function POST(request: NextRequest) {
       .update({ host_member_id: member.id, version: 1 })
       .eq('id', cart.id);
 
+    // Extend host's soft hold to at most 45 minutes (constant, does not upgrade)
+    if (sessionToken) {
+      try {
+        await (supabaseAdmin as any).rpc('extend_table_session_soft_hold', {
+          p_token: sessionToken,
+          p_max_minutes: 45,
+        });
+      } catch (extendErr) {
+        console.error('[group-carts] extend_table_session_soft_hold error:', extendErr);
+      }
+    }
+
     return NextResponse.json(
       { code, member_id: member.id, member_token: memberToken },
       { status: 201 },

@@ -23,12 +23,13 @@
 
 import {
   CART_KEY,
+  RESERVATION_CART_KEY,
   CART_SCHEMA_VERSION,
   LEGACY_CART_KEY,
   LEGACY_CAFE_CART_KEY,
 } from '@/lib/storage-keys';
 
-export { CART_KEY } from '@/lib/storage-keys';
+export { CART_KEY, RESERVATION_CART_KEY } from '@/lib/storage-keys';
 
 // 12-hour TTL — stale carts from a previous visit are cleared automatically.
 const CART_TTL_MS = 12 * 60 * 60 * 1000;
@@ -167,6 +168,50 @@ export function saveCart(items: StoredCartItem[], tableNumber?: string | null): 
  */
 export function clearCart(): void {
   safeRemove(CART_KEY);
+}
+
+/**
+ * loadReservationCart
+ *
+ * Reads the separate pre-order reservation cart from localStorage.
+ */
+export function loadReservationCart(): StoredCartItem[] {
+  const raw = safeGet(RESERVATION_CART_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as StoredCartItem[];
+    if (parsed && typeof parsed === 'object' && parsed.version === CART_SCHEMA_VERSION) {
+      const payload = parsed as CartPayload;
+      if (typeof payload.timestamp === 'number' && Date.now() - payload.timestamp > CART_TTL_MS) {
+        safeRemove(RESERVATION_CART_KEY);
+        return [];
+      }
+      return Array.isArray(payload.items) ? payload.items : [];
+    }
+  } catch {
+    safeRemove(RESERVATION_CART_KEY);
+  }
+  return [];
+}
+
+/**
+ * saveReservationCart
+ *
+ * Persists the reservation pre-order cart to localStorage.
+ */
+export function saveReservationCart(items: StoredCartItem[]): void {
+  const payload = serializePayload(items, null);
+  safeSet(RESERVATION_CART_KEY, payload);
+}
+
+/**
+ * clearReservationCart
+ *
+ * Clears the reservation pre-order cart from localStorage.
+ */
+export function clearReservationCart(): void {
+  safeRemove(RESERVATION_CART_KEY);
 }
 
 /**

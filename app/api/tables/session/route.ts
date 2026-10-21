@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       expiresAt:        session.expiresAt,
       startedAt:        session.startedAt,
       remainingSeconds: session.remainingSeconds,
+      upgraded:         session.upgraded,
     },
   });
 }

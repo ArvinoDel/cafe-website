@@ -39,6 +39,7 @@ type Branch = {
   accepting_orders?: boolean;
   pause_message?: string | null;
   walkin_lock_minutes?: number | null;
+  claim_soft_hold_minutes?: number | null;
   reservations_enabled?: boolean;
   reservation_open_time?: string | null;
   reservation_close_time?: string | null;
@@ -353,6 +354,11 @@ function BranchFormModal({
       ? String(initial.walkin_lock_minutes)
       : '180',
   );
+  const [claimSoftHoldMinutes, setClaimSoftHoldMinutes] = useState(
+    initial?.claim_soft_hold_minutes !== null && initial?.claim_soft_hold_minutes !== undefined
+      ? String(initial.claim_soft_hold_minutes)
+      : '20',
+  );
   // Reservation settings
   const [reservationsEnabled, setReservationsEnabled] = useState(initial?.reservations_enabled ?? false);
   const [reservationOpenTime, setReservationOpenTime]     = useState(initial?.reservation_open_time ?? '08:00');
@@ -381,6 +387,9 @@ function BranchFormModal({
     const parsedLockMin = walkinLockMinutes.trim() ? parseInt(walkinLockMinutes.trim(), 10) : 180;
     const safeLockMin   = isNaN(parsedLockMin) ? 180 : Math.min(720, Math.max(15, parsedLockMin));
 
+    const parsedSoftHold = claimSoftHoldMinutes.trim() ? parseInt(claimSoftHoldMinutes.trim(), 10) : 20;
+    const safeSoftHold   = isNaN(parsedSoftHold) ? 20 : Math.min(60, Math.max(5, parsedSoftHold));
+
     const payload = {
       name: name.trim(),
       address: address.trim() || null,
@@ -393,6 +402,7 @@ function BranchFormModal({
       accepting_orders: acceptingOrders,
       pause_message: pauseMessage.trim() || null,
       walkin_lock_minutes: safeLockMin,
+      claim_soft_hold_minutes: safeSoftHold,
       reservations_enabled: reservationsEnabled,
       reservation_open_time: reservationOpenTime,
       reservation_close_time: reservationCloseTime,
@@ -577,22 +587,41 @@ function BranchFormModal({
                   Klaim Meja (Walk-in)
                 </h4>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-charcoal/70 mb-1">
-                  Durasi Kunci Meja (menit)
-                </label>
-                <input
-                  type="number"
-                  min={15}
-                  max={720}
-                  value={walkinLockMinutes}
-                  onChange={(e) => setWalkinLockMinutes(e.target.value)}
-                  placeholder="180"
-                  className="w-full max-w-[180px] px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
-                />
-                <p className="text-[11px] text-charcoal/40 mt-1">
-                  Berapa lama (dalam menit) meja terkunci setelah pelanggan scan QR. Default: 180 menit (3 jam). Minimum: 15, maksimum: 720.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/70 mb-1">
+                    Durasi Kunci Meja Penuh (menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={15}
+                    max={720}
+                    value={walkinLockMinutes}
+                    onChange={(e) => setWalkinLockMinutes(e.target.value)}
+                    placeholder="180"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                  <p className="text-[11px] text-charcoal/40 mt-1">
+                    Berapa lama (dalam menit) meja terkunci setelah pelanggan memesan (default: 180 menit / 3 jam).
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/70 mb-1">
+                    Durasi Tahan Awal / Soft Hold (menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={60}
+                    value={claimSoftHoldMinutes}
+                    onChange={(e) => setClaimSoftHoldMinutes(e.target.value)}
+                    placeholder="20"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                  <p className="text-[11px] text-charcoal/40 mt-1">
+                    Durasi meja ditahan sementara saat QR discan sebelum pesanan dibuat (5–60 mnt, default 20).
+                  </p>
+                </div>
               </div>
             </div>
 

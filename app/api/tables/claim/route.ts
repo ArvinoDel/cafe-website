@@ -1,46 +1,77 @@
 /**
  * POST /api/tables/claim
  *
- * Claims a table for the requesting customer.
+ * Claims a table for the requesting customer (Soft Hold).
  * - Reads or generates the httpOnly session token cookie.
+ * - Computes deterministic HMAC ip_hash from client IP.
+ * - Rate limits per IP and per cookie/token.
  * - Calls the atomic `claim_table` Postgres RPC via the service-role admin client.
+ * - Catches Postgres 23505 unique_violation and maps to clean 409.
+ * - Maps TOO_MANY_HOLDS to 429.
  * - On success, sets / refreshes the httpOnly `table_session_token` cookie.
- * - The session_token is NEVER exposed to JavaScript — it lives only in the cookie.
+ * - Returns session object with `upgraded: boolean`.
  *
  * Request body:
  *   {
- *     branch_id?:        string (UUID)   — required when the site has multiple branches
- *     code:              string          — table code, e.g. "A-1"
- *     reservation_code?: string          — 8-char reservation code if the table is reserved
+ *     branch_id?: string (UUID) — required when the site has multiple branches
+ *     code:       string        — table code, e.g. "A-1"
  *   }
  *
  * Success 200:
- *   { ok: true, session: { tableCode, tableLabel, tableSeats, branchId, expiresAt, startedAt, remainingSeconds, isExisting } }
- *
- * Error responses:
- *   400 — missing/invalid body
- *   404 — TABLE_NOT_FOUND
- *   409 — TABLE_TAKEN | TABLE_RESERVED | TABLE_RESERVED_SOON
- *   500 — server error
+ *   { ok: true, session: { tableCode, tableLabel, tableSeats, branchId, expiresAt, startedAt, remainingSeconds, isExisting, upgraded } }
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
-import type { SupabaseEnv } from '@supabase/server';
 import {
   TABLE_SESSION_COOKIE,
   newSessionToken,
   buildSessionCookieOptions,
   resolveAdminEnv,
+  computeIpHash,
 } from '@/lib/table-session-server';
+
+// ─── Rate Limiting (in-memory, sliding window) ─────────────────────────────────
+
+type RateLimitEntry = { count: number; windowStart: number };
+const claimIpMap    = new Map<string, RateLimitEntry>(); // 60/min per IP (cafe wifi)
+const claimTokenMap = new Map<string, RateLimitEntry>(); // 20/min per token
+
+function checkRateLimit(
+  map: Map<string, RateLimitEntry>,
+  key: string,
+  max: number,
+  windowMs: number,
+  now: number,
+): boolean {
+  const entry = map.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    map.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count++;
+  return entry.count > max;
+}
+
+function cleanupRateLimitMaps(now: number) {
+  if (claimIpMap.size > 2000) {
+    claimIpMap.forEach((v, k) => {
+      if (now - v.windowStart > 60_000) claimIpMap.delete(k);
+    });
+  }
+  if (claimTokenMap.size > 2000) {
+    claimTokenMap.forEach((v, k) => {
+      if (now - v.windowStart > 60_000) claimTokenMap.delete(k);
+    });
+  }
+}
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const ClaimSchema = z.object({
-  branch_id:        z.string().uuid('Branch ID tidak valid.').optional(),
-  code:             z.string().trim().min(1, 'Kode meja wajib diisi.').max(20, 'Kode meja terlalu panjang.'),
-  reservation_code: z.string().trim().min(1).max(10).optional(),
+  branch_id: z.string().uuid('Branch ID tidak valid.').optional(),
+  code:      z.string().trim().min(1, 'Kode meja wajib diisi.').max(20, 'Kode meja terlalu panjang.'),
 });
 
 // ─── Helper: resolve single branch when branch_id is omitted ─────────────────
@@ -88,7 +119,33 @@ async function resolveBranchId(
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  // 1. Parse body
+  // 1. Rate limiting (per IP and per token)
+  const rawIp =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    request.headers.get('x-real-ip') ??
+    '127.0.0.1';
+
+  const existingToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
+  const token = existingToken || newSessionToken();
+
+  const now = Date.now();
+  cleanupRateLimitMaps(now);
+
+  if (checkRateLimit(claimIpMap, rawIp, 60, 60_000, now)) {
+    return NextResponse.json(
+      { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim dari jaringan ini. Tunggu sebentar ya.' },
+      { status: 429 },
+    );
+  }
+
+  if (checkRateLimit(claimTokenMap, token, 20, 60_000, now)) {
+    return NextResponse.json(
+      { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim meja. Silakan coba lagi sebentar.' },
+      { status: 429 },
+    );
+  }
+
+  // 2. Parse body
   let body: unknown;
   try {
     body = await request.json();
@@ -102,15 +159,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 
-  const { branch_id, code, reservation_code } = parsed.data;
+  const { branch_id, code } = parsed.data;
 
-  // 2. Get or generate session token from cookie
-  const existingToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
-  const token = existingToken || newSessionToken();
-
-  // 3. Build admin client
-  const env          = resolveAdminEnv();
+  // 3. Build admin client & compute ip_hash
+  const env           = resolveAdminEnv();
   const supabaseAdmin = createAdminClient({ env });
+  const ipHash        = computeIpHash(rawIp);
 
   // 4. Resolve branch
   const branchResult = await resolveBranchId(supabaseAdmin as any, branch_id);
@@ -119,13 +173,25 @@ export async function POST(request: NextRequest) {
 
   // 5. Call claim_table RPC
   const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {
-    p_branch_id:        branchId,
-    p_code:             code.trim().toUpperCase(),
-    p_token:            token,
-    p_reservation_code: reservation_code?.trim().toUpperCase() ?? null,
+    p_branch_id: branchId,
+    p_code:      code.trim().toUpperCase(),
+    p_token:     token,
+    p_ip_hash:   ipHash,
   });
 
   if (rpcError) {
+    // Catch Postgres 23505 (unique_violation) from concurrent claims on same token or table
+    if (rpcError.code === '23505') {
+      return NextResponse.json(
+        {
+          ok:    false,
+          code:  'TABLE_TAKEN',
+          error: 'Meja ini sedang dipakai atau klaim lain sedang diproses. Silakan coba lagi.',
+        },
+        { status: 409 },
+      );
+    }
+
     console.error('[tables/claim] claim_table rpc error:', rpcError.message);
     return NextResponse.json(
       { ok: false, error: 'Terjadi kesalahan saat mengklaim meja. Silakan coba lagi.' },
@@ -137,25 +203,36 @@ export async function POST(request: NextRequest) {
 
   // 6. Map RPC result to HTTP response
   if (!result?.ok) {
-    const code = result?.code as string;
+    const errCode = result?.code as string;
+
+    if (errCode === 'TOO_MANY_HOLDS') {
+      return NextResponse.json(
+        {
+          ok:    false,
+          code:  'TOO_MANY_HOLDS',
+          error: 'Terlalu banyak meja yang ditahan dari perangkat atau jaringan ini. Selesaikan pesanan Anda terlebih dahulu ya.',
+        },
+        { status: 429 },
+      );
+    }
 
     const errorMessages: Record<string, string> = {
       TABLE_NOT_FOUND:     'Meja tidak ditemukan atau tidak aktif.',
       TABLE_TAKEN:         'Meja ini sedang dipakai pelanggan lain.',
-      TABLE_RESERVED:      'Meja ini sudah dipesan.',
+      TABLE_RESERVED:      'Meja ini sudah dipesan untuk reservasi.',
       TABLE_RESERVED_SOON: 'Meja ini akan segera dipakai untuk reservasi.',
     };
 
-    const httpStatus =
-      code === 'TABLE_NOT_FOUND' ? 404 : 409;
+    const httpStatus = errCode === 'TABLE_NOT_FOUND' ? 404 : 409;
 
     return NextResponse.json(
       {
-        ok:               false,
-        code,
-        error:            errorMessages[code] ?? 'Meja tidak dapat diklaim.',
-        starts_at:        result?.starts_at ?? undefined,
-        available_until:  result?.available_until ?? undefined,
+        ok:              false,
+        code:            errCode,
+        error:           errorMessages[errCode] ?? 'Meja tidak dapat diklaim.',
+        starts_at:       result?.starts_at ?? undefined,
+        ends_at:         result?.ends_at ?? undefined,
+        available_until: result?.available_until ?? undefined,
       },
       { status: httpStatus },
     );
@@ -169,7 +246,7 @@ export async function POST(request: NextRequest) {
   );
 
   const responseBody = {
-    ok: true,
+    ok:         true,
     isExisting: !!result.is_existing,
     session: {
       tableCode:        sess.table_code,
@@ -178,6 +255,7 @@ export async function POST(request: NextRequest) {
       expiresAt:        sess.expires_at,
       startedAt:        sess.started_at,
       remainingSeconds,
+      upgraded:         !!sess.upgraded,
     },
   };
 

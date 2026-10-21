@@ -27,6 +27,7 @@ export type TableSessionInfo = {
   expiresAt:        string;
   startedAt:        string;
   remainingSeconds: number;
+  upgraded:         boolean;
 };
 
 export type ClaimTableResult =
@@ -123,7 +124,9 @@ export function useTableSession(enabled = true) {
   }, [enabled, fetchSession]);
 
   const expiryLabel: string | null = session
-    ? `aktif sampai ${formatHHMM(session.expiresAt)}`
+    ? session.upgraded
+      ? `aktif sampai ${formatHHMM(session.expiresAt)}`
+      : `ditahan sampai ${formatHHMM(session.expiresAt)}, selesaikan pesanan agar meja terkunci`
     : null;
 
   return { session, loading, refresh, expiryLabel };

@@ -20,6 +20,9 @@ export const BRANCH_KEY = 'cafe-branch';
 /** Solo cart items — versioned payload with expiry (see lib/cart.ts). */
 export const CART_KEY = 'cafe_cart';
 
+/** Reservation pre-order cart items — completely isolated from walk-in cart. */
+export const RESERVATION_CART_KEY = 'cafe_reservation_cart';
+
 /** Schema version stored alongside cart data. Bump when shape changes. */
 export const CART_SCHEMA_VERSION = 1;
 

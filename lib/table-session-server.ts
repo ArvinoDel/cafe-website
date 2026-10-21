@@ -18,6 +18,7 @@ import type { SupabaseEnv } from '@supabase/server';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const TABLE_SESSION_COOKIE = 'table_session_token';
+export const RESERVATION_OWNER_COOKIE = 'reservation_owner_token';
 
 /** Max age: 30 days. The token is long-lived; the session inside DB expires sooner. */
 const COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -38,6 +39,8 @@ export function resolveAdminEnv(): Partial<SupabaseEnv> {
   return env;
 }
 
+import crypto from 'crypto';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TableSessionRow = {
@@ -50,6 +53,8 @@ export type TableSessionRow = {
   expires_at:    string;
   released_at:   string | null;
   released_reason: string | null;
+  upgraded_at:   string | null;
+  ip_hash:       string | null;
   /** Joined from the tables table */
   tables: {
     id:       string;
@@ -70,11 +75,39 @@ export type ActiveTableSession = {
   expiresAt:   string;
   startedAt:   string;
   remainingSeconds: number;
+  upgraded:    boolean;
+  upgradedAt:  string | null;
 };
 
 export type ClaimResult =
   | { ok: true;  session: ActiveTableSession; isExisting: boolean }
-  | { ok: false; code: 'TABLE_TAKEN' | 'TABLE_RESERVED' | 'TABLE_RESERVED_SOON' | 'TABLE_NOT_FOUND'; startsAt?: string; availableUntil?: string };
+  | {
+      ok: false;
+      code: 'TABLE_TAKEN' | 'TABLE_RESERVED' | 'TABLE_RESERVED_SOON' | 'TABLE_NOT_FOUND' | 'TOO_MANY_HOLDS' | 'CONCURRENT_CLAIM';
+      startsAt?: string;
+      endsAt?: string;
+      availableUntil?: string;
+      error?: string;
+    };
+
+// ─── IP Hash Helper ───────────────────────────────────────────────────────────
+
+/**
+ * Computes deterministic HMAC-SHA256 of client IP using server secret.
+ * Raw IP is never stored in DB or exposed.
+ */
+export function computeIpHash(ip: string): string {
+  const secret = process.env.SUPABASE_SECRET_KEY || 'cafe-soft-hold-hmac-secret';
+  return crypto.createHmac('sha256', secret).update(ip.trim()).digest('hex');
+}
+
+/**
+ * Computes deterministic HMAC-SHA256 of owner token using server secret.
+ */
+export function computeTokenHash(token: string): string {
+  const secret = process.env.SUPABASE_SECRET_KEY || 'cafe-soft-hold-hmac-secret';
+  return crypto.createHmac('sha256', secret).update(token.trim()).digest('hex');
+}
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
@@ -132,6 +165,7 @@ export async function getActiveSession(
     .select(`
       id, table_id, branch_id, session_token,
       status, started_at, expires_at, released_at, released_reason,
+      upgraded_at, ip_hash,
       tables!table_id ( id, code, label, seats, branch_id )
     `)
     .eq('session_token', token)
@@ -153,6 +187,8 @@ export async function getActiveSession(
     expires_at: string;
     released_at: string | null;
     released_reason: string | null;
+    upgraded_at: string | null;
+    ip_hash: string | null;
     tables: { id: string; code: string; label: string | null; seats: number; branch_id: string } | { id: string; code: string; label: string | null; seats: number; branch_id: string }[] | null;
   };
 
@@ -170,6 +206,8 @@ export async function getActiveSession(
     expiresAt:        raw.expires_at,
     startedAt:        raw.started_at,
     remainingSeconds: Math.max(0, Math.floor((new Date(raw.expires_at).getTime() - Date.now()) / 1000)),
+    upgraded:         raw.upgraded_at !== null,
+    upgradedAt:       raw.upgraded_at,
   };
 }
 

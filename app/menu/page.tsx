@@ -148,13 +148,15 @@ function MenuPageInner() {
   // We poll GET /api/tables/session every 30 s for display purposes.
   const { session: tableSession, refresh: refreshTableSession, expiryLabel } = useTableSession();
 
-  // TABLE_TAKEN / TABLE_RESERVED claim state — shown in a modal
   const [claimError, setClaimError] = useState<{
     code: string;
     message: string;
     startsAt?: string;
   } | null>(null);
   const [reservationCodeInput, setReservationCodeInput] = useState('');
+  const [reservationPhoneLast4, setReservationPhoneLast4] = useState('');
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [showCheckinForm, setShowCheckinForm] = useState(false);
 
   // addedItemId tracks the last menu item added so the + button can flash a
   // brief checkmark (clear after 700 ms) without blocking the add action.
@@ -913,16 +915,37 @@ function MenuPageInner() {
                 <button
                   type="button"
                   onClick={() => setScannerOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold hover:bg-coffee-100/80 transition-all active:scale-95 group"
-                  title={tableSession ? `Meja ${tableSession.tableCode} ${expiryLabel ?? ''}. Klik untuk scan meja baru jika pindah meja.` : `Meja ${tableNumber}. Klik untuk scan meja baru.`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-coffee-50 border border-coffee-200/70 text-coffee-800 text-xs sm:text-sm font-semibold hover:bg-coffee-100/80 transition-all active:scale-95 group max-w-full"
+                  title={
+                    tableSession
+                      ? tableSession.upgraded
+                        ? `Meja ${tableSession.tableCode} aktif sampai ${formatHHMM(tableSession.expiresAt)}`
+                        : `Meja ${tableSession.tableCode} ditahan sampai ${formatHHMM(tableSession.expiresAt)}, selesaikan pesanan agar meja terkunci`
+                      : `Meja ${tableNumber}. Klik untuk scan meja baru.`
+                  }
                 >
-                  <QrCode className="w-4 h-4 text-coffee-600" />
-                  <span className="hidden sm:inline">Meja {tableSession?.tableCode ?? tableNumber}</span>
-                  <span className="sm:hidden">{tableSession?.tableCode ?? tableNumber}</span>
-                  {expiryLabel && (
-                    <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-coffee-700 font-medium bg-coffee-100/90 px-1.5 py-0.5 rounded border border-coffee-200/50 ml-0.5">
-                      <Clock className="w-2.5 h-2.5 text-coffee-500" />
-                      {expiryLabel}
+                  <QrCode className="w-4 h-4 text-coffee-600 shrink-0" />
+                  <span className="hidden sm:inline font-bold">Meja {tableSession?.tableCode ?? tableNumber}</span>
+                  <span className="sm:hidden font-bold">{tableSession?.tableCode ?? tableNumber}</span>
+                  {tableSession && (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border ml-0.5 truncate ${
+                        tableSession.upgraded
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200/60'
+                          : 'bg-amber-50 text-amber-800 border-amber-200/60'
+                      }`}
+                    >
+                      <Clock className="w-2.5 h-2.5 shrink-0" />
+                      <span className="hidden md:inline">
+                        {tableSession.upgraded
+                          ? `aktif sampai ${formatHHMM(tableSession.expiresAt)}`
+                          : `ditahan sampai ${formatHHMM(tableSession.expiresAt)}, selesaikan pesanan agar meja terkunci`}
+                      </span>
+                      <span className="md:hidden">
+                        {tableSession.upgraded
+                          ? `s.d. ${formatHHMM(tableSession.expiresAt)}`
+                          : `ditahan s.d. ${formatHHMM(tableSession.expiresAt)}`}
+                      </span>
                     </span>
                   )}
                 </button>
@@ -2144,47 +2167,105 @@ function MenuPageInner() {
                       <strong>{formatHHMM(claimError.startsAt)} WIB</strong>.
                     </p>
                   )}
-                  <div className="space-y-2">
-                    <p className="text-xs text-charcoal/50 font-medium uppercase tracking-wide">Punya kode reservasi?</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        className="flex-1 px-3 py-2 rounded-xl border border-coffee-200/80 text-sm focus:outline-none focus:ring-2 focus:ring-coffee-400/40 font-mono uppercase"
-                        placeholder="Masukkan kode reservasi"
-                        value={reservationCodeInput}
-                        onChange={(e) => setReservationCodeInput(e.target.value.toUpperCase())}
-                        maxLength={8}
-                      />
+                  <div className="space-y-3 pt-1">
+                    {!showCheckinForm ? (
                       <button
                         type="button"
-                        disabled={reservationCodeInput.length < 6}
-                        className="px-4 py-2 rounded-xl bg-coffee-700 text-cream text-sm font-bold disabled:opacity-50 hover:bg-coffee-800 transition-colors active:scale-95"
-                        onClick={async () => {
-                          if (!reservationCodeInput.trim()) return;
-                          const { claimTable: claimFn } = await import('@/lib/table-session');
-                          const res = await claimFn({
-                            code:             claimError.code,
-                            reservationCode:  reservationCodeInput.trim(),
-                          });
-                          if (res.ok) {
-                            setClaimError(null);
-                            setReservationCodeInput('');
-                            refreshTableSession();
-                            setTableChangeNotice(`Reservasi dikonfirmasi! Selamat menikmati waktu di meja kami.`);
-                          } else {
-                            toast.error('Kode reservasi tidak valid atau sudah dipakai.');
-                          }
-                        }}
+                        onClick={() => setShowCheckinForm(true)}
+                        className="w-full py-3 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 transition-colors shadow-sm flex items-center justify-center gap-2 active:scale-95 text-sm"
                       >
-                        Klaim
+                        <UserCheck className="w-4 h-4" />
+                        Saya yang reservasi meja ini
                       </button>
-                    </div>
+                    ) : (
+                      <div className="space-y-2.5 bg-amber-50/60 p-3.5 rounded-xl border border-amber-200/60">
+                        <p className="text-xs text-charcoal/70 font-semibold">Check-in Reservasi:</p>
+                        <div>
+                          <label className="text-[11px] font-medium text-charcoal/60 uppercase">Kode Reservasi (8 Karakter)</label>
+                          <input
+                            type="text"
+                            className="w-full mt-1 px-3 py-2 rounded-xl border border-coffee-200/80 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-mono uppercase bg-white font-bold"
+                            placeholder="Contoh: AB12CD34"
+                            value={reservationCodeInput}
+                            onChange={(e) => setReservationCodeInput(e.target.value.toUpperCase())}
+                            maxLength={8}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-medium text-charcoal/60 uppercase">4 Digit Terakhir No. HP</label>
+                          <input
+                            type="text"
+                            className="w-full mt-1 px-3 py-2 rounded-xl border border-coffee-200/80 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-mono bg-white"
+                            placeholder="Opsional jika menggunakan HP pemesan"
+                            value={reservationPhoneLast4}
+                            onChange={(e) => setReservationPhoneLast4(e.target.value.replace(/\D/g, ''))}
+                            maxLength={4}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={reservationCodeInput.length < 6 || checkingIn}
+                          className="w-full py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold disabled:opacity-50 hover:bg-amber-700 transition-colors flex items-center justify-center gap-2 active:scale-95"
+                          onClick={async () => {
+                            if (!reservationCodeInput.trim()) return;
+                            setCheckingIn(true);
+                            try {
+                              const checkinRes = await fetch(
+                                `/api/reservations/${reservationCodeInput.trim().toUpperCase()}/check-in`,
+                                {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ verifier: reservationPhoneLast4.trim() || undefined }),
+                                },
+                              );
+                              const checkinData = await checkinRes.json();
+                              if (!checkinRes.ok || !checkinData.ok) {
+                                toast.error(checkinData.error || 'Check-in gagal. Periksa kembali kode atau nomor HP Anda.');
+                                return;
+                              }
+
+                              toast.success(checkinData.message || 'Check-in berhasil! Meja telah siap.');
+                              setClaimError(null);
+                              setReservationCodeInput('');
+                              setReservationPhoneLast4('');
+                              setShowCheckinForm(false);
+                              refreshTableSession();
+
+                              if (checkinData.order?.order_code) {
+                                toast.info('Pesanan pre-order Anda sedang disiapkan di dapur.');
+                                router.push(`/status/${checkinData.order.order_code}`);
+                              } else {
+                                setTableChangeNotice(`Check-in berhasil! Selamat menikmati waktu di meja kami.`);
+                              }
+                            } catch {
+                              toast.error('Terjadi kesalahan jaringan saat check-in.');
+                            } finally {
+                              setCheckingIn(false);
+                            }
+                          }}
+                        >
+                          {checkingIn ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Memproses Check-in...
+                            </>
+                          ) : (
+                            'Konfirmasi Check-in'
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
               <button
                 type="button"
-                onClick={() => { setClaimError(null); setReservationCodeInput(''); }}
+                onClick={() => {
+                  setClaimError(null);
+                  setReservationCodeInput('');
+                  setReservationPhoneLast4('');
+                  setShowCheckinForm(false);
+                }}
                 className="w-full py-2.5 rounded-xl border border-coffee-200/80 text-sm font-semibold text-charcoal/60 hover:bg-coffee-50 transition-colors"
               >
                 Pilih Meja Lain

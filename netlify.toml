@@ -4,3 +4,6 @@ publish = ".next"
 
 [[plugins]]
 package = "@netlify/plugin-nextjs"
+
+[functions."sweep-reservations"]
+schedule = "*/5 * * * *"
