@@ -333,6 +333,9 @@ export default function ReservasiPage() {
       setReservation(resCreated);
       setLiveStatus(resCreated.status || 'pending_payment');
       clearReservationCart();
+      if (typeof window !== 'undefined' && resCreated?.code) {
+        localStorage.setItem('last_reservation_code', resCreated.code.toUpperCase());
+      }
       setCurrentStep(5);
       toast.success(`Reservasi ${resCreated.code} berhasil dibuat!`);
     } catch {

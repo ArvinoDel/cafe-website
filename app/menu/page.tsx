@@ -216,6 +216,11 @@ function MenuPageInner() {
           return;
         }
         if (claimResult.code === 'TABLE_RESERVED' || claimResult.code === 'TABLE_RESERVED_SOON') {
+          const savedCode = typeof window !== 'undefined' ? localStorage.getItem('last_reservation_code') : null;
+          if (savedCode) {
+            setReservationCodeInput(savedCode);
+            setShowCheckinForm(true);
+          }
           setClaimError({
             code:     claimResult.code,
             message:  claimResult.code === 'TABLE_RESERVED'
@@ -2224,6 +2229,10 @@ function MenuPageInner() {
                                 return;
                               }
 
+                              const codeUpper = reservationCodeInput.trim().toUpperCase();
+                              if (typeof window !== 'undefined') {
+                                localStorage.setItem('last_reservation_code', codeUpper);
+                              }
                               toast.success(checkinData.message || 'Check-in berhasil! Meja telah siap.');
                               setClaimError(null);
                               setReservationCodeInput('');
@@ -2231,12 +2240,8 @@ function MenuPageInner() {
                               setShowCheckinForm(false);
                               refreshTableSession();
 
-                              if (checkinData.order?.order_code) {
-                                toast.info('Pesanan pre-order Anda sedang disiapkan di dapur.');
-                                router.push(`/status/${checkinData.order.order_code}`);
-                              } else {
-                                setTableChangeNotice(`Check-in berhasil! Selamat menikmati waktu di meja kami.`);
-                              }
+                              // Tampilkan struk pembayaran & rincian reservasi langsung
+                              router.push(`/reservasi/${codeUpper}`);
                             } catch {
                               toast.error('Terjadi kesalahan jaringan saat check-in.');
                             } finally {

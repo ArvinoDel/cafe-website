@@ -36,6 +36,7 @@ import {
   FileText,
   PartyPopper,
   X,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -195,6 +196,9 @@ export default function ReservationDetailPage({
         if (res.ok) {
           const json = await res.json();
           setReservation(json.reservation);
+          if (typeof window !== 'undefined' && json.reservation?.code) {
+            localStorage.setItem('last_reservation_code', json.reservation.code.toUpperCase());
+          }
           setNeedsVerifier(false);
           setEditNotes(json.reservation.notes || '');
           setEditOccasion(json.reservation.occasion || '');
@@ -642,6 +646,37 @@ export default function ReservationDetailPage({
                   <XCircle className="w-3.5 h-3.5" />
                   Batalkan
                 </button>
+              </div>
+            )}
+
+            {/* Seated State: Arrival Confirmed & Add-on Order CTA */}
+            {reservation.status === 'seated' && (
+              <div className="bg-emerald-50 border border-emerald-200/90 rounded-2xl p-5 text-center space-y-3.5 shadow-soft">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-sm">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-emerald-950 text-base">
+                    Anda Telah Menempati Meja {reservation.table_code}
+                  </h3>
+                  <p className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                    Kedatangan Anda telah terverifikasi dan meja aktif. Struk pemesanan Anda telah tersimpan.
+                  </p>
+                </div>
+
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/menu?table=${encodeURIComponent(reservation.table_code)}&branch=${encodeURIComponent(reservation.branch_id)}`)}
+                    className="w-full py-3.5 px-4 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-cream font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+                  >
+                    <UtensilsCrossed className="w-4 h-4 text-cream/90" />
+                    Pesan Makanan / Minuman Tambahan
+                  </button>
+                  <p className="text-[11px] text-charcoal/50 mt-2">
+                    Ingin tambah kopi, cemilan, atau menu lain? Pesanan tambahan akan langsung dikirim ke meja ini.
+                  </p>
+                </div>
               </div>
             )}
           </>
