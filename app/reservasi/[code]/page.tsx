@@ -39,6 +39,7 @@ import {
   UtensilsCrossed,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { saveReservationToHistory } from '@/lib/reservation-history';
 import {
   APP_TIMEZONE,
   formatDateTime,
@@ -197,7 +198,19 @@ export default function ReservationDetailPage({
           const json = await res.json();
           setReservation(json.reservation);
           if (typeof window !== 'undefined' && json.reservation?.code) {
-            localStorage.setItem('last_reservation_code', json.reservation.code.toUpperCase());
+            saveReservationToHistory(json.reservation.code, {
+              code:           json.reservation.code,
+              status:         json.reservation.status,
+              table_code:     json.reservation.table_code,
+              table_label:    json.reservation.table_label,
+              starts_at:      json.reservation.starts_at,
+              ends_at:        json.reservation.ends_at,
+              party_size:     json.reservation.party_size,
+              customer_name:  json.reservation.customer_name,
+              total:          json.reservation.total,
+              preorder_total: json.reservation.preorder_total,
+              items:          json.reservation.items,
+            });
           }
           setNeedsVerifier(false);
           setEditNotes(json.reservation.notes || '');

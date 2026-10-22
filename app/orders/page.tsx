@@ -9,9 +9,7 @@ import {
   Receipt,
   Search,
   RefreshCw,
-  ExternalLink,
   Trash2,
-  Clock,
   CheckCircle2,
   AlertCircle,
   ChevronRight,
@@ -21,13 +19,21 @@ import {
   Wallet,
   RotateCcw,
   Loader2,
+  CalendarDays,
+  Users,
+  UtensilsCrossed,
 } from 'lucide-react';
 import {
   getStoredOrderCodes,
   saveOrderToHistory,
   removeOrderFromHistory,
-  clearAllOrderHistory,
 } from '@/lib/order-history';
+import {
+  getStoredReservationCodes,
+  saveReservationToHistory,
+  removeReservationFromHistory,
+  RESERVATION_SNAPSHOT_PREFIX,
+} from '@/lib/reservation-history';
 import { ORDER_SNAPSHOT_PREFIX, LEGACY_ORDER_SNAPSHOT_PREFIX } from '@/lib/storage-keys';
 import { supabase } from '@/lib/supabase-client';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
@@ -43,6 +49,7 @@ type OrderItem = {
 };
 
 type CustomerOrder = {
+  type?: 'order';
   id: string;
   order_code: string;
   customer_name: string;
@@ -57,37 +64,107 @@ type CustomerOrder = {
   created_at: string;
 };
 
-const STATUS_LABELS: Record<CustomerOrder['status'], string> = {
-  pending: 'Diterima',
+type CustomerReservation = {
+  type?: 'reservation';
+  id:            string;
+  code:          string;
+  table_code:    string;
+  table_label?:  string | null;
+  starts_at:     string;
+  ends_at:       string;
+  party_size:    number;
+  customer_name: string;
+  total:         number;
+  status:        'pending_payment' | 'awaiting_confirmation' | 'confirmed' | 'seated' | 'completed' | 'cancelled' | 'no_show' | 'expired';
+  notes?:        string | null;
+  occasion?:     string | null;
+  created_at:    string;
+};
+
+type HistoryItem =
+  | (CustomerOrder & { itemType: 'order' })
+  | (CustomerReservation & { itemType: 'reservation' });
+
+const ORDER_STATUS_LABELS: Record<CustomerOrder['status'], string> = {
+  pending:   'Diterima',
   preparing: 'Sedang Disiapkan',
-  ready: 'Siap Diantar',
+  ready:     'Siap Diantar',
   completed: 'Selesai',
   cancelled: 'Dibatalkan',
 };
 
-const STATUS_COLORS: Record<CustomerOrder['status'], { badge: string; dot: string; pulse?: boolean }> = {
+const ORDER_STATUS_COLORS: Record<CustomerOrder['status'], { badge: string; dot: string; pulse?: boolean }> = {
   pending: {
     badge: 'bg-amber-50 text-amber-800 border-amber-200/80',
-    dot: 'bg-amber-500',
+    dot:   'bg-amber-500',
     pulse: true,
   },
   preparing: {
     badge: 'bg-blue-50 text-blue-800 border-blue-200/80',
-    dot: 'bg-blue-500',
+    dot:   'bg-blue-500',
     pulse: true,
   },
   ready: {
     badge: 'bg-emerald-50 text-emerald-800 border-emerald-200/80',
-    dot: 'bg-emerald-500',
+    dot:   'bg-emerald-500',
     pulse: true,
   },
   completed: {
     badge: 'bg-coffee-50 text-coffee-800 border-coffee-200/80',
-    dot: 'bg-coffee-600',
+    dot:   'bg-coffee-600',
   },
   cancelled: {
     badge: 'bg-red-50 text-red-700 border-red-200/80',
-    dot: 'bg-red-500',
+    dot:   'bg-red-500',
+  },
+};
+
+const RESERVATION_STATUS_LABELS: Record<string, string> = {
+  pending_payment:       'Menunggu Pembayaran',
+  awaiting_confirmation: 'Menunggu Konfirmasi',
+  confirmed:             'Dikonfirmasi',
+  seated:                'Sedang di Meja',
+  completed:             'Selesai',
+  cancelled:             'Dibatalkan',
+  no_show:               'Tidak Hadir',
+  expired:               'Kedaluwarsa',
+};
+
+const RESERVATION_STATUS_COLORS: Record<string, { badge: string; dot: string; pulse?: boolean }> = {
+  pending_payment: {
+    badge: 'bg-amber-50 text-amber-800 border-amber-200',
+    dot:   'bg-amber-500',
+    pulse: true,
+  },
+  awaiting_confirmation: {
+    badge: 'bg-blue-50 text-blue-800 border-blue-200',
+    dot:   'bg-blue-500',
+    pulse: true,
+  },
+  confirmed: {
+    badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    dot:   'bg-emerald-500',
+  },
+  seated: {
+    badge: 'bg-purple-100 text-purple-900 border-purple-300',
+    dot:   'bg-purple-600',
+    pulse: true,
+  },
+  completed: {
+    badge: 'bg-coffee-50 text-coffee-800 border-coffee-200',
+    dot:   'bg-coffee-600',
+  },
+  cancelled: {
+    badge: 'bg-red-50 text-red-700 border-red-200',
+    dot:   'bg-red-500',
+  },
+  no_show: {
+    badge: 'bg-stone-100 text-stone-700 border-stone-300',
+    dot:   'bg-stone-500',
+  },
+  expired: {
+    badge: 'bg-stone-100 text-stone-700 border-stone-300',
+    dot:   'bg-stone-500',
   },
 };
 
@@ -100,10 +177,10 @@ function formatDate(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('id-ID', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
+    day:    'numeric',
+    month:  'short',
+    year:   'numeric',
+    hour:   '2-digit',
     minute: '2-digit',
   });
 }
@@ -120,11 +197,10 @@ export default function CustomerOrderHistoryPage() {
   const router = useRouter();
   const { brandName } = useBrand();
 
-  const [codes, setCodes] = useState<string[]>([]);
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [reservations, setReservations] = useState<CustomerReservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Manual code tracking input
   const [searchCode, setSearchCode] = useState('');
@@ -132,101 +208,101 @@ export default function CustomerOrderHistoryPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchSuccess, setSearchSuccess] = useState<string | null>(null);
 
-  // Tab filter
-  const [tab, setTab] = useState<'all' | 'active' | 'completed'>('all');
+  // Tab filter: 'all' | 'orders' | 'reservations'
+  const [tab, setTab] = useState<'all' | 'orders' | 'reservations'>('all');
 
-  // Reorder state — key is order_code, value is loading/toast message
+  // Reorder state
   const [reorderingCode, setReorderingCode] = useState<string | null>(null);
   const [reorderToast, setReorderToast] = useState<string | null>(null);
   const reorderToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch full details of saved orders
-  const fetchOrders = useCallback(async (orderCodesToFetch?: string[]) => {
-    const targetCodes = orderCodesToFetch ?? getStoredOrderCodes();
-    if (!targetCodes || targetCodes.length === 0) {
+  // ── Fetch orders & reservations ─────────────────────────────────────────────
+  const fetchAllHistory = useCallback(async () => {
+    const targetOrderCodes = getStoredOrderCodes();
+    const targetResCodes   = getStoredReservationCodes();
+
+    if (targetOrderCodes.length === 0 && targetResCodes.length === 0) {
       setOrders([]);
+      setReservations([]);
       setLoading(false);
       setRefreshing(false);
       return;
     }
 
     try {
-      // Attempt 1: Direct Supabase query
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
-        .in('order_code', targetCodes)
-        .order('created_at', { ascending: false });
+      // 1. Fetch Orders
+      if (targetOrderCodes.length > 0) {
+        const { data: dbOrders, error: orderErr } = await supabase
+          .from('orders')
+          .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
+          .in('order_code', targetOrderCodes)
+          .order('created_at', { ascending: false });
 
-      if (data && !error && data.length > 0) {
-        setOrders(data as CustomerOrder[]);
-        setLastUpdated(new Date());
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      // Attempt 2: Server API batch lookup
-      const res = await fetch(`/api/orders/lookup?codes=${encodeURIComponent(targetCodes.join(','))}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.orders) {
-          setOrders(json.orders as CustomerOrder[]);
-          setLastUpdated(new Date());
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-      }
-
-      // Attempt 3: Local storage snapshots fallback
-      const localOrders: CustomerOrder[] = [];
-      targetCodes.forEach((c) => {
-        try {
-          const raw =
-            localStorage.getItem(ORDER_SNAPSHOT_PREFIX + c) ||
-            localStorage.getItem(LEGACY_ORDER_SNAPSHOT_PREFIX + c);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed?.order_code) localOrders.push(parsed);
+        if (dbOrders && !orderErr && dbOrders.length > 0) {
+          setOrders(dbOrders as CustomerOrder[]);
+        } else {
+          // Fallback via API
+          const res = await fetch(`/api/orders/lookup?codes=${encodeURIComponent(targetOrderCodes.join(','))}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json?.orders) setOrders(json.orders as CustomerOrder[]);
           }
-        } catch {}
-      });
+        }
+      } else {
+        setOrders([]);
+      }
 
-      if (localOrders.length > 0) {
-        setOrders(localOrders);
+      // 2. Fetch Reservations
+      if (targetResCodes.length > 0) {
+        const resRes = await fetch(`/api/reservations/lookup?codes=${encodeURIComponent(targetResCodes.join(','))}`);
+        if (resRes.ok) {
+          const resJson = await resRes.json();
+          if (resJson?.reservations) {
+            setReservations(resJson.reservations as CustomerReservation[]);
+          }
+        } else {
+          // Local storage snapshot fallback
+          const localRes: CustomerReservation[] = [];
+          targetResCodes.forEach((c) => {
+            try {
+              const raw = localStorage.getItem(RESERVATION_SNAPSHOT_PREFIX + c);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed?.code) localRes.push(parsed);
+              }
+            } catch {}
+          });
+          if (localRes.length > 0) setReservations(localRes);
+        }
+      } else {
+        setReservations([]);
       }
     } catch (err) {
-      console.error('Error fetching order history:', err);
+      console.error('Error fetching history:', err);
     } finally {
-      setLastUpdated(new Date());
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  // Initialize on mount
   useEffect(() => {
-    const list = getStoredOrderCodes();
-    setCodes(list);
-    fetchOrders(list);
-  }, [fetchOrders]);
+    fetchAllHistory();
+  }, [fetchAllHistory]);
 
-  // Periodic polling for active orders
-  const hasActiveOrders = useMemo(
-    () => orders.some((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready'),
-    [orders]
-  );
-
+  // Periodic polling for active orders & reservations
   useEffect(() => {
-    if (!hasActiveOrders) return;
+    const hasActive =
+      orders.some((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready') ||
+      reservations.some((r) => r.status === 'pending_payment' || r.status === 'awaiting_confirmation' || r.status === 'confirmed' || r.status === 'seated');
+
+    if (!hasActive) return;
 
     const timer = setInterval(() => {
-      fetchOrders();
+      fetchAllHistory();
     }, 12000);
 
     return () => clearInterval(timer);
-  }, [hasActiveOrders, fetchOrders]);
+  }, [orders, reservations, fetchAllHistory]);
 
   // Handle manual code addition
   async function handleAddCode(e: React.FormEvent) {
@@ -239,46 +315,60 @@ export default function CustomerOrderHistoryPage() {
     setSearchSuccess(null);
 
     try {
-      // Look up order from API
-      const res = await fetch(`/api/orders/lookup?code=${encodeURIComponent(clean)}`);
-      if (!res.ok) {
-        setSearchError(`Pesanan dengan kode "${clean}" tidak ditemukan.`);
-        setSearchLoading(false);
-        return;
+      // 1. Try order lookup
+      const resOrder = await fetch(`/api/orders/lookup?code=${encodeURIComponent(clean)}`);
+      if (resOrder.ok) {
+        const jsonOrder = await resOrder.json();
+        if (jsonOrder?.order) {
+          saveOrderToHistory(clean);
+          setSearchSuccess(`Pesanan #${clean} berhasil ditambahkan ke riwayat.`);
+          setSearchCode('');
+          await fetchAllHistory();
+          setSearchLoading(false);
+          return;
+        }
       }
 
-      const json = await res.json();
-      if (!json?.order) {
-        setSearchError(`Pesanan dengan kode "${clean}" tidak ditemukan.`);
-        setSearchLoading(false);
-        return;
+      // 2. Try reservation lookup
+      const resRes = await fetch(`/api/reservations/lookup?codes=${encodeURIComponent(clean)}`);
+      if (resRes.ok) {
+        const jsonRes = await resRes.json();
+        if (jsonRes?.reservations && jsonRes.reservations.length > 0) {
+          saveReservationToHistory(clean, jsonRes.reservations[0]);
+          setSearchSuccess(`Reservasi #${clean} berhasil ditambahkan ke riwayat.`);
+          setSearchCode('');
+          await fetchAllHistory();
+          setSearchLoading(false);
+          return;
+        }
       }
 
-      const newOrder = json.order as CustomerOrder;
-      const updatedCodes = saveOrderToHistory(clean);
-      setCodes(updatedCodes);
-      setOrders((prev) => [newOrder, ...prev.filter((o) => o.order_code !== clean)]);
-      setSearchSuccess(`Pesanan #${clean} berhasil ditambahkan ke riwayat.`);
-      setSearchCode('');
+      setSearchError(`Kode pesanan atau reservasi "${clean}" tidak ditemukan.`);
     } catch {
-      setSearchError('Gagal memeriksa kode pesanan. Coba lagi.');
+      setSearchError('Gagal memeriksa kode. Coba lagi.');
     } finally {
       setSearchLoading(false);
     }
   }
 
-  // Remove individual order from device history
-  function handleRemove(codeToRemove: string) {
+  // Remove individual item from device history
+  function handleRemoveOrder(codeToRemove: string) {
     if (confirm(`Hapus pesanan #${codeToRemove} dari riwayat perangkat ini?`)) {
-      const updatedCodes = removeOrderFromHistory(codeToRemove);
-      setCodes(updatedCodes);
+      removeOrderFromHistory(codeToRemove);
       setOrders((prev) => prev.filter((o) => o.order_code !== codeToRemove));
+    }
+  }
+
+  function handleRemoveReservation(codeToRemove: string) {
+    if (confirm(`Hapus reservasi #${codeToRemove} dari riwayat perangkat ini?`)) {
+      removeReservationFromHistory(codeToRemove);
+      setReservations((prev) => prev.filter((r) => r.code !== codeToRemove));
     }
   }
 
   // "Pesan lagi" handler
   async function handleReorder(order: CustomerOrder) {
-    if (reorderingCode) return; // prevent concurrent reorders
+    if (reorderingCode) return;
     setReorderingCode(order.order_code);
     try {
       const { added, skipped } = await executeReorder(
@@ -295,12 +385,10 @@ export default function CustomerOrderHistoryPage() {
         msg = `${added} item dimasukkan ke keranjang.`;
       }
 
-      // Show toast then redirect
       setReorderToast(msg);
       if (reorderToastTimer.current) clearTimeout(reorderToastTimer.current);
 
       if (added > 0) {
-        // Short delay so the user sees the toast before navigation
         reorderToastTimer.current = setTimeout(() => {
           router.push('/menu');
         }, 1200);
@@ -315,18 +403,19 @@ export default function CustomerOrderHistoryPage() {
     }
   }
 
-  // Filter orders by tab
-  const filteredOrders = useMemo(() => {
-    if (tab === 'active') {
-      return orders.filter((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
-    }
-    if (tab === 'completed') {
-      return orders.filter((o) => o.status === 'completed' || o.status === 'cancelled');
-    }
-    return orders;
-  }, [orders, tab]);
+  // Merge and sort all items chronologically
+  const unifiedItems: HistoryItem[] = useMemo(() => {
+    const list: HistoryItem[] = [];
 
-  const activeCount = orders.filter((o) => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready').length;
+    if (tab === 'all' || tab === 'orders') {
+      orders.forEach((o) => list.push({ ...o, itemType: 'order' }));
+    }
+    if (tab === 'all' || tab === 'reservations') {
+      reservations.forEach((r) => list.push({ ...r, itemType: 'reservation' }));
+    }
+
+    return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [orders, reservations, tab]);
 
   return (
     <div className="min-h-screen bg-cream text-charcoal pb-16">
@@ -346,13 +435,13 @@ export default function CustomerOrderHistoryPage() {
               <div className="w-7 h-7 rounded-lg bg-coffee-700 text-cream flex items-center justify-center">
                 <Receipt className="w-4 h-4" />
               </div>
-              <h1 className="font-extrabold text-coffee-900 text-base sm:text-lg">Riwayat Pesanan</h1>
+              <h1 className="font-extrabold text-coffee-900 text-base sm:text-lg">Riwayat Aktivitas</h1>
             </div>
 
             <button
               onClick={() => {
                 setRefreshing(true);
-                fetchOrders();
+                fetchAllHistory();
               }}
               disabled={refreshing || loading}
               className="p-2 text-coffee-600 hover:text-coffee-900 hover:bg-coffee-100/60 rounded-xl transition-colors disabled:opacity-50"
@@ -373,7 +462,7 @@ export default function CustomerOrderHistoryPage() {
           <div className="flex-1 text-xs text-charcoal/70 leading-relaxed">
             <p className="font-bold text-coffee-900">Tersimpan di Perangkat Ini</p>
             <p className="mt-0.5 text-charcoal/60">
-              Riwayat pesanan {brandName} disimpan otomatis di browser kamu tanpa perlu login. Kamu juga bisa melacak pesanan lain dengan memasukkan kode pesanan di bawah.
+              Riwayat pesanan menu dan reservasi meja {brandName} disimpan otomatis di browser kamu tanpa perlu login.
             </p>
           </div>
         </div>
@@ -395,10 +484,10 @@ export default function CustomerOrderHistoryPage() {
           )}
         </AnimatePresence>
 
-        {/* Manual search / Add order by code */}
+        {/* Manual search / Add order or reservation by code */}
         <form onSubmit={handleAddCode} className="bg-white rounded-2xl border border-coffee-100/80 p-4 shadow-soft space-y-3">
           <label className="block text-xs font-bold text-coffee-900">
-            Lacak Pesanan Tertentu
+            Lacak Pesanan atau Reservasi
           </label>
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -411,7 +500,7 @@ export default function CustomerOrderHistoryPage() {
                   setSearchError(null);
                   setSearchSuccess(null);
                 }}
-                placeholder="Masukkan Kode (cth: NK386931)"
+                placeholder="Masukkan Kode (cth: NK123456 atau RSV123)"
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-coffee-50/50 border border-coffee-100 text-charcoal text-sm placeholder:text-charcoal/40 font-mono focus:outline-none focus:border-coffee-400 uppercase transition-colors"
               />
             </div>
@@ -456,30 +545,28 @@ export default function CustomerOrderHistoryPage() {
                 : 'text-charcoal/60 hover:text-coffee-800 hover:bg-coffee-50'
             }`}
           >
-            Semua ({orders.length})
+            Semua ({orders.length + reservations.length})
           </button>
           <button
-            onClick={() => setTab('active')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              tab === 'active'
-                ? 'bg-coffee-700 text-cream shadow-soft'
-                : 'text-charcoal/60 hover:text-coffee-800 hover:bg-coffee-50'
-            }`}
-          >
-            <span>Aktif ({activeCount})</span>
-            {activeCount > 0 && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            )}
-          </button>
-          <button
-            onClick={() => setTab('completed')}
+            onClick={() => setTab('orders')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              tab === 'completed'
+              tab === 'orders'
                 ? 'bg-coffee-700 text-cream shadow-soft'
                 : 'text-charcoal/60 hover:text-coffee-800 hover:bg-coffee-50'
             }`}
           >
-            Selesai ({orders.length - activeCount})
+            Pesanan Menu ({orders.length})
+          </button>
+          <button
+            onClick={() => setTab('reservations')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              tab === 'reservations'
+                ? 'bg-purple-700 text-cream shadow-soft'
+                : 'text-charcoal/60 hover:text-purple-800 hover:bg-purple-50'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>Reservasi Meja ({reservations.length})</span>
           </button>
         </div>
 
@@ -497,29 +584,33 @@ export default function CustomerOrderHistoryPage() {
               </div>
             ))}
           </div>
-        ) : filteredOrders.length === 0 ? (
+        ) : unifiedItems.length === 0 ? (
           <div className="bg-white rounded-2xl border border-coffee-100/80 p-8 text-center space-y-3 shadow-soft">
             <div className="w-16 h-16 rounded-2xl bg-coffee-50 text-coffee-300 flex items-center justify-center mx-auto mb-2">
               <ShoppingBag className="w-8 h-8" />
             </div>
             <h3 className="font-bold text-coffee-900 text-base">
-              {tab === 'all'
-                ? 'Belum Ada Riwayat Pesanan'
-                : tab === 'active'
-                ? 'Tidak Ada Pesanan Aktif'
-                : 'Belum Ada Pesanan Selesai'}
+              {tab === 'reservations'
+                ? 'Belum Ada Riwayat Reservasi'
+                : tab === 'orders'
+                ? 'Belum Ada Riwayat Pesanan Menu'
+                : 'Belum Ada Riwayat Aktivitas'}
             </h3>
             <p className="text-xs text-charcoal/50 max-w-sm mx-auto">
-              {tab === 'all'
-                ? `Pesanan ${brandName} yang kamu pesan dari browser ini akan otomatis tersimpan di sini.`
-                : 'Kamu tidak memiliki pesanan dalam status ini.'}
+              Aktivitas pemesanan dan reservasi meja kamu dari perangkat ini akan otomatis tersimpan di sini.
             </p>
-            <div className="pt-2">
+            <div className="pt-2 flex justify-center gap-2">
               <button
                 onClick={() => router.push('/menu')}
-                className="px-5 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-sm hover:bg-coffee-800 transition-all shadow-soft active:scale-95"
+                className="px-4 py-2.5 rounded-xl bg-coffee-700 text-cream font-bold text-xs hover:bg-coffee-800 transition-all shadow-soft active:scale-95"
               >
-                Pesan Sekarang
+                Lihat Menu
+              </button>
+              <button
+                onClick={() => router.push('/reservasi')}
+                className="px-4 py-2.5 rounded-xl bg-purple-700 text-white font-bold text-xs hover:bg-purple-800 transition-all shadow-soft active:scale-95"
+              >
+                Reservasi Meja
               </button>
             </div>
           </div>
@@ -531,9 +622,114 @@ export default function CustomerOrderHistoryPage() {
             className="space-y-3.5"
           >
             <AnimatePresence>
-              {filteredOrders.map((order) => {
-                const statusStyle = STATUS_COLORS[order.status] || STATUS_COLORS.pending;
-                const statusLabel = STATUS_LABELS[order.status] || order.status;
+              {unifiedItems.map((item) => {
+                if (item.itemType === 'reservation') {
+                  const res = item as CustomerReservation;
+                  const resStatusStyle = RESERVATION_STATUS_COLORS[res.status] || RESERVATION_STATUS_COLORS.confirmed;
+                  const resStatusLabel = RESERVATION_STATUS_LABELS[res.status] || res.status;
+
+                  return (
+                    <motion.div
+                      key={res.id || res.code}
+                      variants={fadeInUp}
+                      layout
+                      className="bg-white rounded-2xl border border-purple-200/80 p-4 sm:p-5 shadow-soft hover:shadow-soft-lg transition-all space-y-3.5 ring-1 ring-purple-100"
+                    >
+                      {/* Reservation Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800">
+                              <CalendarDays className="w-3 h-3" /> Reservasi Meja
+                            </span>
+                            <span className="text-base font-extrabold text-coffee-900 font-mono tracking-wide">
+                              #{res.code}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${resStatusStyle.badge}`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${resStatusStyle.dot} ${
+                                  resStatusStyle.pulse ? 'animate-pulse' : ''
+                                }`}
+                              />
+                              {resStatusLabel}
+                            </span>
+                          </div>
+                          <p className="text-xs text-charcoal/50 mt-1.5 flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-purple-950">Meja {res.table_code}</span>
+                            {res.table_label && <span>({res.table_label})</span>}
+                            <span>&middot;</span>
+                            <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {res.party_size} Orang</span>
+                            <span>&middot;</span>
+                            <span>{relativeTime(res.created_at)}</span>
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleRemoveReservation(res.code)}
+                          className="p-1.5 text-charcoal/30 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                          title="Hapus dari daftar riwayat perangkat ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Reservation Schedule Box */}
+                      <div className="bg-purple-50/50 rounded-xl p-3 border border-purple-100/60 text-xs text-purple-950 flex items-center justify-between">
+                        <div>
+                          <span className="text-charcoal/50 block text-[11px]">Jadwal Kunjungan:</span>
+                          <span className="font-bold">{formatDate(res.starts_at)}</span>
+                        </div>
+                        {res.customer_name && (
+                          <div className="text-right">
+                            <span className="text-charcoal/50 block text-[11px]">Atas Nama:</span>
+                            <span className="font-semibold">{res.customer_name}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Total & Action */}
+                      <div className="flex items-center justify-between pt-1">
+                        <div>
+                          <span className="text-[11px] text-charcoal/40 uppercase tracking-wider block font-semibold">
+                            Total Biaya
+                          </span>
+                          <span className="text-base font-extrabold text-coffee-900">
+                            {formatPrice(res.total)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {res.status === 'seated' && (
+                            <button
+                              onClick={() => router.push(`/menu?table=${encodeURIComponent(res.table_code)}`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-coffee-50 border border-coffee-200 text-coffee-800 text-xs font-bold hover:bg-coffee-100 transition-all active:scale-95"
+                              title="Pesan makanan tambahan di meja ini"
+                            >
+                              <UtensilsCrossed className="w-3.5 h-3.5 text-coffee-700" />
+                              <span className="hidden sm:inline">Pesan Tambahan</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => router.push(`/reservasi/${res.code}`)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-700 text-white text-xs font-bold hover:bg-purple-800 transition-all shadow-soft active:scale-95"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>Struk &amp; Detail</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                }
+
+                // Regular food order card
+                const order = item as CustomerOrder;
+                const statusStyle = ORDER_STATUS_COLORS[order.status] || ORDER_STATUS_COLORS.pending;
+                const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status;
 
                 return (
                   <motion.div
@@ -580,7 +776,7 @@ export default function CustomerOrderHistoryPage() {
                           </span>
                         )}
                         <button
-                          onClick={() => handleRemove(order.order_code)}
+                          onClick={() => handleRemoveOrder(order.order_code)}
                           className="p-1.5 text-charcoal/30 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Hapus dari daftar riwayat perangkat ini"
                         >
@@ -591,23 +787,23 @@ export default function CustomerOrderHistoryPage() {
 
                     {/* Order items preview */}
                     <div className="bg-coffee-50/40 rounded-xl p-3 space-y-1.5">
-                      {order.items?.map((item, idx) => (
+                      {order.items?.map((orderItem, idx) => (
                         <div
-                          key={item.id ? `${item.id}-${idx}` : idx}
+                          key={orderItem.id ? `${orderItem.id}-${idx}` : idx}
                           className="flex items-start justify-between text-xs gap-2"
                         >
                           <div className="min-w-0">
                             <span className="text-charcoal/80">
-                              <strong className="text-coffee-900">{item.quantity}x</strong> {item.name}
+                              <strong className="text-coffee-900">{orderItem.quantity}x</strong> {orderItem.name}
                             </span>
-                            {item.note && (
+                            {orderItem.note && (
                               <p className="text-[11px] text-amber-800 bg-amber-50/80 border border-amber-200/60 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
-                                Catatan: {item.note}
+                                Catatan: {orderItem.note}
                               </p>
                             )}
                           </div>
                           <span className="text-charcoal/60 font-medium flex-shrink-0">
-                            {formatPrice(item.price * item.quantity)}
+                            {formatPrice(orderItem.price * orderItem.quantity)}
                           </span>
                         </div>
                       ))}

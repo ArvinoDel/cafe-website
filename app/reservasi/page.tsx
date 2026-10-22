@@ -61,6 +61,7 @@ import {
   clearReservationCart,
   type StoredCartItem,
 } from '@/lib/cart';
+import { saveReservationToHistory } from '@/lib/reservation-history';
 import {
   getItemLineKey,
   type SelectedOption,
@@ -334,7 +335,24 @@ export default function ReservasiPage() {
       setLiveStatus(resCreated.status || 'pending_payment');
       clearReservationCart();
       if (typeof window !== 'undefined' && resCreated?.code) {
-        localStorage.setItem('last_reservation_code', resCreated.code.toUpperCase());
+        saveReservationToHistory(resCreated.code, {
+          code: resCreated.code,
+          status: resCreated.status,
+          table_code: resCreated.table_code || selectedTable?.code || 'Meja',
+          table_label: resCreated.table_label || selectedTable?.label,
+          starts_at: resCreated.starts_at || startsAt,
+          ends_at: resCreated.ends_at,
+          party_size: partySize,
+          customer_name: customerName,
+          total: preorderTotal,
+          preorder_total: preorderTotal,
+          items: cartItems.map((ci) => ({
+            id: ci.id,
+            name: ci.name,
+            price: ci.price,
+            quantity: ci.quantity,
+          })),
+        });
       }
       setCurrentStep(5);
       toast.success(`Reservasi ${resCreated.code} berhasil dibuat!`);

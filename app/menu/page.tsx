@@ -32,6 +32,8 @@ import {
 import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 import { MenuGridSkeleton, CategoryTabsSkeleton } from '@/components/ui/MenuCardSkeleton';
 import { useTableSession, claimTable, type ClaimTableResult } from '@/lib/table-session';
+import { saveOrderToHistory } from '@/lib/order-history';
+import { saveReservationToHistory } from '@/lib/reservation-history';
 import { formatHHMM } from '@/lib/datetime';
 
 type MenuItem = BranchMenuItem;
@@ -2242,7 +2244,18 @@ function MenuPageInner() {
                       }
 
                       if (typeof window !== 'undefined') {
-                        localStorage.setItem('last_reservation_code', codeUpper);
+                        saveReservationToHistory(codeUpper, {
+                          code: codeUpper,
+                          status: 'seated',
+                          table_code: tableReservationInfo.tableCode,
+                          starts_at: tableReservationInfo.startsAt,
+                          ends_at: tableReservationInfo.endsAt,
+                          party_size: tableReservationInfo.partySize,
+                          customer_name: tableReservationInfo.customerName,
+                        });
+                        if (checkinData.order?.order_code) {
+                          saveOrderToHistory(checkinData.order.order_code);
+                        }
                       }
                       toast.success(checkinData.message || 'Check-in berhasil! Meja telah siap.');
                       setTableReservationInfo(null);
