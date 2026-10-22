@@ -31,7 +31,7 @@ import {
 } from '@/lib/group-cart';
 import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 import { MenuGridSkeleton, CategoryTabsSkeleton } from '@/components/ui/MenuCardSkeleton';
-import { useTableSession, type ClaimTableResult } from '@/lib/table-session';
+import { useTableSession, claimTable, type ClaimTableResult } from '@/lib/table-session';
 import { formatHHMM } from '@/lib/datetime';
 
 type MenuItem = BranchMenuItem;
@@ -153,6 +153,18 @@ function MenuPageInner() {
     message: string;
     startsAt?: string;
   } | null>(null);
+  const [tableReservationInfo, setTableReservationInfo] = useState<{
+    id:           string;
+    code?:        string;
+    codeMasked?:  string;
+    customerName: string;
+    startsAt:     string;
+    endsAt:       string;
+    status:       string;
+    partySize:    number;
+    isOwner:      boolean;
+    tableCode:    string;
+  } | null>(null);
   const [reservationCodeInput, setReservationCodeInput] = useState('');
   const [reservationPhoneLast4, setReservationPhoneLast4] = useState('');
   const [checkingIn, setCheckingIn] = useState(false);
@@ -202,97 +214,112 @@ function MenuPageInner() {
     }
   }, []);
 
-  const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null, claimResult?: ClaimTableResult) => {
+  const verifyAndClaimTable = useCallback(
+    async (scannedTable: string, scannedBranchId?: string | null) => {
+      const clean = scannedTable.trim().toUpperCase();
       const prevTable = localStorage.getItem(TABLE_KEY);
 
-      // Handle claim errors first — show friendly state, don't update local state
-      if (claimResult && !claimResult.ok) {
-        if (claimResult.code === 'TABLE_TAKEN') {
-          setClaimError({
-            code:    'TABLE_TAKEN',
-            message: 'Meja ini sedang dipakai pelanggan lain.',
-          });
-          return;
-        }
-        if (claimResult.code === 'TABLE_RESERVED' || claimResult.code === 'TABLE_RESERVED_SOON') {
-          const savedCode = typeof window !== 'undefined' ? localStorage.getItem('last_reservation_code') : null;
-          if (savedCode) {
-            setReservationCodeInput(savedCode);
-            setShowCheckinForm(true);
-          }
-          setClaimError({
-            code:     claimResult.code,
-            message:  claimResult.code === 'TABLE_RESERVED'
-              ? 'Meja ini sudah dipesan untuk reservasi.'
-              : 'Meja ini akan segera dipakai untuk reservasi (kurang dari 30 menit lagi).',
-            startsAt: (claimResult as any).startsAt ?? undefined,
-          });
-          return;
-        }
-        if (claimResult.code === 'TABLE_NOT_FOUND') {
-          toast.error('Meja tidak ditemukan atau tidak aktif. Hubungi staff ya.');
-          return;
-        }
-        // Generic error
-        toast.error(claimResult.error ?? 'Gagal mengklaim meja. Coba lagi.');
-        return;
-      }
-
-      // Claim succeeded or no claim result (legacy fallback)
-      setTableNumber(scanned);
-      localStorage.setItem(TABLE_KEY, scanned);
+      setTableNumber(clean);
+      localStorage.setItem(TABLE_KEY, clean);
       if (scannedBranchId) {
         setBranchId(scannedBranchId);
         localStorage.setItem(BRANCH_KEY, scannedBranchId);
       }
-      if (prevTable && prevTable !== scanned) {
+
+      if (prevTable && prevTable !== clean) {
         setTableChangeNotice(
-          `Meja berhasil dipindahkan dari Meja ${prevTable} ke Meja ${scanned}! Keranjang belanja kamu tetap tersimpan.`,
+          `Meja berhasil dipindahkan dari Meja ${prevTable} ke Meja ${clean}! Keranjang belanja kamu tetap tersimpan.`,
         );
       } else {
-        setTableChangeNotice(`Terhubung ke Meja ${scanned}! Selamat memesan.`);
+        setTableChangeNotice(`Terhubung ke Meja ${clean}!`);
       }
 
-      // Refresh server session display
-      refreshTableSession();
+      const savedCode = typeof window !== 'undefined' ? localStorage.getItem('last_reservation_code') : null;
 
+      try {
+        // 1. Check if this table has an active reservation for today
+        const checkRes = await fetch(
+          `/api/tables/check?code=${encodeURIComponent(clean)}&branch_id=${encodeURIComponent(scannedBranchId || '')}`,
+        );
+        const data = await checkRes.json();
+
+        if (data.ok && data.hasReservation && data.reservation) {
+          const res = data.reservation;
+
+          // If reservation is already seated, and is owner or has saved code -> direct to receipt
+          if (res.status === 'seated') {
+            if (res.isOwner || (savedCode && (res.code === savedCode || res.codeMasked?.endsWith(savedCode.slice(-2))))) {
+              router.replace(`/reservasi/${res.code || savedCode}`);
+              return;
+            }
+          }
+
+          // Table has a confirmed reservation! Trigger verification dialog immediately
+          setTableReservationInfo({
+            ...res,
+            tableCode: clean,
+          });
+          if (res.code) {
+            setReservationCodeInput(res.code);
+          } else if (savedCode) {
+            setReservationCodeInput(savedCode);
+          }
+          return;
+        }
+
+        // 2. No active reservation on this table -> normal walk-in claim
+        const claimRes = await claimTable({ code: clean, branchId: scannedBranchId || undefined });
+        if (!claimRes.ok) {
+          if (claimRes.code === 'TABLE_TAKEN') {
+            setClaimError({ code: 'TABLE_TAKEN', message: 'Meja ini sedang dipakai pelanggan lain.' });
+          } else if (claimRes.code === 'TABLE_RESERVED' || claimRes.code === 'TABLE_RESERVED_SOON') {
+            setClaimError({
+              code: claimRes.code,
+              message: claimRes.code === 'TABLE_RESERVED'
+                ? 'Meja ini sudah dipesan untuk reservasi.'
+                : 'Meja ini akan segera dipakai untuk reservasi.',
+              startsAt: (claimRes as any).startsAt ?? undefined,
+            });
+            if (savedCode) {
+              setReservationCodeInput(savedCode);
+            }
+            setShowCheckinForm(true);
+          }
+        } else {
+          refreshTableSession();
+        }
+      } catch (err) {
+        console.error('Error verifying table claim:', err);
+      }
+    },
+    [router, refreshTableSession],
+  );
+
+  const handleScanSuccess = useCallback(
+    (scanned: string, scannedBranchId: string | null) => {
+      void verifyAndClaimTable(scanned, scannedBranchId);
       const url = scannedBranchId
         ? `/menu?table=${scanned}&branch=${scannedBranchId}`
         : `/menu?table=${scanned}`;
       router.replace(url);
     },
-    [router, refreshTableSession],
+    [verifyAndClaimTable, router],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and
   // is remembered; otherwise fall back to whatever table/branch was set last time.
-  // Users cannot manually edit the table code; it must come from QR scanning.
   useEffect(() => {
     const fromQr = searchParams.get('table');
     const fromBranch = searchParams.get('branch');
     if (fromQr && fromQr.trim()) {
-      const clean = fromQr.trim().toUpperCase();
-      const stored = localStorage.getItem(TABLE_KEY);
-      if (stored && stored !== clean) {
-        setTableChangeNotice(
-          `Meja berhasil dipindahkan dari Meja ${stored} ke Meja ${clean}! Keranjang belanja kamu tetap tersimpan.`,
-        );
-      }
-      setTableNumber(clean);
-      localStorage.setItem(TABLE_KEY, clean);
+      void verifyAndClaimTable(fromQr, fromBranch);
     } else {
       const stored = localStorage.getItem(TABLE_KEY);
       if (stored) setTableNumber(stored);
-    }
-    if (fromBranch && fromBranch.trim()) {
-      setBranchId(fromBranch.trim());
-      localStorage.setItem(BRANCH_KEY, fromBranch.trim());
-    } else {
       const storedBranch = localStorage.getItem(BRANCH_KEY);
       if (storedBranch) setBranchId(storedBranch);
     }
-  }, [searchParams]);
+  }, [searchParams, verifyAndClaimTable]);
 
   // fetchMenu — also called silently when the cart drawer opens so the
   // "Habis" badges on cart items update without a full page refresh.
@@ -2121,6 +2148,142 @@ function MenuPageInner() {
             : 'Arahkan kamera ke stiker QR di meja untuk memesan'
         }
       />
+
+      {/* Table Reservation Arrival Verification Modal */}
+      <AnimatePresence>
+        {tableReservationInfo && (
+          <motion.div
+            key="reservation-verify-overlay"
+            className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 space-y-4"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center flex-shrink-0 text-purple-700 shadow-sm">
+                  <UserCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-purple-100 text-purple-800">
+                    Meja {tableReservationInfo.tableCode} Direservasi
+                  </span>
+                  <p className="font-extrabold text-coffee-950 text-base mt-0.5">Konfirmasi Kedatangan</p>
+                </div>
+              </div>
+
+              <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-3.5 space-y-1 text-xs text-purple-950">
+                <p className="leading-snug">
+                  Meja ini telah dipesan atas nama <strong>{tableReservationInfo.customerName}</strong> ({tableReservationInfo.partySize} orang).
+                </p>
+                <p className="text-[11px] text-purple-800 font-medium">
+                  Jadwal: <strong>{formatHHMM(tableReservationInfo.startsAt)} - {formatHHMM(tableReservationInfo.endsAt)} WIB</strong>
+                </p>
+              </div>
+
+              <p className="text-xs text-charcoal/70 leading-relaxed">
+                Apakah ini reservasi Anda? Masukkan kode reservasi dan 4 digit terakhir nomor HP Anda sebagai tanda kehadiran di kafe:
+              </p>
+
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-[11px] font-bold text-charcoal/70 uppercase block mb-1">
+                    Kode Reservasi
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2.5 rounded-xl border border-coffee-200 text-sm font-mono uppercase bg-white font-bold focus:outline-none focus:ring-2 focus:ring-purple-400"
+                    placeholder="Contoh: AB12CD34"
+                    value={reservationCodeInput}
+                    onChange={(e) => setReservationCodeInput(e.target.value.toUpperCase())}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-charcoal/70 uppercase block mb-1">
+                    4 Digit Terakhir No. HP Pemesan
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    className="w-full px-3 py-2.5 rounded-xl border border-coffee-200 text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
+                    placeholder="Contoh: 1234"
+                    value={reservationPhoneLast4}
+                    onChange={(e) => setReservationPhoneLast4(e.target.value.replace(/\D/g, ''))}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={reservationCodeInput.trim().length < 5 || checkingIn}
+                  className="w-full py-3 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 shadow-soft"
+                  onClick={async () => {
+                    if (!reservationCodeInput.trim()) return;
+                    setCheckingIn(true);
+                    try {
+                      const codeUpper = reservationCodeInput.trim().toUpperCase();
+                      const checkinRes = await fetch(
+                        `/api/reservations/${codeUpper}/check-in`,
+                        {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ verifier: reservationPhoneLast4.trim() || undefined }),
+                        },
+                      );
+                      const checkinData = await checkinRes.json();
+                      if (!checkinRes.ok || !checkinData.ok) {
+                        toast.error(checkinData.error || 'Validasi check-in gagal. Periksa kembali kode atau nomor HP Anda.');
+                        return;
+                      }
+
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('last_reservation_code', codeUpper);
+                      }
+                      toast.success(checkinData.message || 'Check-in berhasil! Meja telah siap.');
+                      setTableReservationInfo(null);
+                      setReservationCodeInput('');
+                      setReservationPhoneLast4('');
+                      refreshTableSession();
+
+                      // Langsung tampilkan struk pembayaran & rincian reservasi
+                      router.push(`/reservasi/${codeUpper}`);
+                    } catch {
+                      toast.error('Terjadi kesalahan jaringan saat check-in.');
+                    } finally {
+                      setCheckingIn(false);
+                    }
+                  }}
+                >
+                  {checkingIn ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Memverifikasi Kehadiran...
+                    </>
+                  ) : (
+                    'Validasi & Buka Struk Pembayaran'
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTableReservationInfo(null);
+                    toast.info(`Meja ${tableReservationInfo.tableCode} telah direservasi. Silakan pilih meja lain yang tersedia.`);
+                  }}
+                  className="w-full py-2 text-xs font-semibold text-charcoal/60 hover:text-charcoal transition-colors"
+                >
+                  Saya Tamu Walk-in (Bukan Pemesan Meja Ini)
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Claim error modal — TABLE_TAKEN / TABLE_RESERVED */}
       <AnimatePresence>
