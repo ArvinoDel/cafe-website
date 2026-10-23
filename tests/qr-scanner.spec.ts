@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+process.env.NEXT_PUBLIC_E2E = '1';
+
 test.describe('QrScannerModal Automated Hardening Suite', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', (msg) => console.log('PAGE LOG:', msg.text()));
@@ -175,5 +177,34 @@ test.describe('QrScannerModal Automated Hardening Suite', () => {
     // After 2 seconds toast disappears and valid QR can still be decoded immediately
     await page.waitForTimeout(2200);
     await expect(page.locator('text=Bukan QR meja')).not.toBeVisible();
+  });
+
+  test('6. Foreign-origin QR with table query/path is rejected', async ({ page }) => {
+    let claimCalled = false;
+    await page.route('**/api/tables/claim', async (route) => {
+      claimCalled = true;
+      await route.abort();
+    });
+
+    await page.click('#btn-open-modal');
+    await page.waitForSelector('#qr-reader video', { state: 'attached', timeout: 10000 });
+    await page.waitForTimeout(400);
+
+    // Dispatch foreign-origin QR with table parameter and menu path
+    await page.evaluate(() => {
+      (window as any).__dispatchQrDecode?.('https://malicious-attacker.com/?table=A-1');
+    });
+
+    // Rejected as non-table QR
+    await expect(page.locator('text=Bukan QR meja')).toBeVisible();
+    expect(claimCalled).toBe(false);
+
+    // Dispatch foreign-origin QR with /menu/A-1
+    await page.evaluate(() => {
+      (window as any).__dispatchQrDecode?.('https://malicious-attacker.com/menu/A-1');
+    });
+
+    await expect(page.locator('text=Bukan QR meja')).toBeVisible();
+    expect(claimCalled).toBe(false);
   });
 });

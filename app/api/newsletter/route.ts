@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createHash } from 'crypto';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 
 /**
  * POST /api/newsletter
@@ -12,7 +11,7 @@ import { getClientIp } from '@/lib/client-ip';
  *  - Honeypot field: `website` must be empty (invisible to humans, bots fill it)
  *  - Rate limit: max 3 subscriptions per IP per hour (via ip_hash dedup window)
  *  - Email uniqueness enforced at DB level (UNIQUE constraint)
- *  - No sensitive data stored — only a SHA-256 hash of the IP
+ *  - No sensitive data stored — only a HMAC-SHA-256 hash of the IP
  */
 
 function getServiceClient() {
@@ -25,10 +24,6 @@ function getServiceClient() {
   return createClient(url, key, {
     auth: { persistSession: false },
   });
-}
-
-function hashIp(ip: string): string {
-  return createHash('sha256').update(ip + (process.env.IP_SALT || 'newsletter')).digest('hex');
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   // 4. IP rate limiting — max 3 attempts per hashed IP in the last hour
   const ip = getClientIp(req);
-  const ipHash = hashIp(ip);
+  const ipHash = computeClientIpHash(ip);
 
   const supabase = getServiceClient();
   if (!supabase) {

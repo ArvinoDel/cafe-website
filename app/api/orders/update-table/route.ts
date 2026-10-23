@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Call claim_table to atomically move the table session lock to the new table.
     //    The token lives in a httpOnly cookie and cannot be forged by JS.
-    const { TABLE_SESSION_COOKIE, computeIpHash } = await import('@/lib/table-session-server');
+    const { TABLE_SESSION_COOKIE } = await import('@/lib/table-session-server');
     const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
 
     if (!sessionToken) {
@@ -90,9 +90,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { getClientIp } = await import('@/lib/client-ip');
+    const { getClientIp, computeClientIpHash } = await import('@/lib/client-ip');
     const rawIp = getClientIp(request);
-    const ipHash = computeIpHash(rawIp);
+    const ipHash = computeClientIpHash(rawIp);
 
     const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {
       p_branch_id: (order as any).branch_id,

@@ -50,6 +50,8 @@ type Branch = {
   reservation_buffer_minutes?: number | null;
   reservation_min_preorder?: number | null;
   qris_image_url?: string | null;
+  claim_max_holds_per_ip?: number | null;
+  trusted_ip_hashes?: string[] | null;
   created_at: string;
 };
 
@@ -359,6 +361,13 @@ function BranchFormModal({
       ? String(initial.claim_soft_hold_minutes)
       : '20',
   );
+  const [claimMaxHoldsPerIp, setClaimMaxHoldsPerIp] = useState(
+    initial?.claim_max_holds_per_ip !== null && initial?.claim_max_holds_per_ip !== undefined
+      ? String(initial.claim_max_holds_per_ip)
+      : '15',
+  );
+  const [trustedIpHashes, setTrustedIpHashes] = useState<string[]>(initial?.trusted_ip_hashes ?? []);
+  const [savingTrustedIp, setSavingTrustedIp] = useState(false);
   // Reservation settings
   const [reservationsEnabled, setReservationsEnabled] = useState(initial?.reservations_enabled ?? false);
   const [reservationOpenTime, setReservationOpenTime]     = useState(initial?.reservation_open_time ?? '08:00');
@@ -373,6 +382,29 @@ function BranchFormModal({
   const [showWifiPwd, setShowWifiPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleSaveCurrentIp() {
+    if (!initial?.id) {
+      toast('Simpan cabang terlebih dahulu sebelum mendaftarkan IP Wi-Fi kafe.');
+      return;
+    }
+    setSavingTrustedIp(true);
+    try {
+      const res = await fetch('/api/admin/branches/trusted-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch_id: initial.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan hash IP');
+      setTrustedIpHashes(data.trusted_ip_hashes || []);
+      toast('Hash IP Wi-Fi kafe berhasil disimpan.');
+    } catch (err: any) {
+      toast(`Gagal: ${err.message}`);
+    } finally {
+      setSavingTrustedIp(false);
+    }
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -390,6 +422,9 @@ function BranchFormModal({
     const parsedSoftHold = claimSoftHoldMinutes.trim() ? parseInt(claimSoftHoldMinutes.trim(), 10) : 20;
     const safeSoftHold   = isNaN(parsedSoftHold) ? 20 : Math.min(60, Math.max(5, parsedSoftHold));
 
+    const parsedMaxHolds = claimMaxHoldsPerIp.trim() ? parseInt(claimMaxHoldsPerIp.trim(), 10) : 15;
+    const safeMaxHolds   = isNaN(parsedMaxHolds) ? 15 : Math.max(1, parsedMaxHolds);
+
     const payload = {
       name: name.trim(),
       address: address.trim() || null,
@@ -403,6 +438,8 @@ function BranchFormModal({
       pause_message: pauseMessage.trim() || null,
       walkin_lock_minutes: safeLockMin,
       claim_soft_hold_minutes: safeSoftHold,
+      claim_max_holds_per_ip: safeMaxHolds,
+      trusted_ip_hashes: trustedIpHashes,
       reservations_enabled: reservationsEnabled,
       reservation_open_time: reservationOpenTime,
       reservation_close_time: reservationCloseTime,
@@ -622,6 +659,23 @@ function BranchFormModal({
                     Durasi meja ditahan sementara saat QR discan sebelum pesanan dibuat (5–60 mnt, default 20).
                   </p>
                 </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-charcoal/70 mb-1">
+                    Batas Hold per IP (Walk-in)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={claimMaxHoldsPerIp}
+                    onChange={(e) => setClaimMaxHoldsPerIp(e.target.value)}
+                    placeholder="15"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                  <p className="text-[11px] text-charcoal/40 mt-1">
+                    Maksimum meja aktif non-upgraded yang dapat ditahan bersamaan dari IP yang sama (default: 15). Meja pada IP terpercaya (Wi-Fi kafe) tidak dibatasi batas ini.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -736,15 +790,15 @@ function BranchFormModal({
               )}
             </div>
 
-            {/* Section 4: Wi-Fi Tamu */}
+            {/* Section 4: Wi-Fi kafe */}
             <div className="pt-4 border-t border-coffee-100/70">
               <div className="flex items-center gap-1.5 mb-3">
                 <Wifi className="w-3.5 h-3.5 text-coffee-600" />
                 <h4 className="text-xs font-bold text-coffee-900 uppercase tracking-wide">
-                  Akses Wi-Fi Tamu (opsional)
+                  Wi-Fi kafe
                 </h4>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className="block text-xs font-semibold text-charcoal/70 mb-1">
                     Nama Jaringan (SSID)
@@ -778,6 +832,35 @@ function BranchFormModal({
                       {showWifiPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Wi-Fi kafe trusted IP registration */}
+              <div className="p-3.5 rounded-2xl bg-coffee-50/60 border border-coffee-100 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-coffee-900">
+                      Jaringan Wi-Fi Terpercaya (Bypass Batas Hold)
+                    </p>
+                    <p className="text-[11px] text-charcoal/50 mt-0.5">
+                      Pelanggan yang tersambung ke Wi-Fi kafe ini dibebaskan dari pembatasan per-IP hold.
+                      {trustedIpHashes.length > 0 ? ` (${trustedIpHashes.length} hash IP terdaftar)` : ' (Belum ada IP didaftarkan)'}
+                    </p>
+                  </div>
+                  {initial?.id ? (
+                    <button
+                      type="button"
+                      onClick={handleSaveCurrentIp}
+                      disabled={savingTrustedIp}
+                      className="px-3.5 py-2 rounded-xl bg-coffee-600 hover:bg-coffee-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 shadow-sm"
+                    >
+                      {savingTrustedIp ? 'Menyimpan...' : 'Simpan IP Hash Wi-Fi Ini'}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-charcoal/40 italic">
+                      Simpan cabang dulu untuk mendaftarkan IP
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

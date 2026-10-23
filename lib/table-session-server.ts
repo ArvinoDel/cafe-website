@@ -90,27 +90,7 @@ export type ClaimResult =
       error?: string;
     };
 
-// ─── IP Hash Helper ───────────────────────────────────────────────────────────
-
-/**
- * Computes deterministic HMAC-SHA256 of client IP using server secret.
- * Raw IP is never stored in DB or exposed.
- * Falls back to SUPABASE_SECRET_KEY if IP_HASH_SECRET is not set.
- * Never throws — a missing secret degrades to a weaker but functional hash.
- */
-export function computeIpHash(ip: string): string {
-  const secret =
-    process.env.IP_HASH_SECRET ||
-    process.env.SUPABASE_SECRET_KEY ||
-    'cafe-ip-hash-fallback-secret';
-
-  if (!process.env.IP_HASH_SECRET && process.env.NODE_ENV === 'production') {
-    console.warn('[computeIpHash] IP_HASH_SECRET not set; falling back to SUPABASE_SECRET_KEY for IP hashing. Please set IP_HASH_SECRET in Vercel environment variables.');
-  }
-
-  const normalized = ip.trim().toLowerCase().replace(/^::ffff:/, '');
-  return crypto.createHmac('sha256', secret).update(normalized).digest('hex');
-}
+// ─── Token Hash Helper ────────────────────────────────────────────────────────
 
 
 /**

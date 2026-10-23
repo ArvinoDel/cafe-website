@@ -23,7 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, normalizeIp } from '@/lib/client-ip';
 import type { SupabaseEnv } from '@supabase/server';
 
 // ─── Env helper ───────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
   // Rate limiting
   const ip = getClientIp(request);
 
-  if (isRateLimited(ip)) {
+  if (isRateLimited(normalizeIp(ip))) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Coba lagi sebentar.' },
       { status: 429 },

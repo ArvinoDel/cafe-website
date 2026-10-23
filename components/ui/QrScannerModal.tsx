@@ -51,9 +51,9 @@ function isLocalOrPrivateHost(hostname: string): boolean {
 function isValidOrigin(url: URL): boolean {
   try {
     const currentOrigin =
-      typeof window !== 'undefined' && window.location.origin ? window.location.origin : null;
+      typeof window !== 'undefined' && window.location?.origin ? window.location.origin : null;
     const currentHostname =
-      typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : null;
+      typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : null;
     const siteUrlOrigin = process.env.NEXT_PUBLIC_SITE_URL
       ? new URL(process.env.NEXT_PUBLIC_SITE_URL).origin
       : null;
@@ -68,14 +68,11 @@ function isValidOrigin(url: URL): boolean {
       return true;
     }
 
-    // 3. Dummy base origin fallback from uninitialized admin QR
-    if (url.hostname === 'menu' || url.origin === 'null') {
-      return true;
-    }
-
-    // 4. In local development / LAN testing:
-    // If current device is on localhost / LAN IP / tunnel, accept QR URLs from the same local network
-    if (currentHostname && isLocalOrPrivateHost(currentHostname)) {
+    // 3. In local development / LAN testing:
+    if (
+      process.env.NODE_ENV !== 'production' ||
+      (currentHostname && isLocalOrPrivateHost(currentHostname))
+    ) {
       if (isLocalOrPrivateHost(url.hostname)) {
         return true;
       }
@@ -115,8 +112,13 @@ export function extractTableAndBranch(
 
   // (a) URL check
   try {
-    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-    const url = new URL(trimmed, trimmed.startsWith('/') ? base : undefined);
+    const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost:3000';
+    const url = new URL(trimmed, base);
+
+    // Apply origin validation: must be same origin, NEXT_PUBLIC_SITE_URL, or local dev
+    if (!isValidOrigin(url)) {
+      return null;
+    }
 
     const tableParam =
       url.searchParams.get('table') ||
@@ -142,8 +144,8 @@ export function extractTableAndBranch(
       };
     }
 
-    // Fallback: If URL is exactly our origin or site URL, but only has table in hash
-    if (isValidOrigin(url) && url.hash) {
+    // Fallback: If URL has table in hash
+    if (url.hash) {
       const hashMatch = url.hash.match(/[#&?](?:table|meja|t)=([a-zA-Z0-9_-]+)/i);
       if (hashMatch && hashMatch[1]) {
         return {
@@ -194,11 +196,14 @@ export default function QrScannerModal({
 }: QrScannerModalProps) {
   const shouldReduceMotion = useReducedMotion();
 
-  // Latest-ref pattern for callbacks to prevent inline prop changes from re-triggering scanner
+  // Latest-ref pattern for callbacks and currentTable to prevent prop changes from re-triggering scanner
   const onScanSuccessRef = useRef(onScanSuccess);
   onScanSuccessRef.current = onScanSuccess;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const currentTableRef = useRef(currentTable);
+  currentTableRef.current = currentTable;
+  const successTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // State machine
   const [modalState, setModalState] = useState<ScannerModalState>('scanning');
@@ -253,8 +258,11 @@ export default function QrScannerModal({
   const modalRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
 
-  // Expose test hooks for Playwright automated testing
-  if (typeof window !== 'undefined') {
+  // Expose test hooks only in non-production or when NEXT_PUBLIC_E2E === '1'
+  if (
+    typeof window !== 'undefined' &&
+    (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === '1')
+  ) {
     (window as any).__qrScannerModalState = modalState;
   }
 
@@ -292,6 +300,11 @@ export default function QrScannerModal({
       });
     } catch {}
 
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+
     setCameraActive(false);
     setIsTorchOn(false);
   }, []);
@@ -326,7 +339,8 @@ export default function QrScannerModal({
       if (claimResult.ok) {
         const expiresAt = claimResult.session?.expiresAt;
         const moved = Boolean(
-          currentTable && currentTable.trim().toUpperCase() !== table.trim().toUpperCase(),
+          currentTableRef.current &&
+            currentTableRef.current.trim().toUpperCase() !== table.trim().toUpperCase(),
         );
 
         setSuccessInfo({
@@ -342,7 +356,8 @@ export default function QrScannerModal({
         void stopScanner();
 
         // Close automatically only on success after ~800ms
-        setTimeout(() => {
+        if (successTimerRef.current) clearTimeout(successTimerRef.current);
+        successTimerRef.current = setTimeout(() => {
           onCloseRef.current();
           onScanSuccessRef.current(table, branchId, claimResult);
         }, 800);
@@ -367,7 +382,7 @@ export default function QrScannerModal({
         }
       }
     },
-    [currentTable, stopScanner],
+    [stopScanner],
   );
 
   // ─── Single Scan Decode Handler ──────────────────────────────────────────────
@@ -409,11 +424,17 @@ export default function QrScannerModal({
     [processTableClaim],
   );
 
-  // Expose dispatch hook for testing
+  const handleDecodedTextRef = useRef<(text: string) => void>(() => {});
+  handleDecodedTextRef.current = handleDecodedText;
+
+  // Expose dispatch hook for testing only when NODE_ENV !== 'production' or NEXT_PUBLIC_E2E === '1'
   useEffect(() => {
+    const isE2E = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === '1';
+    if (!isE2E) return;
+
     if (typeof window !== 'undefined') {
       (window as any).__dispatchQrDecode = (text: string) => {
-        handleDecodedText(text);
+        handleDecodedTextRef.current(text);
       };
     }
     return () => {
@@ -421,7 +442,7 @@ export default function QrScannerModal({
         delete (window as any).__dispatchQrDecode;
       }
     };
-  }, [handleDecodedText]);
+  }, []);
 
   // ─── Start Camera Scanner ────────────────────────────────────────────────────
 
@@ -498,14 +519,17 @@ export default function QrScannerModal({
           aspectRatio: 1.0,
         };
 
-        if (typeof window !== 'undefined') {
+        if (
+          typeof window !== 'undefined' &&
+          (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_E2E === '1')
+        ) {
           (window as any).__scannerStartCount = ((window as any).__scannerStartCount || 0) + 1;
         }
 
         await html5QrCode.start(
           cameraConfig,
           config,
-          (decoded) => handleDecodedText(decoded),
+          (decoded) => handleDecodedTextRef.current(decoded),
           () => {},
         );
 
@@ -557,9 +581,9 @@ export default function QrScannerModal({
 
     isOperatingRef.current = nextOp;
     return nextOp;
-  }, [selectedCameraId, handleDecodedText]);
+  }, [selectedCameraId]);
 
-  // ─── Lifecycle Effect (Depends on [isOpen] ONLY) ─────────────────────────────
+  // ─── Lifecycle Effect (Depends on [isOpen, selectedCameraId] ONLY) ────────────
 
   useEffect(() => {
     if (isOpen) {
@@ -584,16 +608,33 @@ export default function QrScannerModal({
 
       return () => {
         clearTimeout(timer);
+        if (successTimerRef.current) {
+          clearTimeout(successTimerRef.current);
+          successTimerRef.current = null;
+        }
         document.body.style.overflow = originalOverflow;
         void stopScanner();
       };
     } else {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
       void stopScanner();
       if (previousActiveElementRef.current) {
         previousActiveElementRef.current.focus?.();
       }
     }
-  }, [isOpen, startScanner, stopScanner]);
+  }, [isOpen, selectedCameraId, startScanner, stopScanner]);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── Page Visibility Change (Pause/Resume) ───────────────────────────────────
 

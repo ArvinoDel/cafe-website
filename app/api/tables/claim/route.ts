@@ -29,9 +29,8 @@ import {
   newSessionToken,
   buildSessionCookieOptions,
   resolveAdminEnv,
-  computeIpHash,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash, normalizeIp } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
@@ -116,7 +115,7 @@ export async function POST(request: NextRequest) {
     const supabaseAdmin = createAdminClient({ env });
 
     try {
-      const ipLimit = await checkDbRateLimit(`claim_ip:${rawIp}`, 60, 60, supabaseAdmin);
+      const ipLimit = await checkDbRateLimit(`claim_ip:${normalizeIp(rawIp)}`, 60, 60, supabaseAdmin, true);
       if (!ipLimit.allowed) {
         return NextResponse.json(
           { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim dari jaringan ini. Tunggu sebentar ya.' },
@@ -124,7 +123,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const tokenLimit = await checkDbRateLimit(`claim_token:${token}`, 20, 60, supabaseAdmin);
+      const tokenLimit = await checkDbRateLimit(`claim_token:${token}`, 20, 60, supabaseAdmin, true);
       if (!tokenLimit.allowed) {
         return NextResponse.json(
           { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim meja. Silakan coba lagi sebentar.' },
@@ -132,7 +131,11 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch (rateErr) {
-      console.warn('[tables/claim] rate limiter bypassed due to error:', rateErr);
+      console.error('[tables/claim] rate limiter threw, failing closed:', rateErr);
+      return NextResponse.json(
+        { ok: false, code: 'RATE_LIMITED', error: 'Terlalu banyak permintaan klaim meja. Silakan coba lagi sebentar.' },
+        { status: 429 },
+      );
     }
 
     // 2. Parse body
@@ -152,7 +155,7 @@ export async function POST(request: NextRequest) {
     const { branch_id, code } = parsed.data;
 
     // 3. Compute ip_hash
-    const ipHash = computeIpHash(rawIp);
+    const ipHash = computeClientIpHash(rawIp);
 
     // 4. Resolve branch
     const branchResult = await resolveBranchId(supabaseAdmin as any, branch_id ?? null, code);

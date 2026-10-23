@@ -22,7 +22,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, normalizeIp } from '@/lib/client-ip';
 import type { SupabaseEnv } from '@supabase/server';
 import { computeWaitMinutes } from '@/lib/wait-time';
 
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
   cleanupStaleEntries(now);
 
   // 1. Overall per-IP ceiling check (e.g. 300/min) so shared Wi-Fi is not blocked
-  if (checkRateLimit(ipWindowMap, ip, RATE_LIMIT_IP_MAX, now)) {
+  if (checkRateLimit(ipWindowMap, normalizeIp(ip), RATE_LIMIT_IP_MAX, now)) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Coba lagi sebentar.' },
       { status: 429 },

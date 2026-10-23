@@ -5,7 +5,7 @@ import {
   computeTokenHash,
   resolveAdminEnv,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, normalizeIp } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 /**
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   // 1. Rate limiting per client IP
   const rawIp = getClientIp(request);
-  const ipLimit = await checkDbRateLimit(`res_lookup_list_ip:${rawIp}`, 60, 60, admin);
+  const ipLimit = await checkDbRateLimit(`res_lookup_list_ip:${normalizeIp(rawIp)}`, 60, 60, admin);
   if (!ipLimit.allowed) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Silakan tunggu sebentar.' },

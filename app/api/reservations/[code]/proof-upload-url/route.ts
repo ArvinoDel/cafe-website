@@ -14,7 +14,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash, normalizeIp } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -34,7 +34,7 @@ export async function POST(
   const rawIp = getClientIp(req);
   const admin = createAdminClient();
 
-  const ipLimit = await checkDbRateLimit(`proof_upload_ip:${rawIp}`, 30, 60, admin);
+  const ipLimit = await checkDbRateLimit(`proof_upload_ip:${normalizeIp(rawIp)}`, 30, 60, admin);
   if (!ipLimit.allowed) {
     return NextResponse.json({ error: 'Terlalu banyak permintaan unggah. Tunggu sebentar.' }, { status: 429 });
   }

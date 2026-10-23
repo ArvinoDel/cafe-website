@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { notFound } from 'next/navigation';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { ClaimTableResult } from '@/lib/table-session';
 
 export default function TestScannerPage() {
+  if (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_E2E !== '1') {
+    notFound();
+  }
   const [isOpen, setIsOpen] = useState(false);
   const [renderCounter, setRenderCounter] = useState(0);
   const [lastScanned, setLastScanned] = useState<string | null>(null);

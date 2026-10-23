@@ -4,11 +4,14 @@
  * Authoritative client IP resolution and HMAC hashing.
  *
  * Security Rules:
- * 1. Trusts `x-nf-client-connection-ip` only.
- * 2. If absent in production, returns fixed 'unknown' bucket and logs a warning.
- *    (Does not trust x-real-ip or X-Forwarded-For).
- * 3. In dev, allows '127.0.0.1'.
- * 4. Normalizes IPv6 addresses to their /64 prefix before hashing.
+ * 1. Trusted proxy configuration via env TRUSTED_IP_HEADER:
+ *    - 'netlify' -> trusts `x-nf-client-connection-ip` only
+ *    - 'vercel'  -> trusts `x-vercel-forwarded-for`, falling back to `x-real-ip`
+ *    - 'none'    -> rejected in production with a startup error
+ * 2. In production, fails loudly if TRUSTED_IP_HEADER is unset or header is missing;
+ *    NEVER falls back to a shared 'unknown' bucket.
+ * 3. In dev, allows '127.0.0.1' fallback.
+ * 4. Normalizes IPv6 addresses to their /64 prefix before hashing or rate limiting.
  * 5. computeClientIpHash throws in production if IP_HASH_SECRET is not set.
  */
 
@@ -24,17 +27,52 @@ export function getClientIp(requestOrHeaders: Request | Headers | { headers: Hea
     headers = (requestOrHeaders as Request).headers;
   }
 
-  // 1. Trust Netlify edge-verified client connection IP only
-  const nfIp = headers.get('x-nf-client-connection-ip')?.trim();
-  if (nfIp) return nfIp;
+  const rawConfig = process.env.TRUSTED_IP_HEADER?.trim().toLowerCase();
 
-  // 2. In production, never trust untrusted proxy headers; return fixed unknown bucket
+  // Production configuration validation
   if (process.env.NODE_ENV === 'production') {
-    console.warn('[getClientIp] x-nf-client-connection-ip absent in production; using unknown bucket');
-    return 'unknown';
+    if (!rawConfig) {
+      throw new Error('[getClientIp] TRUSTED_IP_HEADER environment variable is required in production (e.g. "netlify" or "vercel").');
+    }
+    if (rawConfig === 'none') {
+      throw new Error('[getClientIp] TRUSTED_IP_HEADER="none" is rejected in production mode.');
+    }
   }
 
-  // 3. In dev allow 127.0.0.1
+  let resolvedIp: string | null | undefined = null;
+
+  if (rawConfig === 'netlify') {
+    resolvedIp = headers.get('x-nf-client-connection-ip')?.trim();
+  } else if (rawConfig === 'vercel') {
+    const vercelForwarded = headers.get('x-vercel-forwarded-for')?.trim();
+    if (vercelForwarded) {
+      resolvedIp = vercelForwarded.split(',')[0].trim();
+    } else {
+      resolvedIp = headers.get('x-real-ip')?.trim();
+    }
+  } else if (rawConfig === 'none') {
+    resolvedIp = '127.0.0.1';
+  } else if (rawConfig) {
+    // Custom header name support
+    resolvedIp = headers.get(rawConfig)?.trim();
+  } else {
+    // Dev fallback when TRUSTED_IP_HEADER is unset
+    const nfIp = headers.get('x-nf-client-connection-ip')?.trim();
+    const vercelIp = headers.get('x-vercel-forwarded-for')?.trim()?.split(',')[0]?.trim();
+    const realIp = headers.get('x-real-ip')?.trim();
+    resolvedIp = nfIp || vercelIp || realIp;
+  }
+
+  if (resolvedIp) {
+    return resolvedIp;
+  }
+
+  // In production, never fall back to a shared 'unknown' bucket; fail loudly
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`[getClientIp] Trusted IP header (${rawConfig}) is missing in request.`);
+  }
+
+  // In dev allow 127.0.0.1
   return '127.0.0.1';
 }
 
@@ -80,7 +118,7 @@ export function normalizeIp(ip: string): string {
 
 /**
  * Computes SHA-256 HMAC of client IP with a server secret to protect privacy.
- * Throws in production if IP_HASH_SECRET is not configured.
+ * Throws in production if IP_HASH_SECRET is not configured (no fallback to Supabase key or hardcoded secret).
  */
 export function computeClientIpHash(rawIp: string, customSecret?: string): string {
   const secret = customSecret || process.env.IP_HASH_SECRET;

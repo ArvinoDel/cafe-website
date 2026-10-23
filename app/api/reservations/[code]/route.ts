@@ -22,7 +22,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash, normalizeIp } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 async function handleLookup(
@@ -39,7 +39,7 @@ async function handleLookup(
   const rawIp = getClientIp(req);
   const admin = createAdminClient();
 
-  const ipLimit = await checkDbRateLimit(`res_lookup_ip:${rawIp}`, 60, 60, admin);
+  const ipLimit = await checkDbRateLimit(`res_lookup_ip:${normalizeIp(rawIp)}`, 60, 60, admin);
   if (!ipLimit.allowed) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan. Silakan tunggu sebentar.' },

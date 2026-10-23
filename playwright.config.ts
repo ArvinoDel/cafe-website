@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+process.env.NEXT_PUBLIC_E2E = '1';
+
 export default defineConfig({
   testDir: './tests',
   timeout: 30000,

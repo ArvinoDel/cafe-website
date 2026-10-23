@@ -13,11 +13,10 @@ import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
 import { priceOrderLines, type PricingLine } from '@/lib/order-pricing';
 import {
-  computeIpHash,
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash, normalizeIp } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 // ─── Validation Schema ────────────────────────────────────────────────────────
@@ -121,14 +120,14 @@ export async function POST(req: NextRequest) {
 
   // 3. Resolve client IP and check DB rate limit
   const rawIp = getClientIp(req);
-  const ipLimit = await checkDbRateLimit(`res_create_ip:${rawIp}`, 30, 60, admin);
+  const ipLimit = await checkDbRateLimit(`res_create_ip:${normalizeIp(rawIp)}`, 30, 60, admin);
   if (!ipLimit.allowed) {
     return NextResponse.json(
       { error: 'Terlalu banyak permintaan reservasi dari jaringan ini. Silakan coba lagi nanti.' },
       { status: 429 },
     );
   }
-  const ipHash = computeIpHash(rawIp);
+  const ipHash = computeClientIpHash(rawIp);
 
   // 4. Call create_reservation_hold RPC with retry on CODE_COLLISION (up to 5 attempts, no pre-check SELECT)
   let result: any = null;
