@@ -45,27 +45,52 @@ export async function claimTable(params: {
   code:      string;
   reservationCode?: string;
 }): Promise<ClaimTableResult> {
-  const res = await fetch('/api/tables/claim', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      branch_id:        params.branchId,
-      code:             params.code,
-      reservation_code: params.reservationCode,
-    }),
-  });
+  try {
+    const res = await fetch('/api/tables/claim', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        branch_id:        params.branchId,
+        code:             params.code,
+        reservation_code: params.reservationCode,
+      }),
+    });
 
-  const json = await res.json();
-
-  if (json.ok && json.session) {
-    // Write display cache to localStorage
+    let json: any = null;
     try {
-      localStorage.setItem(TABLE_KEY,  json.session.tableCode);
-      localStorage.setItem(BRANCH_KEY, json.session.branchId);
-    } catch {}
-  }
+      json = await res.json();
+    } catch {
+      return {
+        ok:    false,
+        code:  'NETWORK_ERROR',
+        error: `Server mengalami gangguan (${res.status || '500'}). Silakan coba lagi sebentar.`,
+      };
+    }
 
-  return json as ClaimTableResult;
+    if (!json || typeof json !== 'object') {
+      return {
+        ok:    false,
+        code:  'NETWORK_ERROR',
+        error: 'Respon server tidak valid.',
+      };
+    }
+
+    if (json.ok && json.session) {
+      // Write display cache to localStorage
+      try {
+        localStorage.setItem(TABLE_KEY,  json.session.tableCode);
+        localStorage.setItem(BRANCH_KEY, json.session.branchId);
+      } catch {}
+    }
+
+    return json as ClaimTableResult;
+  } catch (err: any) {
+    return {
+      ok:    false,
+      code:  'NETWORK_ERROR',
+      error: err?.message || 'Gagal terhubung ke server.',
+    };
+  }
 }
 
 // ─── Poll interval ────────────────────────────────────────────────────────────

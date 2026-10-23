@@ -90,43 +90,12 @@ function isValidOrigin(url: URL): boolean {
 /**
  * Extracts table code from QR content.
  * Accepts:
- * (a) URL matching current origin / NEXT_PUBLIC_SITE_URL carrying table/meja/t param or /menu/:code path
+ * (a) URL carrying table/meja/t param or /menu/:code path
  * (b) Plain codes matching /^[A-Z]{1,3}-?\d{1,3}$/i or plain numeric table codes
  */
 export function extractTableCode(raw: string): string | null {
-  if (!raw || typeof raw !== 'string') return null;
-  const trimmed = raw.trim();
-
-  // (b) Plain code check
-  if (PLAIN_CODE_REGEX.test(trimmed) || /^\d{1,4}$/.test(trimmed)) {
-    return trimmed.toUpperCase();
-  }
-
-  // (a) URL check
-  try {
-    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-    const url = new URL(trimmed, trimmed.startsWith('/') ? base : undefined);
-    if (!isValidOrigin(url)) {
-      return null;
-    }
-
-    const tableParam =
-      url.searchParams.get('table') ||
-      url.searchParams.get('meja') ||
-      url.searchParams.get('t');
-    if (tableParam && tableParam.trim()) {
-      return tableParam.trim().toUpperCase();
-    }
-
-    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-zA-Z0-9_-]+)$/i);
-    if (pathMatch && pathMatch[1]) {
-      return pathMatch[1].trim().toUpperCase();
-    }
-  } catch {
-    // invalid URL format
-  }
-
-  return null;
+  const result = extractTableAndBranch(raw);
+  return result ? result.table : null;
 }
 
 /**
@@ -139,18 +108,15 @@ export function extractTableAndBranch(
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
 
-  // Plain code check
+  // (b) Plain code check (e.g. "A-1", "12", "VIP-1")
   if (PLAIN_CODE_REGEX.test(trimmed) || /^\d{1,4}$/.test(trimmed)) {
     return { table: trimmed.toUpperCase(), branchId: null };
   }
 
-  // URL check
+  // (a) URL check
   try {
     const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     const url = new URL(trimmed, trimmed.startsWith('/') ? base : undefined);
-    if (!isValidOrigin(url)) {
-      return null;
-    }
 
     const tableParam =
       url.searchParams.get('table') ||
@@ -168,15 +134,26 @@ export function extractTableAndBranch(
       };
     }
 
-    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-zA-Z0-9_-]+)$/i);
+    const pathMatch = url.pathname.match(/\/(?:menu|menus|tables?)\/([a-zA-Z0-9_-]+)$/i);
     if (pathMatch && pathMatch[1]) {
       return {
         table:    pathMatch[1].trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
       };
     }
+
+    // Fallback: If URL is exactly our origin or site URL, but only has table in hash
+    if (isValidOrigin(url) && url.hash) {
+      const hashMatch = url.hash.match(/[#&?](?:table|meja|t)=([a-zA-Z0-9_-]+)/i);
+      if (hashMatch && hashMatch[1]) {
+        return {
+          table:    hashMatch[1].trim().toUpperCase(),
+          branchId: branchParam?.trim() || null,
+        };
+      }
+    }
   } catch {
-    // invalid URL
+    // invalid URL format
   }
 
   return null;

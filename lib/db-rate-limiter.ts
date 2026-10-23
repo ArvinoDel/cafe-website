@@ -52,11 +52,19 @@ export async function checkDbRateLimit(
     failClosed = explicitFailClosed ?? isWriteRouteKey(key);
   }
 
-  const { data, error } = await (admin as any).rpc('check_rate_limit', {
-    p_key:            key,
-    p_limit:          limit,
-    p_window_seconds: windowSeconds,
-  });
+  let data: any;
+  let error: any;
+  try {
+    const res = await (admin as any).rpc('check_rate_limit', {
+      p_key:            key,
+      p_limit:          limit,
+      p_window_seconds: windowSeconds,
+    });
+    data = res.data;
+    error = res.error;
+  } catch (err: any) {
+    error = { message: err?.message || 'RPC invocation failed' };
+  }
 
   if (error) {
     console.error('[checkDbRateLimit] DB error:', error.message);
