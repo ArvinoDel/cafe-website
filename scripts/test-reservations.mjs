@@ -712,6 +712,7 @@ async function main() {
   console.log(bold('\n[Test 11/15] 🕒 Opening-hours Boundaries'));
   {
     await cleanupTestData(branch.id, testCodes);
+    await admin.from('branches').update({ reservation_open_time: '08:30', reservation_close_time: '21:00' }).eq('id', branch.id);
 
     // 08:30 valid
     const bValid = await fetch(`${BASE_URL}/api/reservations`, {
@@ -748,7 +749,7 @@ async function main() {
     const dOutside = await bOutside.json();
     assert(bOutside.status === 409 && dOutside.code === 'OUTSIDE_HOURS', `Expected OUTSIDE_HOURS, got: ${JSON.stringify(dOutside)}`);
 
-    // 20:30 with 120m duration ends at 22:30 (exceeds close time 21:00/21:30)
+    // 20:30 with 120m duration ends at 22:30 (exceeds close time 21:00)
     const bExceed = await fetch(`${BASE_URL}/api/reservations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1070,7 +1071,7 @@ async function main() {
     const ownerTokenHash = computeTokenHash(testOwnerToken);
 
     // Create reservation with owner_token_hash
-    const { data: testRes } = await admin
+    const { data: testRes, error: insErr } = await admin
       .from('reservations')
       .insert({
         branch_id: branch.id,
@@ -1083,11 +1084,13 @@ async function main() {
         ends_at: '2026-10-29T15:00:00+07:00',
         duration_minutes: 60,
         status: 'confirmed',
+        paid_at: new Date().toISOString(),
         owner_token_hash: ownerTokenHash,
         items: [{ id: sampleItem.id, quantity: 1 }],
       })
       .select('id, code')
       .single();
+    assert(!insErr, `Failed to insert test reservation: ${insErr?.message}`);
 
     // 1. Lookup WITHOUT cookie (only codes in query param) -> must return empty list!
     const noCookieRes = await fetch(`${BASE_URL}/api/reservations/lookup?codes=COOKIE1`, {
@@ -1164,7 +1167,7 @@ async function main() {
     const ownerToken = 'test_owner_key_' + Date.now();
     const ownerHash = computeTokenHash(ownerToken);
 
-    const { data: testRes } = await admin
+    const { data: testRes, error: insErr } = await admin
       .from('reservations')
       .insert({
         branch_id: branch.id,
@@ -1177,11 +1180,13 @@ async function main() {
         ends_at: '2026-10-30T11:00:00+07:00',
         duration_minutes: 60,
         status: 'confirmed',
+        paid_at: new Date().toISOString(),
         owner_token_hash: ownerHash,
         items: [{ id: sampleItem.id, quantity: 1 }],
       })
       .select('id, code')
       .single();
+    assert(!insErr, `Failed to insert test reservation: ${insErr?.message}`);
 
     // 3 wrong verifier attempts from attacker
     for (let i = 0; i < 3; i++) {
