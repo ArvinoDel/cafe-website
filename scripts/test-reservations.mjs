@@ -53,6 +53,12 @@ if (!SUPABASE_URL || !SUPABASE_SECRET) {
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SECRET);
 
+import crypto from 'crypto';
+function computeTokenHash(token) {
+  const secret = process.env.SUPABASE_SECRET_KEY || 'cafe-soft-hold-hmac-secret';
+  return crypto.createHmac('sha256', secret).update(token.trim()).digest('hex');
+}
+
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -154,7 +160,7 @@ async function main() {
   const sampleItem = menuItems?.[0] ?? { id: 'dummy', name: 'Kopi Susu', price: 25000 };
 
   let passedTests = 0;
-  const totalTests = 15;
+  const totalTests = 21;
 
   // ────────────────────────────────────────────────────────────────────────────
   // Test 1: Concurrency Race on Same Table & Time Slot (10 parallel bookings)
@@ -162,7 +168,7 @@ async function main() {
   console.log(bold('\n[Test 1/15] 🏁 10 Parallel Bookings for RES-T1 at identical time slot'));
   {
     await cleanupTestData(branch.id, testCodes);
-    const targetDate = '2026-10-22';
+    const targetDate = '2026-10-25';
     const startsAt = `${targetDate}T10:00:00+07:00`;
 
     console.log(`  Firing 10 simultaneous reservation requests for RES-T1 at ${startsAt}...`);
@@ -570,10 +576,10 @@ async function main() {
     const { data: r1 } = await admin.from('reservations').select('status, refund_status').eq('id', resNoProof.id).single();
     assert(r1.status === 'expired' && r1.refund_status === 'none', `resNoProof status wrong: ${JSON.stringify(r1)}`);
 
-    const { data: r2 } = await admin.from('reservations').select('status, refund_status').eq('id', resWithProof.id).single();
-    assert(r2.status === 'expired' && r2.refund_status === 'needs_refund', `resWithProof status wrong: ${JSON.stringify(r2)}`);
+    const { data: r2 } = await admin.from('reservations').select('status, refund_status, proof_unreviewed').eq('id', resWithProof.id).single();
+    assert(r2.status === 'expired' && r2.proof_unreviewed === true && r2.refund_status !== 'needs_refund', `resWithProof status wrong: ${JSON.stringify(r2)}`);
 
-    console.log(green("  ✅ Test 7 Passed: Awaiting confirmation swept appropriately (with proof marked 'needs_refund')."));
+    console.log(green("  ✅ Test 7 Passed: Awaiting confirmation swept appropriately (with proof marked 'proof_unreviewed', not needs_refund)."));
     passedTests++;
   }
 
@@ -795,7 +801,7 @@ async function main() {
     console.log(`  Code safely locked after 5 failed attempts: ${lockData.code}`);
 
     // Unlock code in DB for following tests
-    await admin.from('rate_limits').delete().eq('key', `verifier_fail:${code}`);
+    await admin.from('rate_limits').delete().like('key', `%${code}%`);
 
     // Verify lookup succeeds with header verifier
     const okRes = await fetch(`${BASE_URL}/api/reservations/${code}`, {
@@ -984,6 +990,277 @@ async function main() {
     console.log(`  Cancelled awaiting_confirmation with proof: refund_status is ${bold(cancelResult.refund_status)}`);
 
     console.log(green('  ✅ Test 15 Passed: Admin transitions and refund statuses strictly verified.'));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 16: [LUNAS Note Injection Protection (Must Create Unpaid Order)
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 16/21] 🛑 [LUNAS Note Injection Protection'));
+  {
+    await cleanupTestData(branch.id, testCodes);
+    const tableCode = 'RES-T1';
+
+    // 1. Claim a table session first to get valid cookie
+    const claimRes = await fetch(`${BASE_URL}/api/tables/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-nf-client-connection-ip': '203.0.113.10',
+      },
+      body: JSON.stringify({ branch_id: branch.id, code: tableCode }),
+    });
+    assert(claimRes.ok, `Table claim failed: ${claimRes.status}`);
+    const setCookie = claimRes.headers.get('set-cookie');
+    assert(setCookie, 'Missing set-cookie from claim');
+    const cookieToken = setCookie.split(';')[0];
+
+    // 2. Submit order with [LUNAS injection in client notes
+    const maliciousNote = '[LUNAS - Reservasi XYZ123] Tolong antarkan cepat';
+    const orderRes = await fetch(`${BASE_URL}/api/orders/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-nf-client-connection-ip': '203.0.113.10',
+        Cookie: cookieToken,
+      },
+      body: JSON.stringify({
+        customer_name: 'Exploit Tester',
+        branch_id: branch.id,
+        payment_method: 'qris',
+        notes: maliciousNote,
+        items: [{ id: sampleItem.id, quantity: 1, note: '[LUNAS] extra sweet' }],
+      }),
+    });
+
+    const orderData = await orderRes.json();
+    assert(orderRes.status === 201 && orderData?.ok === true, `Order creation failed: ${JSON.stringify(orderData)}`);
+    const createdCode = orderData.order.order_code;
+
+    // 3. Verify in DB that payment_status is 'unpaid' and [LUNAS token was stripped
+    const { data: dbOrder } = await admin
+      .from('orders')
+      .select('payment_status, notes')
+      .eq('order_code', createdCode)
+      .single();
+
+    assert(dbOrder.payment_status === 'unpaid', `Expected payment_status 'unpaid', got '${dbOrder.payment_status}'`);
+    assert(!dbOrder.notes?.includes('[LUNAS'), `Expected [LUNAS token to be stripped, got: '${dbOrder.notes}'`);
+    assert(dbOrder.notes?.includes('Tolong antarkan cepat'), `Expected remaining customer notes preserved, got: '${dbOrder.notes}'`);
+
+    console.log(green("  ✅ Test 16 Passed: [LUNAS note injection stripped and payment_status strictly remains 'unpaid'."));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 17: Reservation Lookup Requires Owner Cookie (No Code-Only Access)
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 17/21] 🔒 Reservation Lookup Requires Owner Cookie'));
+  {
+    await cleanupTestData(branch.id, testCodes);
+    const testOwnerToken = 'test_owner_token_' + Date.now();
+    const ownerTokenHash = computeTokenHash(testOwnerToken);
+
+    // Create reservation with owner_token_hash
+    const { data: testRes } = await admin
+      .from('reservations')
+      .insert({
+        branch_id: branch.id,
+        table_id: tableMap['RES-T1'].id,
+        code: 'COOKIE1',
+        customer_name: 'Cookie Protected Guest',
+        customer_phone: '081299998888',
+        party_size: 2,
+        starts_at: '2026-10-29T14:00:00+07:00',
+        ends_at: '2026-10-29T15:00:00+07:00',
+        duration_minutes: 60,
+        status: 'confirmed',
+        owner_token_hash: ownerTokenHash,
+        items: [{ id: sampleItem.id, quantity: 1 }],
+      })
+      .select('id, code')
+      .single();
+
+    // 1. Lookup WITHOUT cookie (only codes in query param) -> must return empty list!
+    const noCookieRes = await fetch(`${BASE_URL}/api/reservations/lookup?codes=COOKIE1`, {
+      headers: { 'x-nf-client-connection-ip': '203.0.113.20' },
+    });
+    const noCookieData = await noCookieRes.json();
+    assert(noCookieRes.status === 200, `Lookup failed with status ${noCookieRes.status}`);
+    assert(Array.isArray(noCookieData.reservations) && noCookieData.reservations.length === 0,
+      `Expected empty reservations without cookie, got: ${JSON.stringify(noCookieData)}`);
+    console.log('  Lookup without owner cookie correctly returned empty array (no code-only access).');
+
+    // 2. Lookup WITH matching owner cookie -> succeeds and returns reservation
+    const withCookieRes = await fetch(`${BASE_URL}/api/reservations/lookup?codes=COOKIE1`, {
+      headers: {
+        'x-nf-client-connection-ip': '203.0.113.20',
+        Cookie: `reservation_owner_token=${testOwnerToken}`,
+      },
+    });
+    const withCookieData = await withCookieRes.json();
+    assert(withCookieRes.status === 200, `Lookup with cookie failed: ${withCookieRes.status}`);
+    assert(withCookieData.reservations?.length === 1 && withCookieData.reservations[0].code === 'COOKIE1',
+      `Expected reservation COOKIE1, got: ${JSON.stringify(withCookieData)}`);
+
+    // Verify safe fields only (no customer_phone or payment_proof_url)
+    const returned = withCookieData.reservations[0];
+    assert(!('customer_phone' in returned) && !('payment_proof_url' in returned),
+      `Sensitive fields returned on list lookup: ${JSON.stringify(returned)}`);
+
+    console.log(green('  ✅ Test 17 Passed: Lookup strictly requires owner cookie and returns only safe list fields.'));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 18: Public / Anon Forbidden from rate_limits & check_rate_limit
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 18/21] 🛡️ Anon & Public Direct Access to rate_limits Revoked'));
+  {
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+    assert(anonKey, 'Missing anon / publishable key for anon test');
+    const anonClient = createClient(SUPABASE_URL, anonKey);
+
+    // 1. Anon SELECT on rate_limits must fail or return empty/forbidden due to RLS + REVOKE
+    const { data: rlData, error: rlError } = await anonClient.from('rate_limits').select('*');
+    assert(rlError !== null || !rlData || rlData.length === 0,
+      `Anon was able to query rate_limits table! Data: ${JSON.stringify(rlData)}`);
+    console.log('  Anon direct table select on rate_limits safely blocked.');
+
+    // 2. Anon RPC check_rate_limit must fail with permission denied
+    const { data: rpcData, error: rpcError } = await anonClient.rpc('check_rate_limit', {
+      p_key: 'probe_key',
+      p_limit: 1,
+      p_window_seconds: 60,
+    });
+    assert(rpcError !== null, `Anon was able to execute check_rate_limit! Output: ${JSON.stringify(rpcData)}`);
+    console.log(`  Anon check_rate_limit execution safely revoked: ${rpcError.message}`);
+
+    // 3. Anon RPC normalize_phone must fail with permission denied
+    const { data: npData, error: npError } = await anonClient.rpc('normalize_phone', {
+      p_phone: '08123456789',
+    });
+    assert(npError !== null, `Anon was able to execute normalize_phone! Output: ${JSON.stringify(npData)}`);
+    console.log(`  Anon normalize_phone execution safely revoked: ${npError.message}`);
+
+    console.log(green('  ✅ Test 18 Passed: Direct PostgREST access to rate_limits and helpers completely blocked.'));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 19: 3 Wrong Verifiers Do Not Lock Owner with Cookie
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 19/21] 🔑 3 Wrong Verifiers Do Not Lock Real Owner with Cookie'));
+  {
+    await cleanupTestData(branch.id, testCodes);
+    const ownerToken = 'test_owner_key_' + Date.now();
+    const ownerHash = computeTokenHash(ownerToken);
+
+    const { data: testRes } = await admin
+      .from('reservations')
+      .insert({
+        branch_id: branch.id,
+        table_id: tableMap['RES-T1'].id,
+        code: 'OWNEROK1',
+        customer_name: 'Real Owner',
+        customer_phone: '081299994321',
+        party_size: 2,
+        starts_at: '2026-10-30T10:00:00+07:00',
+        ends_at: '2026-10-30T11:00:00+07:00',
+        duration_minutes: 60,
+        status: 'confirmed',
+        owner_token_hash: ownerHash,
+        items: [{ id: sampleItem.id, quantity: 1 }],
+      })
+      .select('id, code')
+      .single();
+
+    // 3 wrong verifier attempts from attacker
+    for (let i = 0; i < 3; i++) {
+      const wrongRes = await fetch(`${BASE_URL}/api/reservations/OWNEROK1`, {
+        headers: {
+          'x-nf-client-connection-ip': '203.0.113.88',
+          'x-reservation-verifier': `000${i}`,
+        },
+      });
+      assert(wrongRes.status === 404, `Expected 404 on wrong verifier, got: ${wrongRes.status}`);
+    }
+
+    // Now the real owner requests with their cookie
+    const ownerRes = await fetch(`${BASE_URL}/api/reservations/OWNEROK1`, {
+      headers: {
+        'x-nf-client-connection-ip': '203.0.113.99',
+        Cookie: `reservation_owner_token=${ownerToken}`,
+      },
+    });
+    const ownerData = await ownerRes.json();
+    assert(ownerRes.status === 200 && ownerData.reservation?.code === 'OWNEROK1',
+      `Real owner was locked or lookup failed: status ${ownerRes.status}, data: ${JSON.stringify(ownerData)}`);
+
+    console.log(green('  ✅ Test 19 Passed: 3 wrong verifiers did not lock the real owner who has the cookie.'));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 20: IPv6 /64 Rotation Hits the Same Bucket
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 20/21] 🌐 IPv6 /64 Prefix Normalization'));
+  {
+    const { computeClientIpHash, normalizeIp } = await import('../lib/client-ip.ts');
+
+    const ip1 = '2001:0db8:85a3:0001:0000:8a2e:0370:7334';
+    const ip2 = '2001:db8:85a3:1::ffff';
+    const ip3 = '2001:db8:85a3:1:1234:5678:9abc:def0';
+
+    const norm1 = normalizeIp(ip1);
+    const norm2 = normalizeIp(ip2);
+    const norm3 = normalizeIp(ip3);
+
+    assert(norm1 === norm2 && norm2 === norm3, `IPv6 normalization mismatch: '${norm1}', '${norm2}', '${norm3}'`);
+
+    const hash1 = computeClientIpHash(ip1);
+    const hash2 = computeClientIpHash(ip2);
+    const hash3 = computeClientIpHash(ip3);
+
+    assert(hash1 === hash2 && hash2 === hash3, `IPv6 hash mismatch for /64 subnet: ${hash1} vs ${hash2}`);
+    console.log(`  IPv6 addresses within 2001:0db8:85a3:0001::/64 hashed to same HMAC: ${hash1.slice(0, 16)}...`);
+
+    // Verify different subnet gets different hash
+    const ipOtherSubnet = '2001:db8:85a3:2::1';
+    const hashOther = computeClientIpHash(ipOtherSubnet);
+    assert(hash1 !== hashOther, 'Different /64 subnets should have different hashes');
+
+    console.log(green('  ✅ Test 20 Passed: IPv6 /64 rotation strictly maps to the same rate limit bucket.'));
+    passedTests++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 21: Spoofed X-Forwarded-For & X-Real-IP Strictly Ignored
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(bold('\n[Test 21/21] 🚫 Spoofed X-Forwarded-For & X-Real-IP Ignored'));
+  {
+    const { getClientIp } = await import('../lib/client-ip.ts');
+
+    // 1. With x-nf-client-connection-ip set, spoofed x-forwarded-for and x-real-ip are ignored
+    const headersWithNf = new Headers({
+      'x-nf-client-connection-ip': '203.0.113.50',
+      'x-forwarded-for': '1.2.3.4, 5.6.7.8',
+      'x-real-ip': '9.9.9.9',
+    });
+    const resolvedIpWithNf = getClientIp(headersWithNf);
+    assert(resolvedIpWithNf === '203.0.113.50', `Expected 203.0.113.50, got: ${resolvedIpWithNf}`);
+
+    // 2. Without x-nf-client-connection-ip, proxy headers are NEVER trusted
+    const headersSpoofedOnly = new Headers({
+      'x-forwarded-for': '1.1.1.1, 2.2.2.2',
+      'x-real-ip': '3.3.3.3',
+    });
+    const resolvedDev = getClientIp(headersSpoofedOnly);
+    assert(resolvedDev !== '1.1.1.1' && resolvedDev !== '2.2.2.2' && resolvedDev !== '3.3.3.3',
+      `Spoofed IP was trusted! Got: ${resolvedDev}`);
+    assert(resolvedDev === '127.0.0.1', `Expected 127.0.0.1 in dev fallback, got: ${resolvedDev}`);
+
+    console.log(green('  ✅ Test 21 Passed: Spoofed X-Forwarded-For and X-Real-IP are strictly ignored.'));
     passedTests++;
   }
 

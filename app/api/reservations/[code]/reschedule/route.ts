@@ -12,6 +12,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 
 const BodySchema = z.object({
   new_starts_at: z.string().datetime({ offset: true }),
@@ -53,12 +54,15 @@ export async function POST(
   }
 
   const admin = createAdminClient();
+  const rawIp = getClientIp(req);
+  const ipHash = computeClientIpHash(rawIp);
 
   const { data: rpcData, error } = await (admin as any).rpc('reschedule_reservation', {
     p_code:          upperCode,
     p_verifier:      verifier,
     p_new_starts_at: new_starts_at,
     p_new_table_id:  new_table_id,
+    p_ip_hash:       ipHash,
   });
 
   if (error) {
@@ -70,6 +74,9 @@ export async function POST(
 
   if (!result?.ok) {
     const errCode = result?.code;
+    if (errCode === 'CODE_LOCKED') {
+      return NextResponse.json({ error: result?.message, code: 'CODE_LOCKED' }, { status: 429 });
+    }
     if (errCode === 'NOT_FOUND') {
       return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
     }

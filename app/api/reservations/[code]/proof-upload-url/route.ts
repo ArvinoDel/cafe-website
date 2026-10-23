@@ -14,7 +14,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -66,14 +66,7 @@ export async function POST(
     );
   }
 
-  // Check verifier lockout
-  const codeLock = await checkDbRateLimit(`verifier_fail:${upperCode}`, 5, 900, admin);
-  if (!codeLock.allowed) {
-    return NextResponse.json(
-      { error: 'Terlalu banyak percobaan verifikasi yang salah. Silakan coba lagi setelah 15 menit.' },
-      { status: 429 },
-    );
-  }
+  const ipHash = computeClientIpHash(rawIp);
 
   // Fallback to cookie
   if (!verifier) {
@@ -95,14 +88,29 @@ export async function POST(
     .maybeSingle();
 
   if (fetchErr || !res) {
+    await (admin as any).rpc('record_verifier_failure', { p_code: upperCode, p_ip_hash: ipHash });
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 
   const matchesPhone = res.customer_phone && res.customer_phone.slice(-4) === verifier;
-  const matchesToken = res.owner_token_hash && res.owner_token_hash === verifier;
+  const matchesToken = Boolean(res.owner_token_hash && res.owner_token_hash === verifier);
+
+  // Peek verifier lock (read-only)
+  const { data: isAllowed } = await (admin as any).rpc('peek_verifier_lock', {
+    p_code:     upperCode,
+    p_ip_hash:  ipHash,
+    p_is_owner: matchesToken,
+  });
+
+  if (!isAllowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak percobaan verifikasi yang salah. Silakan coba lagi setelah 15 menit.' },
+      { status: 429 },
+    );
+  }
 
   if (!matchesPhone && !matchesToken) {
-    await checkDbRateLimit(`verifier_fail:${upperCode}`, 5, 900, admin);
+    await (admin as any).rpc('record_verifier_failure', { p_code: upperCode, p_ip_hash: ipHash });
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 

@@ -60,6 +60,7 @@ export async function POST(
     branchId:       res.branch_id,
     items:          res.items,
     paymentMethod:  res.payment_method === 'cash' ? 'cash' : 'qris',
+    paymentStatus:  'paid',
     notes:          `[LUNAS - Reservasi ${res.code}]` + (res.notes ? ` ${res.notes}` : ''),
     idempotencyKey: `retry_reservation_${res.id}_${Date.now()}`,
   });

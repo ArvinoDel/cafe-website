@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
+import { getClientIp } from '@/lib/client-ip';
 import type { SupabaseEnv } from '@supabase/server';
 
 // ─── Env helper ───────────────────────────────────────────────────────────────
@@ -92,10 +93,7 @@ function notFound() {
 
 export async function POST(request: NextRequest) {
   // Rate limiting
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown';
+  const ip = getClientIp(request);
 
   if (isRateLimited(ip)) {
     return NextResponse.json(

@@ -22,6 +22,7 @@ import { createAdminClient } from '@/lib/supabase-server';
 import { evaluatePriceLines } from '@/lib/order-pricing';
 import type { SupabaseEnv } from '@supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { getClientIp } from '@/lib/client-ip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,11 +89,7 @@ export function getAdminClient(): AdminClient {
 // ─── IP extraction ────────────────────────────────────────────────────────────
 
 export function getIP(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    '127.0.0.1'
-  );
+  return getClientIp(req);
 }
 
 // ─── Name sanitization ────────────────────────────────────────────────────────

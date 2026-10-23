@@ -22,7 +22,7 @@ import {
   TABLE_SESSION_COOKIE,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const BodySchema = z.object({
@@ -76,10 +76,12 @@ export async function POST(
     isNewSessionToken = true;
   }
 
+  const ipHash = computeClientIpHash(rawIp);
   const { data: rpcData, error } = await (admin as any).rpc('check_in_reservation', {
     p_code:     upperCode,
     p_verifier: verifier,
     p_token:    sessionToken,
+    p_ip_hash:  ipHash,
   });
 
   if (error) {
@@ -98,7 +100,7 @@ export async function POST(
       return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
     }
     if (errCode === 'NOT_CONFIRMED' || errCode === 'CHECKIN_TOO_EARLY' || errCode === 'CHECKIN_EXPIRED') {
-      return NextResponse.json({ error: result?.message, code: errCode }, { status: 409 });
+      return NextResponse.json({ error: result?.message, code: errCode }, { status: 400 });
     }
     return NextResponse.json({ error: result?.message || 'Check-in gagal.' }, { status: 400 });
   }
@@ -116,6 +118,7 @@ export async function POST(
       branchId:       result.branch_id,
       items:          reservation.items,
       paymentMethod:  reservation.payment_method === 'cash' ? 'cash' : 'qris',
+      paymentStatus:  'paid',
       notes:          `[LUNAS - Reservasi ${upperCode}]` + (reservation.notes ? ` ${reservation.notes}` : ''),
       idempotencyKey: `reservation_${reservation.id}`,
       sessionToken,

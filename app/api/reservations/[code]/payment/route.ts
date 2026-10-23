@@ -15,7 +15,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 const BodySchema = z.object({
@@ -66,10 +66,12 @@ export async function POST(
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 
+  const ipHash = computeClientIpHash(rawIp);
   const { data: rpcData, error } = await (admin as any).rpc('claim_payment', {
     p_code:       upperCode,
     p_verifier:   verifier,
     p_proof_path: proofPath,
+    p_ip_hash:    ipHash,
   });
 
   if (error) {

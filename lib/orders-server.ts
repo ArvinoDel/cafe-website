@@ -37,6 +37,7 @@ export type CreateOrderInternalInput = {
   branchId: string;
   items: OrderLineInput[];
   paymentMethod: 'cash' | 'qris';
+  paymentStatus?: 'paid' | 'unpaid';
   notes?: string | null;
   idempotencyKey?: string | null;
   sessionToken?: string | null;
@@ -60,6 +61,7 @@ export async function createOrderInternal(
     branchId,
     items,
     paymentMethod,
+    paymentStatus = 'unpaid',
     notes,
     idempotencyKey,
     sessionToken,
@@ -150,7 +152,7 @@ export async function createOrderInternal(
         subtotal,
         total,
         payment_method:  paymentMethod,
-        payment_status:  notes?.includes('[LUNAS') ? 'paid' : 'unpaid',
+        payment_status:  paymentStatus,
         notes:           notes?.trim() || null,
         status:          'pending',
         idempotency_key: idempotencyKey ?? null,

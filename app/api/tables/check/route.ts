@@ -6,6 +6,8 @@ import {
   TABLE_SESSION_COOKIE,
   resolveAdminEnv,
 } from '@/lib/table-session-server';
+import { getClientIp } from '@/lib/client-ip';
+import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 function maskName(name: string): string {
   if (!name) return 'Pelanggan';
@@ -19,18 +21,34 @@ function maskName(name: string): string {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const code = searchParams.get('code')?.trim().toUpperCase();
-  const clientBranchId = searchParams.get('branch_id')?.trim();
-
-  if (!code) {
-    return NextResponse.json({ ok: false, error: 'Parameter code wajib diisi.' }, { status: 400 });
-  }
-
   const env = resolveAdminEnv();
   const admin = createAdminClient({ env });
 
-  // 1. Resolve branch if not provided
+  // 1. Rate limiting per client IP
+  const rawIp = getClientIp(request);
+  const ipLimit = await checkDbRateLimit(`table_check_ip:${rawIp}`, 60, 60, admin);
+  if (!ipLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak permintaan. Silakan tunggu sebentar.' },
+      { status: 429 },
+    );
+  }
+
+  const { searchParams } = new URL(request.url);
+  const rawCode = searchParams.get('code');
+  const clientBranchId = searchParams.get('branch_id')?.trim();
+
+  if (!rawCode) {
+    return NextResponse.json({ ok: false, error: 'Parameter code wajib diisi.' }, { status: 400 });
+  }
+
+  // Escape input and normalize to uppercase
+  const sanitizedCode = rawCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  if (!sanitizedCode || sanitizedCode.length > 20) {
+    return NextResponse.json({ ok: false, code: 'TABLE_NOT_FOUND', error: 'Meja tidak ditemukan.' }, { status: 404 });
+  }
+
+  // 2. Resolve branch if not provided
   let branchId = clientBranchId;
   if (!branchId) {
     const { data: branchRows } = await admin.from('branches').select('id').limit(2);
@@ -39,11 +57,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2. Query table
+  // 3. Query table with exact .eq matching
   let tableQuery = admin
     .from('tables')
     .select('id, branch_id, code, label, seats, is_active')
-    .ilike('code', code);
+    .eq('code', sanitizedCode);
 
   if (branchId) {
     tableQuery = tableQuery.eq('branch_id', branchId);
@@ -57,12 +75,12 @@ export async function GET(request: NextRequest) {
   const table = tableRows[0];
   branchId = table.branch_id;
 
-  // 3. Check owner token cookie
+  // 4. Check owner token cookie
   const ownerCookie = request.cookies.get(RESERVATION_OWNER_COOKIE)?.value;
   const ownerHash = ownerCookie ? computeTokenHash(ownerCookie) : null;
   const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
 
-  // 4. Query active or confirmed reservation for today / current time
+  // 5. Query active or confirmed reservation for today / current time
   const now = new Date();
   const startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
@@ -81,7 +99,7 @@ export async function GET(request: NextRequest) {
 
   const matchedRes = resRows && resRows.length > 0 ? resRows[0] : null;
 
-  // 5. Query active table session
+  // 6. Query active table session
   const { data: sessionRows } = await admin
     .from('table_sessions')
     .select('id, table_id, status, expires_at, session_token')
@@ -125,14 +143,14 @@ export async function GET(request: NextRequest) {
     },
     hasReservation: true,
     reservation: {
-      id:           matchedRes.id,
+      id:           isOwner ? matchedRes.id : undefined,
       code:         isOwner ? matchedRes.code : undefined,
-      codeMasked:   matchedRes.code ? `${matchedRes.code.slice(0, 2)}****${matchedRes.code.slice(-2)}` : '****',
-      customerName: maskName(matchedRes.customer_name),
+      codeMasked:   isOwner && matchedRes.code ? `${matchedRes.code.slice(0, 2)}****${matchedRes.code.slice(-2)}` : undefined,
+      customerName: isOwner ? maskName(matchedRes.customer_name) : undefined,
       startsAt:     matchedRes.starts_at,
       endsAt:       matchedRes.ends_at,
       status:       matchedRes.status,
-      partySize:    matchedRes.party_size,
+      partySize:    isOwner ? matchedRes.party_size : undefined,
       isOwner,
     },
     session: activeSession

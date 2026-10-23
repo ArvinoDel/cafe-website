@@ -22,6 +22,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-server';
+import { getClientIp } from '@/lib/client-ip';
 import type { SupabaseEnv } from '@supabase/server';
 import { computeWaitMinutes } from '@/lib/wait-time';
 
@@ -112,9 +113,7 @@ function notFound() {
 
 export async function GET(request: NextRequest) {
   // Rate limiting
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? request.headers.get('x-real-ip')
-    ?? 'unknown';
+  const ip = getClientIp(request);
 
   const now = Date.now();
   cleanupStaleEntries(now);

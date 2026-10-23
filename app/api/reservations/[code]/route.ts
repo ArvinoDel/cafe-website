@@ -22,7 +22,7 @@ import {
   computeTokenHash,
   RESERVATION_OWNER_COOKIE,
 } from '@/lib/table-session-server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
 import { checkDbRateLimit } from '@/lib/db-rate-limiter';
 
 async function handleLookup(
@@ -68,9 +68,11 @@ async function handleLookup(
     return NextResponse.json({ error: 'Reservasi tidak ditemukan.' }, { status: 404 });
   }
 
+  const ipHash = computeClientIpHash(rawIp);
   const { data: rpcData, error } = await (admin as any).rpc('lookup_reservation', {
     p_code:     upperCode,
     p_verifier: verifier,
+    p_ip_hash:  ipHash,
   });
 
   if (error) {

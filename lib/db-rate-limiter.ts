@@ -3,6 +3,10 @@
  *
  * Distributed DB-backed atomic rate limiter using PostgreSQL `rate_limits` table
  * and `check_rate_limit` RPC.
+ *
+ * Security:
+ * - Fail closed for write-type routes (reservation create, payment, claim) to protect DB
+ * - Fail open for read-only routes so transient errors do not block legitimate lookups
  */
 
 import { createAdminClient } from '@/lib/supabase-server';
@@ -15,13 +19,38 @@ export type RateLimitResult = {
   reset_at: string;
 };
 
+export type CheckDbRateLimitOptions = {
+  adminClient?: any;
+  failClosed?: boolean;
+};
+
+function isWriteRouteKey(key: string): boolean {
+  return (
+    key.startsWith('res_create') ||
+    key.startsWith('res_pay') ||
+    key.startsWith('claim') ||
+    key.startsWith('proof_upload')
+  );
+}
+
 export async function checkDbRateLimit(
   key: string,
   limit: number,
   windowSeconds: number,
-  adminClient?: any,
+  adminClientOrOptions?: any,
+  explicitFailClosed?: boolean,
 ): Promise<RateLimitResult> {
-  const admin = adminClient || createAdminClient();
+  let admin: any;
+  let failClosed: boolean;
+
+  if (adminClientOrOptions && typeof adminClientOrOptions === 'object' && !('from' in adminClientOrOptions) && !('rpc' in adminClientOrOptions)) {
+    const opts = adminClientOrOptions as CheckDbRateLimitOptions;
+    admin = opts.adminClient || createAdminClient();
+    failClosed = opts.failClosed ?? isWriteRouteKey(key);
+  } else {
+    admin = adminClientOrOptions || createAdminClient();
+    failClosed = explicitFailClosed ?? isWriteRouteKey(key);
+  }
 
   const { data, error } = await (admin as any).rpc('check_rate_limit', {
     p_key:            key,
@@ -31,13 +60,24 @@ export async function checkDbRateLimit(
 
   if (error) {
     console.error('[checkDbRateLimit] DB error:', error.message);
-    // Fail open or allow on transient database error so legitimate users aren't locked out
+    if (failClosed) {
+      // Fail closed for write routes: reject request on DB outage/error
+      return {
+        allowed:   false,
+        count:     limit,
+        limit,
+        remaining: 0,
+        reset_at:  new Date(Date.now() + windowSeconds * 1000).toISOString(),
+      };
+    }
+
+    // Fail open for read-only routes so legitimate users aren't locked out on transient errors
     return {
-      allowed: true,
-      count: 1,
+      allowed:   true,
+      count:     1,
       limit,
       remaining: limit - 1,
-      reset_at: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+      reset_at:  new Date(Date.now() + windowSeconds * 1000).toISOString(),
     };
   }
 

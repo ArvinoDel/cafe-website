@@ -14,6 +14,7 @@
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase-server';
 import type { SupabaseEnv } from '@supabase/server';
+import { computeClientIpHash } from '@/lib/client-ip';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -97,8 +98,7 @@ export type ClaimResult =
  * Raw IP is never stored in DB or exposed.
  */
 export function computeIpHash(ip: string): string {
-  const secret = process.env.SUPABASE_SECRET_KEY || 'cafe-soft-hold-hmac-secret';
-  return crypto.createHmac('sha256', secret).update(ip.trim()).digest('hex');
+  return computeClientIpHash(ip);
 }
 
 /**

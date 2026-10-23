@@ -90,10 +90,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rawIp =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1';
+    const { getClientIp } = await import('@/lib/client-ip');
+    const rawIp = getClientIp(request);
     const ipHash = computeIpHash(rawIp);
 
     const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {

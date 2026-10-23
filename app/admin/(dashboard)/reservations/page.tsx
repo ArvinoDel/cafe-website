@@ -88,6 +88,7 @@ type Reservation = {
   hold_expires_at:   string | null;
   payment_proof_url: string | null;
   needs_kitchen_order?: boolean;
+  proof_unreviewed?: boolean;
   created_at:        string;
   table:             { code: string; label: string | null } | null;
 };
@@ -225,6 +226,8 @@ export default function ReservationsPage() {
     // Status filter
     if (statusFilter === 'needs_refund') {
       query = query.eq('refund_status', 'needs_refund');
+    } else if (statusFilter === 'proof_unreviewed') {
+      query = query.eq('proof_unreviewed', true);
     } else if (statusFilter === 'active') {
       query = query.in('status', ['pending_payment', 'awaiting_confirmation', 'confirmed', 'seated']);
     } else if (statusFilter !== 'all') {
@@ -474,6 +477,7 @@ export default function ReservationsPage() {
             <option value="seated">Duduk / Seated</option>
             <option value="completed">Selesai</option>
             <option value="needs_refund">Perlu Refund</option>
+            <option value="proof_unreviewed">Bukti Belum Direview</option>
             <option value="cancelled">Dibatalkan</option>
             <option value="no_show">Tidak Hadir</option>
             <option value="expired">Kedaluwarsa</option>
@@ -551,6 +555,12 @@ export default function ReservationsPage() {
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1">
                           <ShoppingBag className="w-3 h-3 text-orange-600" />
                           Pesanan Dapur Gagal
+                        </span>
+                      )}
+                      {res.proof_unreviewed && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-amber-700" />
+                          Bukti Belum Direview
                         </span>
                       )}
                     </div>

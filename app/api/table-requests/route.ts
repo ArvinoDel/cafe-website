@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase-server';
+import { getClientIp } from '@/lib/client-ip';
 import type { SupabaseEnv } from '@supabase/server';
 
 function resolveEnv(): Partial<SupabaseEnv> {
@@ -79,10 +80,7 @@ const TableRequestSchema = z.object({
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown';
+  const ip = getClientIp(request);
 
   if (isRateLimited(ip)) {
     return NextResponse.json(

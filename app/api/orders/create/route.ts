@@ -121,6 +121,12 @@ function generateCode(): string {
   return code;
 }
 
+function stripLunasToken(str?: string | null): string | null {
+  if (!str) return null;
+  const stripped = str.replace(/\[\s*LUNAS[^\]]*\]?/gi, '').replace(/\s{2,}/g, ' ').trim();
+  return stripped || null;
+}
+
 // ─── Branch resolver (shared between solo and group flows) ───────────────────
 
 type BranchRow = { id: string; accepting_orders: boolean | null; pause_message: string | null };
@@ -476,10 +482,11 @@ export async function POST(request: NextRequest) {
           subtotal,
           total,
           payment_method,
-          notes:          notes?.trim() || null,
+          payment_status: 'unpaid',
+          notes:          stripLunasToken(notes),
           status:         'pending',
         })
-        .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, notes, status, created_at')
+        .select('id, order_code, customer_name, table_number, branch_id, items, subtotal, total, payment_method, payment_status, notes, status, created_at')
         .single();
 
       if (insertErr) {
@@ -536,7 +543,8 @@ export async function POST(request: NextRequest) {
     branchId:       resolvedBranchId,
     items:          items!,
     paymentMethod:  payment_method,
-    notes:          notes?.trim() || null,
+    paymentStatus:  'unpaid',
+    notes:          stripLunasToken(notes),
     idempotencyKey: idempotency_key ?? null,
     sessionToken:   sessionToken ?? null,
   });
