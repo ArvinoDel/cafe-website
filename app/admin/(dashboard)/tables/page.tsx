@@ -444,9 +444,14 @@ export default function TableQrPage() {
 
   // ── QR URL helper ───────────────────────────────────────────────────────────
   const qrUrlFor = useCallback((tableCode: string) => {
-    const raw = (baseUrl || (origin ? `${origin}/menu` : '/menu')).trim();
+    const fallbackOrigin =
+      typeof window !== 'undefined' && window.location.origin
+        ? window.location.origin
+        : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000');
+    const raw = (baseUrl || (origin ? `${origin}/menu` : `${fallbackOrigin}/menu`)).trim();
     try {
-      const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+      const base = raw.startsWith('http') ? undefined : fallbackOrigin;
+      const url = new URL(raw, base);
       url.searchParams.set('table', tableCode);
       if (selectedBranchId) url.searchParams.set('branch', selectedBranchId);
       return url.toString();

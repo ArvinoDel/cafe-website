@@ -31,20 +31,56 @@ import { formatHHMM } from '@/lib/datetime';
 
 const PLAIN_CODE_REGEX = /^[A-Z]{1,3}-?\d{1,3}$/i;
 
+function isLocalOrPrivateHost(hostname: string): boolean {
+  if (!hostname) return false;
+  const h = hostname.toLowerCase();
+  return (
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '0.0.0.0' ||
+    h.endsWith('.local') ||
+    h.startsWith('192.168.') ||
+    h.startsWith('10.') ||
+    h.startsWith('172.') ||
+    h.includes('.ngrok') ||
+    h.includes('.trycloudflare.com') ||
+    h.includes('.loca.lt')
+  );
+}
+
 function isValidOrigin(url: URL): boolean {
   try {
     const currentOrigin =
       typeof window !== 'undefined' && window.location.origin ? window.location.origin : null;
+    const currentHostname =
+      typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : null;
     const siteUrlOrigin = process.env.NEXT_PUBLIC_SITE_URL
       ? new URL(process.env.NEXT_PUBLIC_SITE_URL).origin
       : null;
 
+    // 1. Exact match with current origin
     if (currentOrigin && url.origin.toLowerCase() === currentOrigin.toLowerCase()) {
       return true;
     }
+
+    // 2. Exact match with configured site URL
     if (siteUrlOrigin && url.origin.toLowerCase() === siteUrlOrigin.toLowerCase()) {
       return true;
     }
+
+    // 3. Dummy base origin fallback from uninitialized admin QR
+    if (url.hostname === 'menu' || url.origin === 'null') {
+      return true;
+    }
+
+    // 4. In local development / LAN testing:
+    // If current device is on localhost / LAN IP / tunnel, accept QR URLs from the same local network
+    if (currentHostname && isLocalOrPrivateHost(currentHostname)) {
+      if (isLocalOrPrivateHost(url.hostname)) {
+        return true;
+      }
+    }
+
     return false;
   } catch {
     return false;
@@ -55,14 +91,14 @@ function isValidOrigin(url: URL): boolean {
  * Extracts table code from QR content.
  * Accepts:
  * (a) URL matching current origin / NEXT_PUBLIC_SITE_URL carrying table/meja/t param or /menu/:code path
- * (b) Plain codes matching /^[A-Z]{1,3}-?\d{1,3}$/i
+ * (b) Plain codes matching /^[A-Z]{1,3}-?\d{1,3}$/i or plain numeric table codes
  */
 export function extractTableCode(raw: string): string | null {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
 
   // (b) Plain code check
-  if (PLAIN_CODE_REGEX.test(trimmed)) {
+  if (PLAIN_CODE_REGEX.test(trimmed) || /^\d{1,4}$/.test(trimmed)) {
     return trimmed.toUpperCase();
   }
 
@@ -78,12 +114,12 @@ export function extractTableCode(raw: string): string | null {
       url.searchParams.get('table') ||
       url.searchParams.get('meja') ||
       url.searchParams.get('t');
-    if (tableParam && tableParam.trim() && PLAIN_CODE_REGEX.test(tableParam.trim())) {
+    if (tableParam && tableParam.trim()) {
       return tableParam.trim().toUpperCase();
     }
 
-    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-z0-9-]+)$/i);
-    if (pathMatch && pathMatch[1] && PLAIN_CODE_REGEX.test(pathMatch[1].trim())) {
+    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-zA-Z0-9_-]+)$/i);
+    if (pathMatch && pathMatch[1]) {
       return pathMatch[1].trim().toUpperCase();
     }
   } catch {
@@ -104,7 +140,7 @@ export function extractTableAndBranch(
   const trimmed = raw.trim();
 
   // Plain code check
-  if (PLAIN_CODE_REGEX.test(trimmed)) {
+  if (PLAIN_CODE_REGEX.test(trimmed) || /^\d{1,4}$/.test(trimmed)) {
     return { table: trimmed.toUpperCase(), branchId: null };
   }
 
@@ -125,15 +161,15 @@ export function extractTableAndBranch(
       url.searchParams.get('branchId') ||
       url.searchParams.get('cabang');
 
-    if (tableParam && tableParam.trim() && PLAIN_CODE_REGEX.test(tableParam.trim())) {
+    if (tableParam && tableParam.trim()) {
       return {
         table:    tableParam.trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
       };
     }
 
-    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-z0-9-]+)$/i);
-    if (pathMatch && pathMatch[1] && PLAIN_CODE_REGEX.test(pathMatch[1].trim())) {
+    const pathMatch = url.pathname.match(/\/(?:menu|menus)\/([a-zA-Z0-9_-]+)$/i);
+    if (pathMatch && pathMatch[1]) {
       return {
         table:    pathMatch[1].trim().toUpperCase(),
         branchId: branchParam?.trim() || null,
