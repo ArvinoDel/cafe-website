@@ -298,14 +298,25 @@ function MenuPageInner() {
   );
 
   const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null) => {
-      void verifyAndClaimTable(scanned, scannedBranchId);
+    (scanned: string, scannedBranchId: string | null, claimResult?: import('@/lib/table-session').ClaimTableResult) => {
+      const clean = scanned.trim().toUpperCase();
+      if (claimResult && claimResult.ok) {
+        setTableNumber(clean);
+        localStorage.setItem(TABLE_KEY, clean);
+        if (scannedBranchId) {
+          setBranchId(scannedBranchId);
+          localStorage.setItem(BRANCH_KEY, scannedBranchId);
+        }
+        refreshTableSession();
+      } else {
+        void verifyAndClaimTable(clean, scannedBranchId);
+      }
       const url = scannedBranchId
-        ? `/menu?table=${scanned}&branch=${scannedBranchId}`
-        : `/menu?table=${scanned}`;
+        ? `/menu?table=${clean}&branch=${scannedBranchId}`
+        : `/menu?table=${clean}`;
       router.replace(url);
     },
-    [verifyAndClaimTable, router],
+    [verifyAndClaimTable, router, refreshTableSession],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and

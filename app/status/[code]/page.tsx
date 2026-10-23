@@ -261,7 +261,7 @@ export default function OrderStatusPage() {
   }
 
   const handleTableScan = useCallback(
-    async (scannedTable: string) => {
+    async (scannedTable: string, _branchId?: string | null, _claimResult?: import('@/lib/table-session').ClaimTableResult) => {
       if (!order) return;
       if (scannedTable === order.table_number) {
         setTableUpdateNotice({
@@ -1024,7 +1024,7 @@ function StatusSkeleton() {
       <QrScannerModal
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
-        onScanSuccess={(scanned) => handleTableScan(scanned)}
+        onScanSuccess={(scanned, branchId, claimResult) => handleTableScan(scanned, branchId, claimResult)}
         currentTable={order.table_number}
         title="Pindah Meja Pesanan"
         subtitle={`Pesanan saat ini di Meja ${order.table_number}. Arahkan kamera ke stiker QR meja baru.`}

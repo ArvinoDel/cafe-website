@@ -49,12 +49,13 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleScanSuccess = (table: string, branchId: string | null) => {
-    localStorage.setItem(TABLE_KEY, table);
+  const handleScanSuccess = (table: string, branchId: string | null, _claimResult?: import('@/lib/table-session').ClaimTableResult) => {
+    const clean = table.trim().toUpperCase();
+    localStorage.setItem(TABLE_KEY, clean);
     if (branchId) {
       localStorage.setItem(BRANCH_KEY, branchId);
     }
-    const url = branchId ? `/menu?table=${table}&branch=${branchId}` : `/menu?table=${table}`;
+    const url = branchId ? `/menu?table=${clean}&branch=${branchId}` : `/menu?table=${clean}`;
     router.push(url);
   };
 
