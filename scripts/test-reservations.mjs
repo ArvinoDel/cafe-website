@@ -74,6 +74,17 @@ function assert(condition, message) {
   }
 }
 
+async function uploadStorageFile(bucket, filePath, buffer, contentType = 'image/jpeg') {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { data, error } = await admin.storage
+      .from(bucket)
+      .upload(filePath, buffer, { contentType, upsert: true });
+    if (!error) return data;
+    if (attempt === 3) throw new Error(`Storage upload failed: ${error.message}`);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 // ─── Cleanup Helper ───────────────────────────────────────────────────────────
 
 async function cleanupTestData(branchId, tableCodes) {
@@ -499,10 +510,7 @@ async function main() {
 
     console.log('  Uploading real payment proof to private bucket reservation-proofs...');
     const proofPath = `${code}/proof_${Date.now()}.jpg`;
-    const { error: upErr } = await admin.storage
-      .from('reservation-proofs')
-      .upload(proofPath, Buffer.from('test-image-content'), { contentType: 'image/jpeg' });
-    assert(!upErr, `Storage upload failed: ${upErr?.message}`);
+    await uploadStorageFile('reservation-proofs', proofPath, Buffer.from('test-image-content'), 'image/jpeg');
 
     console.log('  Submitting payment claim with verified proof_path...');
     const pSuccessRes = await fetch(`${BASE_URL}/api/reservations/${code}/payment`, {
@@ -906,7 +914,7 @@ async function main() {
 
     // 2. Upload proof & Pay
     const proofPath = `${code}/proof.jpg`;
-    await admin.storage.from('reservation-proofs').upload(proofPath, Buffer.from('img'), { contentType: 'image/jpeg' });
+    await uploadStorageFile('reservation-proofs', proofPath, Buffer.from('img'), 'image/jpeg');
     const pRes = await fetch(`${BASE_URL}/api/reservations/${code}/payment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
