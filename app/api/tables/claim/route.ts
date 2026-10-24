@@ -207,6 +207,21 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (errCode === 'TABLE_COOLDOWN') {
+        const remainingMinutes = result?.remaining_minutes ?? 10;
+        return NextResponse.json(
+          {
+            ok:                false,
+            code:              'TABLE_COOLDOWN',
+            error:             `Meja ini baru saja dilepas. Tunggu ${remainingMinutes} menit sebelum dapat diklaim kembali.`,
+            remaining_minutes: remainingMinutes,
+            remaining_seconds: result?.remaining_seconds ?? (remainingMinutes * 60),
+            until:             result?.until ?? undefined,
+          },
+          { status: 409 },
+        );
+      }
+
       const errorMessages: Record<string, string> = {
         TABLE_NOT_FOUND:     'Meja tidak ditemukan atau tidak aktif.',
         TABLE_TAKEN:         'Meja ini sedang dipakai pelanggan lain.',

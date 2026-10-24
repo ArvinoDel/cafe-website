@@ -51,7 +51,7 @@ type Branch = {
   reservation_min_preorder?: number | null;
   qris_image_url?: string | null;
   claim_max_holds_per_ip?: number | null;
-  trusted_ip_hashes?: string[] | null;
+  trusted_ip_hashes?: any;
   created_at: string;
 };
 
@@ -366,8 +366,14 @@ function BranchFormModal({
       ? String(initial.claim_max_holds_per_ip)
       : '15',
   );
-  const [trustedIpHashes, setTrustedIpHashes] = useState<string[]>(initial?.trusted_ip_hashes ?? []);
+  const [trustedWifiEntries, setTrustedWifiEntries] = useState<
+    Array<{ id: string; hash_prefix: string; added_by: string; added_at: string; label: string }>
+  >([]);
+  const [wifiLabelInput, setWifiLabelInput] = useState('');
+  const [loadingWifiEntries, setLoadingWifiEntries] = useState(false);
   const [savingTrustedIp, setSavingTrustedIp] = useState(false);
+  const [deletingWifiId, setDeletingWifiId] = useState<string | null>(null);
+
   // Reservation settings
   const [reservationsEnabled, setReservationsEnabled] = useState(initial?.reservations_enabled ?? false);
   const [reservationOpenTime, setReservationOpenTime]     = useState(initial?.reservation_open_time ?? '08:00');
@@ -383,9 +389,35 @@ function BranchFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchWifiEntries = useCallback(async () => {
+    if (!initial?.id) return;
+    setLoadingWifiEntries(true);
+    try {
+      const res = await fetch(`/api/admin/branches/trusted-ip?branch_id=${initial.id}`);
+      const data = await res.json();
+      if (res.ok && data.entries) {
+        setTrustedWifiEntries(data.entries);
+      }
+    } catch (err) {
+      console.error('Failed to fetch trusted wifi entries:', err);
+    } finally {
+      setLoadingWifiEntries(false);
+    }
+  }, [initial?.id]);
+
+  useEffect(() => {
+    if (initial?.id) {
+      fetchWifiEntries();
+    }
+  }, [initial?.id, fetchWifiEntries]);
+
   async function handleSaveCurrentIp() {
     if (!initial?.id) {
       toast('Simpan cabang terlebih dahulu sebelum mendaftarkan IP Wi-Fi kafe.');
+      return;
+    }
+    if (trustedWifiEntries.length >= 5) {
+      toast('Maksimal 5 Wi-Fi terpercaya per cabang. Hapus entri lama terlebih dahulu.');
       return;
     }
     setSavingTrustedIp(true);
@@ -393,16 +425,39 @@ function BranchFormModal({
       const res = await fetch('/api/admin/branches/trusted-ip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch_id: initial.id }),
+        body: JSON.stringify({
+          branch_id: initial.id,
+          label: wifiLabelInput.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal menyimpan hash IP');
-      setTrustedIpHashes(data.trusted_ip_hashes || []);
+      setWifiLabelInput('');
       toast('Hash IP Wi-Fi kafe berhasil disimpan.');
+      await fetchWifiEntries();
     } catch (err: any) {
       toast(`Gagal: ${err.message}`);
     } finally {
       setSavingTrustedIp(false);
+    }
+  }
+
+  async function handleDeleteWifiEntry(id: string) {
+    if (!initial?.id) return;
+    setDeletingWifiId(id);
+    try {
+      const res = await fetch(
+        `/api/admin/branches/trusted-ip?id=${encodeURIComponent(id)}&branch_id=${initial.id}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menghapus entri Wi-Fi');
+      toast('Wi-Fi kafe berhasil dihapus.');
+      await fetchWifiEntries();
+    } catch (err: any) {
+      toast(`Gagal: ${err.message}`);
+    } finally {
+      setDeletingWifiId(null);
     }
   }
 
@@ -439,7 +494,6 @@ function BranchFormModal({
       walkin_lock_minutes: safeLockMin,
       claim_soft_hold_minutes: safeSoftHold,
       claim_max_holds_per_ip: safeMaxHolds,
-      trusted_ip_hashes: trustedIpHashes,
       reservations_enabled: reservationsEnabled,
       reservation_open_time: reservationOpenTime,
       reservation_close_time: reservationCloseTime,
@@ -835,33 +889,100 @@ function BranchFormModal({
                 </div>
               </div>
 
-              {/* Wi-Fi kafe trusted IP registration */}
-              <div className="p-3.5 rounded-2xl bg-coffee-50/60 border border-coffee-100 space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold text-coffee-900">
-                      Jaringan Wi-Fi Terpercaya (Bypass Batas Hold)
-                    </p>
-                    <p className="text-[11px] text-charcoal/50 mt-0.5">
-                      Pelanggan yang tersambung ke Wi-Fi kafe ini dibebaskan dari pembatasan per-IP hold.
-                      {trustedIpHashes.length > 0 ? ` (${trustedIpHashes.length} hash IP terdaftar)` : ' (Belum ada IP didaftarkan)'}
-                    </p>
-                  </div>
-                  {initial?.id ? (
+              {/* Wi-Fi kafe trusted IP registration & list */}
+              <div className="p-4 rounded-2xl bg-coffee-50/60 border border-coffee-100 space-y-3.5">
+                <div>
+                  <p className="text-xs font-bold text-coffee-900">
+                    Jaringan Wi-Fi Terpercaya (Bypass Batas Hold &amp; Cooldown)
+                  </p>
+                  <p className="text-[11px] text-charcoal/60 mt-0.5">
+                    Maksimal 5 entri per cabang. Pelanggan yang tersambung ke Wi-Fi kafe dibebaskan dari pembatasan per-IP hold dan cooldown.
+                  </p>
+                </div>
+
+                {/* Warning Alert */}
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span className="font-medium leading-relaxed">
+                    Tekan hanya saat HP/laptop Anda tersambung ke Wi-Fi kafe, bukan data seluler atau rumah.
+                  </span>
+                </div>
+
+                {/* Add entry form */}
+                {initial?.id ? (
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={wifiLabelInput}
+                      onChange={(e) => setWifiLabelInput(e.target.value)}
+                      placeholder="Label Wi-Fi (contoh: Wi-Fi Kasir / Router Utama)"
+                      maxLength={50}
+                      disabled={savingTrustedIp || trustedWifiEntries.length >= 5}
+                      className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-coffee-100 text-charcoal text-xs focus:outline-none focus:border-coffee-400 disabled:opacity-50"
+                    />
                     <button
                       type="button"
                       onClick={handleSaveCurrentIp}
-                      disabled={savingTrustedIp}
-                      className="px-3.5 py-2 rounded-xl bg-coffee-600 hover:bg-coffee-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 shadow-sm"
+                      disabled={savingTrustedIp || trustedWifiEntries.length >= 5}
+                      className="px-4 py-2 rounded-xl bg-coffee-600 hover:bg-coffee-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 shadow-sm"
                     >
-                      {savingTrustedIp ? 'Menyimpan...' : 'Simpan IP Hash Wi-Fi Ini'}
+                      {savingTrustedIp
+                        ? 'Menyimpan...'
+                        : trustedWifiEntries.length >= 5
+                        ? 'Maksimal 5 Entri'
+                        : 'Daftarkan Wi-Fi Ini'}
                     </button>
-                  ) : (
-                    <span className="text-[11px] text-charcoal/40 italic">
-                      Simpan cabang dulu untuk mendaftarkan IP
-                    </span>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-charcoal/40 italic">
+                    Simpan cabang dulu untuk mendaftarkan Wi-Fi
+                  </span>
+                )}
+
+                {/* Registered Wi-Fi list */}
+                {initial?.id && (
+                  <div className="space-y-2 pt-2 border-t border-coffee-100/60">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-coffee-800 uppercase tracking-wider">
+                        Daftar Wi-Fi Terdaftar ({trustedWifiEntries.length}/5)
+                      </p>
+                    </div>
+
+                    {loadingWifiEntries ? (
+                      <p className="text-xs text-charcoal/50 italic py-1">Memuat daftar Wi-Fi...</p>
+                    ) : trustedWifiEntries.length === 0 ? (
+                      <p className="text-xs text-charcoal/40 italic py-1">
+                        Belum ada IP Wi-Fi yang didaftarkan untuk cabang ini.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {trustedWifiEntries.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-coffee-100 text-xs gap-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold text-coffee-950 truncate">
+                                {entry.label || 'Wi-Fi Kafe'}
+                              </p>
+                              <p className="text-[10px] text-charcoal/50">
+                                Hash: <code className="bg-coffee-50 px-1 py-0.5 rounded font-mono font-bold text-coffee-800">{entry.hash_prefix}...</code> • Ditambahkan: {entry.added_by}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteWifiEntry(entry.id)}
+                              disabled={deletingWifiId === entry.id}
+                              className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold transition-colors disabled:opacity-50 shrink-0"
+                            >
+                              {deletingWifiId === entry.id ? 'Menghapus...' : 'Hapus'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

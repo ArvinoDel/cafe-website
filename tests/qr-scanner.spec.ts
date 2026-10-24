@@ -115,9 +115,11 @@ test.describe('QrScannerModal Automated Hardening Suite', () => {
       (window as any).__dispatchQrDecode?.('A-2');
     });
 
-    await page.waitForTimeout(600);
-
     // Exactly one claim call must have occurred
+    await expect.poll(() => claimCount, { timeout: 5000 }).toBe(1);
+
+    // Wait an additional 500ms to verify no second duplicate claim was dispatched
+    await page.waitForTimeout(500);
     expect(claimCount).toBe(1);
   });
 

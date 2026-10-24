@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getClientIp, computeClientIpHash } from '@/lib/client-ip';
+import { getClientIp, computeClientIpHash, normalizeIp } from '@/lib/client-ip';
 
 /**
  * POST /api/newsletter
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. IP rate limiting — max 3 attempts per hashed IP in the last hour
-  const ip = getClientIp(req);
+  const ip = normalizeIp(getClientIp(req));
   const ipHash = computeClientIpHash(ip);
 
   const supabase = getServiceClient();

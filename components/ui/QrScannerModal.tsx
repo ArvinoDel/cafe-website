@@ -171,6 +171,7 @@ export type ScannerModalState =
   | 'TABLE_RESERVED'
   | 'TOO_MANY_HOLDS'
   | 'TABLE_NOT_FOUND'
+  | 'TABLE_COOLDOWN'
   | 'NETWORK_ERROR';
 
 interface QrScannerModalProps {
@@ -234,6 +235,9 @@ export default function QrScannerModal({
   const [reservationPhoneLast4, setReservationPhoneLast4] = useState('');
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [checkinError, setCheckinError] = useState<string | null>(null);
+
+  // Cooldown state
+  const [cooldownMinutes, setCooldownMinutes] = useState(10);
 
   // Manual code input
   const [manualCode, setManualCode] = useState('');
@@ -366,6 +370,9 @@ export default function QrScannerModal({
         const code = claimResult.code;
         if (code === 'TABLE_TAKEN') {
           setModalState('TABLE_TAKEN');
+        } else if (code === 'TABLE_COOLDOWN') {
+          setModalState('TABLE_COOLDOWN');
+          setCooldownMinutes((claimResult as any).remaining_minutes ?? 10);
         } else if (code === 'TABLE_RESERVED' || code === 'TABLE_RESERVED_SOON') {
           setModalState('TABLE_RESERVED');
           setReservedInfo({
@@ -1208,6 +1215,35 @@ export default function QrScannerModal({
                       className="flex-1 py-2.5 rounded-xl bg-coffee-700 hover:bg-coffee-600 text-cream text-xs font-bold"
                     >
                       Scan Ulang
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* State: TABLE_COOLDOWN */}
+              {modalState === 'TABLE_COOLDOWN' && (
+                <div className="absolute inset-0 bg-charcoal/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-cream z-20">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
+                    <Clock className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-lg font-bold text-cream">Meja Sedang Cooldown</h4>
+                  <p className="text-xs text-cream/80 mt-1 max-w-xs leading-relaxed">
+                    Meja ini baru saja dilepas. Tunggu {cooldownMinutes} menit sebelum dapat diklaim kembali, atau silakan pilih meja lain.
+                  </p>
+                  <div className="flex gap-2 w-full max-w-xs mt-5">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-cream text-xs font-semibold"
+                    >
+                      Tutup
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startScanner}
+                      className="flex-1 py-2.5 rounded-xl bg-coffee-700 hover:bg-coffee-600 text-cream text-xs font-bold"
+                    >
+                      Scan Meja Lain
                     </button>
                   </div>
                 </div>

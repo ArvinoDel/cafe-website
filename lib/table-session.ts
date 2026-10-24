@@ -32,7 +32,16 @@ export type TableSessionInfo = {
 
 export type ClaimTableResult =
   | { ok: true;  session: TableSessionInfo; isExisting: boolean }
-  | { ok: false; code: string; error: string; startsAt?: string; availableUntil?: string };
+  | {
+      ok: false;
+      code: string;
+      error: string;
+      startsAt?: string;
+      availableUntil?: string;
+      remaining_minutes?: number;
+      remaining_seconds?: number;
+      until?: string;
+    };
 
 // ─── Claim helper ─────────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ import { createAdminClient } from '@/lib/supabase-server';
 import { evaluatePriceLines } from '@/lib/order-pricing';
 import type { SupabaseEnv } from '@supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, normalizeIp } from '@/lib/client-ip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ export function getAdminClient(): AdminClient {
 // ─── IP extraction ────────────────────────────────────────────────────────────
 
 export function getIP(req: NextRequest): string {
-  return getClientIp(req);
+  return normalizeIp(getClientIp(req));
 }
 
 // ─── Name sanitization ────────────────────────────────────────────────────────
@@ -175,20 +175,21 @@ export function checkGroupRateLimit(
 ): NextResponse | null {
   const now = Date.now();
   gcMaps(now);
+  const normIp = normalizeIp(ip);
 
   if (type === 'create') {
-    return rl(createIpMap, ip, 10, 3_600_000, now) ? err429() : null;
+    return rl(createIpMap, normIp, 10, 3_600_000, now) ? err429() : null;
   }
   if (type === 'join') {
-    return rl(joinIpMap, ip, 30, 60_000, now) ? err429() : null;
+    return rl(joinIpMap, normIp, 30, 60_000, now) ? err429() : null;
   }
   if (type === 'read') {
-    if (rl(readIpMap, ip, 300, 60_000, now)) return err429();
-    if (code && rl(readCodeMap, `${ip}:${code}`, 60, 60_000, now)) return err429();
+    if (rl(readIpMap, normIp, 300, 60_000, now)) return err429();
+    if (code && rl(readCodeMap, `${normIp}:${code}`, 60, 60_000, now)) return err429();
     return null;
   }
   // mutate
-  if (code && rl(mutateMap, `${ip}:${code}`, 60, 60_000, now)) return err429();
+  if (code && rl(mutateMap, `${normIp}:${code}`, 60, 60_000, now)) return err429();
   return null;
 }
 

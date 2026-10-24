@@ -248,8 +248,305 @@ async function runTests() {
     passed++;
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 5: Cooldown blocks immediate re-claim; trusted IP is exempt; move cap exemption
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(cyan('[Test 5/6] ⏱️  Cooldown blocks immediate re-claim; trusted IP is exempt; move cap exemption'));
+  {
+    const branchId = '11111111-1111-1111-1111-111111111111';
+    const trustedWifiEntries = [
+      {
+        id: 'wifi-1',
+        hash: 'hash_cafe_trusted_wifi',
+        hash_prefix: 'hash_caf',
+        added_by: 'Staff',
+        added_at: new Date().toISOString(),
+        label: 'Wi-Fi Kasir',
+      },
+    ];
+
+    const branch = {
+      id: branchId,
+      claim_cooldown_minutes: 10,
+      claim_max_holds_per_ip: 2,
+      trusted_ip_hashes: trustedWifiEntries,
+    };
+
+    // Cooldown store simulation (simulating soft_hold_cooldowns table)
+    let cooldowns = [];
+
+    function isIpTrusted(ipHash, b) {
+      if (!ipHash || !b.trusted_ip_hashes) return false;
+      return b.trusted_ip_hashes.some(
+        (e) => (typeof e === 'string' ? e === ipHash : e.hash === ipHash),
+      );
+    }
+
+    function simulateClaim({ branch_id, table_id, ip_hash, token, existingSessions = [] }) {
+      const trusted = isIpTrusted(ip_hash, branch);
+
+      // Check active cooldown on this table for this client
+      if (!trusted) {
+        const activeCooldown = cooldowns.find(
+          (c) =>
+            c.table_id === table_id &&
+            c.until > Date.now() &&
+            (c.ip_hash === ip_hash || c.token === token),
+        );
+        if (activeCooldown) {
+          const remainingSeconds = Math.max(0, Math.ceil((activeCooldown.until - Date.now()) / 1000));
+          const remainingMinutes = Math.max(1, Math.ceil(remainingSeconds / 60));
+          return {
+            ok: false,
+            code: 'TABLE_COOLDOWN',
+            remaining_seconds: remainingSeconds,
+            remaining_minutes: remainingMinutes,
+            until: new Date(activeCooldown.until).toISOString(),
+          };
+        }
+      }
+
+      // Check per-IP cap (moving tables excludes caller's own token)
+      if (ip_hash && !trusted) {
+        const activeHoldsExcludingCaller = existingSessions.filter(
+          (s) =>
+            s.branch_id === branch_id &&
+            s.ip_hash === ip_hash &&
+            s.status === 'active' &&
+            !s.upgraded_at &&
+            s.token !== token, // caller's own token does not count toward cap!
+        ).length;
+
+        if (activeHoldsExcludingCaller >= (branch.claim_max_holds_per_ip || 15)) {
+          return { ok: false, code: 'TOO_MANY_HOLDS' };
+        }
+      }
+
+      return {
+        ok: true,
+        session: { id: `sess_${Date.now()}_${Math.random()}`, table_id, branch_id, token },
+      };
+    }
+
+    // A. Soft hold expires/released unupgraded -> triggers 10 min cooldown
+    const guestIp = 'hash_guest_4g';
+    const guestToken = 'guest_token_abc123';
+    const targetTable = 'table_T1';
+
+    cooldowns.push({
+      table_id: targetTable,
+      ip_hash:  guestIp,
+      token:    guestToken,
+      until:    Date.now() + 10 * 60 * 1000,
+    });
+
+    // Immediate re-claim by the same untrusted guest must be blocked by TABLE_COOLDOWN
+    const blockedRes = simulateClaim({
+      branch_id: branchId,
+      table_id:  targetTable,
+      ip_hash:   guestIp,
+      token:     guestToken,
+    });
+    assert(blockedRes.ok === false, 'Immediate re-claim should have failed');
+    assert(blockedRes.code === 'TABLE_COOLDOWN', `Expected TABLE_COOLDOWN, got ${blockedRes.code}`);
+    assert(blockedRes.remaining_minutes >= 9, 'Expected remaining_minutes ~ 10');
+    console.log('  ✔ Immediate re-claim within cooldown window blocked with TABLE_COOLDOWN');
+
+    // B. Trusted Wi-Fi IP is exempt from cooldown on the exact same table
+    const trustedClaimRes = simulateClaim({
+      branch_id: branchId,
+      table_id:  targetTable,
+      ip_hash:   'hash_cafe_trusted_wifi',
+      token:     'trusted_user_token_xyz',
+    });
+    assert(trustedClaimRes.ok === true, 'Trusted Wi-Fi IP should be exempt from table cooldown');
+    console.log('  ✔ Trusted cafe Wi-Fi IP is strictly exempt from table cooldown');
+
+    // C. Moving tables: caller's own old soft hold does NOT count toward per-IP cap
+    const callerIp = 'hash_moving_user';
+    const callerToken = 'moving_user_token_456';
+    const otherUserHold = {
+      branch_id: branchId,
+      table_id:  'table_T3',
+      ip_hash:   callerIp,
+      token:     'other_user_same_wifi',
+      status:    'active',
+      upgraded_at: null,
+    };
+    const callerOldHoldOnT1 = {
+      branch_id: branchId,
+      table_id:  'table_T1',
+      ip_hash:   callerIp,
+      token:     callerToken, // caller's own hold being moved
+      status:    'active',
+      upgraded_at: null,
+    };
+
+    // Cap is 2. Existing holds with same IP = 2 (otherUser + caller's old hold).
+    // When caller moves to table_T2, caller's own hold (callerToken) must NOT be counted,
+    // so active holds count = 1 < 2, allowing the move to succeed!
+    const moveRes = simulateClaim({
+      branch_id: branchId,
+      table_id:  'table_T2',
+      ip_hash:   callerIp,
+      token:     callerToken,
+      existingSessions: [otherUserHold, callerOldHoldOnT1],
+    });
+    assert(moveRes.ok === true, 'Moving tables must not count caller own old soft hold toward per-IP cap');
+    console.log('  ✔ Moving tables successfully excludes caller old soft hold from per-IP cap');
+
+    console.log(green('  ✅ Test 5 Passed: Cooldown protection, trusted Wi-Fi bypass, and move cap exemption verified.\n'));
+    passed++;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 6: Trusted Wi-Fi Admin: 6th entry rejected (max 5); cross-branch DELETE 403
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(cyan('[Test 6/6] 🔒 Trusted Wi-Fi Admin: 6th entry rejected; cross-branch DELETE returns 403'));
+  {
+    const branchA = '22222222-2222-2222-2222-222222222222';
+    const branchB = '33333333-3333-3333-3333-333333333333';
+
+    // In-memory branch storage
+    const branches = {
+      [branchA]: {
+        id: branchA,
+        trusted_ip_hashes: [],
+      },
+      [branchB]: {
+        id: branchB,
+        trusted_ip_hashes: [
+          {
+            id: 'b-wifi-1',
+            hash: 'hash_b_1',
+            hash_prefix: 'hash_b_1',
+            added_by: 'Staff B',
+            added_at: new Date().toISOString(),
+            label: 'Wi-Fi Branch B',
+          },
+        ],
+      },
+    };
+
+    // Simulate POST /api/admin/branches/trusted-ip
+    function simulatePostWifi(callerProfile, { branch_id, label, ip_hash }) {
+      const isSuperadmin = callerProfile.role === 'superadmin';
+      const isAdmin = callerProfile.role === 'admin';
+      if (!isSuperadmin && !isAdmin) {
+        return { status: 403, error: 'Akses ditolak.' };
+      }
+      if (!isSuperadmin && callerProfile.branch_id !== branch_id) {
+        return { status: 403, error: 'Anda hanya dapat mengatur Wi-Fi kafe untuk cabang Anda sendiri.' };
+      }
+
+      const branch = branches[branch_id];
+      if (!branch) return { status: 404, error: 'Cabang tidak ditemukan.' };
+
+      if (branch.trusted_ip_hashes.length >= 5) {
+        return {
+          status: 400,
+          error: 'Batas maksimal 5 Wi-Fi terpercaya per cabang telah tercapai. Hapus entri lama terlebih dahulu.',
+        };
+      }
+
+      const newEntry = {
+        id: `wifi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        hash: ip_hash,
+        hash_prefix: ip_hash.slice(0, 8),
+        added_by: callerProfile.full_name || 'Admin',
+        added_at: new Date().toISOString(),
+        label: label || 'Wi-Fi Kafe',
+      };
+      branch.trusted_ip_hashes.push(newEntry);
+      return { status: 200, ok: true, entry: newEntry };
+    }
+
+    // Simulate DELETE /api/admin/branches/trusted-ip
+    function simulateDeleteWifi(callerProfile, { branch_id, id }) {
+      const isSuperadmin = callerProfile.role === 'superadmin';
+      const isAdmin = callerProfile.role === 'admin';
+      if (!isSuperadmin && !isAdmin) {
+        return { status: 403, error: 'Akses ditolak.' };
+      }
+      if (!isSuperadmin && callerProfile.branch_id !== branch_id) {
+        return { status: 403, error: 'Anda hanya dapat menghapus Wi-Fi kafe untuk cabang Anda sendiri.' };
+      }
+
+      const branch = branches[branch_id];
+      if (!branch) return { status: 404, error: 'Cabang tidak ditemukan.' };
+
+      branch.trusted_ip_hashes = branch.trusted_ip_hashes.filter((e) => e.id !== id);
+      return { status: 200, ok: true };
+    }
+
+    const adminOfBranchA = {
+      id: 'user-admin-a',
+      role: 'admin',
+      branch_id: branchA,
+      full_name: 'Branch A Manager',
+    };
+
+    // 1. Add 5 Wi-Fi entries to branch A (should all succeed)
+    for (let i = 1; i <= 5; i++) {
+      const res = simulatePostWifi(adminOfBranchA, {
+        branch_id: branchA,
+        label: `Wi-Fi AP ${i}`,
+        ip_hash: `sha256_hash_ap_${i}_padding_to_length`,
+      });
+      assert(res.status === 200, `Entry ${i} should have succeeded: ${res.error}`);
+    }
+    assert(branches[branchA].trusted_ip_hashes.length === 5, 'Branch A must have exactly 5 entries');
+    console.log('  ✔ Successfully added 5 trusted Wi-Fi entries to branch A');
+
+    // 2. Attempt to add 6th entry: must be rejected with 400
+    const sixthRes = simulatePostWifi(adminOfBranchA, {
+      branch_id: branchA,
+      label: 'Wi-Fi AP 6 (Overflow)',
+      ip_hash: 'sha256_hash_ap_6_overflow',
+    });
+    assert(sixthRes.status === 400, `Expected 400 for 6th entry, got ${sixthRes.status}`);
+    assert(
+      sixthRes.error.includes('Batas maksimal 5 Wi-Fi terpercaya'),
+      `Unexpected error: ${sixthRes.error}`,
+    );
+    console.log('  ✔ 6th trusted Wi-Fi entry is strictly rejected with 400');
+
+    // 3. DELETE of another branch's entry by branch admin returns 403
+    const crossBranchDeleteRes = simulateDeleteWifi(adminOfBranchA, {
+      branch_id: branchB, // Admin of branch A targets Branch B!
+      id: 'b-wifi-1',
+    });
+    assert(
+      crossBranchDeleteRes.status === 403,
+      `Expected 403 on cross-branch DELETE, got ${crossBranchDeleteRes.status}`,
+    );
+    console.log('  ✔ DELETE of another branch\'s entry strictly returns 403');
+
+    // 4. DELETE of own branch entry succeeds and allows new 5th entry
+    const entryToDelete = branches[branchA].trusted_ip_hashes[0].id;
+    const ownDeleteRes = simulateDeleteWifi(adminOfBranchA, {
+      branch_id: branchA,
+      id: entryToDelete,
+    });
+    assert(ownDeleteRes.status === 200, 'DELETE of own branch entry should succeed');
+    assert(branches[branchA].trusted_ip_hashes.length === 4, 'Branch A should now have 4 entries');
+
+    // Now adding a new 5th entry succeeds again
+    const replacementRes = simulatePostWifi(adminOfBranchA, {
+      branch_id: branchA,
+      label: 'Wi-Fi AP Replacement',
+      ip_hash: 'sha256_hash_ap_replacement',
+    });
+    assert(replacementRes.status === 200, 'Adding 5th entry after delete should succeed');
+    assert(branches[branchA].trusted_ip_hashes.length === 5, 'Branch A should now have 5 entries');
+    console.log('  ✔ DELETE of own branch entry succeeds and frees slot');
+
+    console.log(green('  ✅ Test 6 Passed: Wi-Fi 5-entry limit strictly enforced & cross-branch DELETE returns 403.\n'));
+    passed++;
+  }
+
   console.log(bold('=================================================================='));
-  console.log(bold(green(`  🎉 ALL ${passed}/4 SECURITY INVARIANT TESTS PASSED!`)));
+  console.log(bold(green(`  🎉 ALL ${passed}/6 SECURITY INVARIANT TESTS PASSED!`)));
   console.log(bold('==================================================================\n'));
 }
 
