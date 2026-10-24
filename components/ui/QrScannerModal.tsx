@@ -304,11 +304,6 @@ export default function QrScannerModal({
       });
     } catch {}
 
-    if (successTimerRef.current) {
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = null;
-    }
-
     setCameraActive(false);
     setIsTorchOn(false);
   }, []);
@@ -320,6 +315,27 @@ export default function QrScannerModal({
     isOperatingRef.current = nextOp;
     return nextOp;
   }, [stopScannerInternal]);
+
+  const handleTriggerSuccess = useCallback(
+    (table: string, branchId: string | null, claimResult?: ClaimTableResult) => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+      onCloseRef.current();
+      onScanSuccessRef.current(table, branchId, claimResult);
+    },
+    [],
+  );
+
+  const handleClose = useCallback(() => {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+    void stopScanner();
+    onCloseRef.current();
+  }, [stopScanner]);
 
   // ─── Verification & Claim Processor ─────────────────────────────────────────
 
@@ -359,11 +375,10 @@ export default function QrScannerModal({
         // Stop scanner tracks immediately on successful claim
         void stopScanner();
 
-        // Close automatically only on success after ~400ms
+        // Close automatically and trigger onScanSuccess after ~400ms
         if (successTimerRef.current) clearTimeout(successTimerRef.current);
         successTimerRef.current = setTimeout(() => {
-          onCloseRef.current();
-          onScanSuccessRef.current(table, branchId, claimResult);
+          handleTriggerSuccess(table, branchId, claimResult);
         }, 400);
       } else {
         void stopScanner();
@@ -850,9 +865,9 @@ export default function QrScannerModal({
       });
       setModalState('success');
 
-      setTimeout(() => {
-        onCloseRef.current();
-        onScanSuccessRef.current(reservedInfo.table, reservedInfo.branchId, {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
+        handleTriggerSuccess(reservedInfo.table, reservedInfo.branchId, {
           ok:      true,
           session: {
             tableCode:        reservedInfo.table,
@@ -878,7 +893,7 @@ export default function QrScannerModal({
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget && modalState !== 'checking') {
-      onClose();
+      handleClose();
     }
   };
 
@@ -926,7 +941,7 @@ export default function QrScannerModal({
 
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 disabled={modalState === 'checking'}
                 className="w-8 h-8 rounded-full bg-coffee-100/70 hover:bg-coffee-200/80 text-coffee-900 flex items-center justify-center transition-colors disabled:opacity-40"
                 aria-label="Tutup pemindai QR"
@@ -1022,12 +1037,13 @@ export default function QrScannerModal({
                 </div>
               )}
 
-              {/* State: SUCCESS (Closes automatically ~800ms) */}
+              {/* State: SUCCESS (Closes automatically ~400ms or on tap) */}
               {modalState === 'success' && successInfo && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="absolute inset-0 bg-coffee-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-cream z-20"
+                  onClick={() => handleTriggerSuccess(successInfo.table, successInfo.branchId, successInfo.claimResult)}
+                  className="absolute inset-0 bg-coffee-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-cream z-20 cursor-pointer select-none"
                 >
                   <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center mb-3 animate-bounce">
                     <CheckCircle2 className="w-10 h-10" />
@@ -1053,6 +1069,18 @@ export default function QrScannerModal({
                   <p className="text-xs text-cream/80 max-w-xs mt-3 leading-relaxed">
                     Meja ditahan sampai {formattedTime}, selesaikan pesanan agar meja terkunci.
                   </p>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTriggerSuccess(successInfo.table, successInfo.branchId, successInfo.claimResult);
+                    }}
+                    className="mt-4 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-md active:scale-95"
+                  >
+                    <span>Lanjut ke Menu</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
                 </motion.div>
               )}
 
