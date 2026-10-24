@@ -165,3 +165,30 @@ export function useTableSession(enabled = true) {
 
   return { session, loading, refresh, expiryLabel };
 }
+
+// ─── Table Activity Extension ─────────────────────────────────────────────────
+
+let activityDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Triggers POST /api/tables/activity to extend active soft-hold on user activity.
+ * Debounced by default so rapid cart changes only fire once.
+ */
+export function extendHoldOnActivity(immediate = false): void {
+  if (typeof window === 'undefined') return;
+
+  if (activityDebounceTimer) {
+    clearTimeout(activityDebounceTimer);
+    activityDebounceTimer = null;
+  }
+
+  const send = () => {
+    fetch('/api/tables/activity', { method: 'POST' }).catch(() => {});
+  };
+
+  if (immediate) {
+    send();
+  } else {
+    activityDebounceTimer = setTimeout(send, 1000);
+  }
+}

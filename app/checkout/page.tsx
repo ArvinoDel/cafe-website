@@ -30,6 +30,7 @@ import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { getItemLineKey, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
 import { loadCart, saveCart, clearCart, CART_KEY } from '@/lib/cart';
+import { extendHoldOnActivity } from '@/lib/table-session';
 import { fetchBranchMenu } from '@/lib/menu-availability';
 import {
   getLocalGroupSession,
@@ -251,6 +252,9 @@ function CheckoutPageInner() {
   }, []);
 
   useEffect(() => {
+    // Extend table soft hold on checkout open
+    extendHoldOnActivity(true);
+
     // Restore group session from localStorage if ?group= param is present or if active session exists
     const groupCode = searchParams.get('group');
     const existingGroup = getLocalGroupSession();

@@ -1,10 +1,15 @@
 -- Migration: 20261025010000_trusted_wifi_cooldown.sql
 -- Description:
 -- 1. Migrate branches.trusted_ip_hashes to jsonb with { id, hash, hash_prefix, added_by, added_at, label }
--- 2. Add branches.claim_cooldown_minutes (default 10)
+-- 2. Add branches.claim_cooldown_minutes (default 3) and branches.claim_soft_hold_max_minutes (default 45)
 -- 3. Create soft_hold_cooldowns table
--- 4. Update claim_table to support cooldown, trusted Wi-Fi jsonb, and move cap exemption
+-- 4. Update claim_table to support:
+--    - Cooldown matches token_hash always; ip_hash only when >= 3 unordered expiries in last 60 minutes
+--    - Move-tables cooldown is token-only (ip_hash IS NULL)
+--    - Trusted Wi-Fi IPs exempt
+--    - convert_to(..., 'UTF8') for hashing
 -- 5. Update sweep_reservations to clean soft_hold_cooldowns and record cooldowns for expired soft holds
+-- 6. Create RPC extend_soft_hold_on_activity(p_token) with table lock first, capped at started_at + max minutes
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -50,9 +55,15 @@ BEGIN
   END IF;
 END $$;
 
--- 1.2 Add claim_cooldown_minutes to branches (default 10)
+-- 1.2 Add claim_cooldown_minutes to branches (default 3)
 ALTER TABLE branches
-  ADD COLUMN IF NOT EXISTS claim_cooldown_minutes integer NOT NULL DEFAULT 10;
+  ADD COLUMN IF NOT EXISTS claim_cooldown_minutes integer NOT NULL DEFAULT 3;
+ALTER TABLE branches
+  ALTER COLUMN claim_cooldown_minutes SET DEFAULT 3;
+
+-- 1.3 Add claim_soft_hold_max_minutes to branches (default 45)
+ALTER TABLE branches
+  ADD COLUMN IF NOT EXISTS claim_soft_hold_max_minutes integer NOT NULL DEFAULT 45;
 
 
 -- ── 2. TABLE: soft_hold_cooldowns ─────────────────────────────────────────────
@@ -69,6 +80,9 @@ CREATE TABLE IF NOT EXISTS soft_hold_cooldowns (
 
 CREATE INDEX IF NOT EXISTS idx_soft_hold_cooldowns_lookup
   ON soft_hold_cooldowns (table_id, until);
+
+CREATE INDEX IF NOT EXISTS idx_soft_hold_cooldowns_ip_expiries
+  ON soft_hold_cooldowns (ip_hash, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_soft_hold_cooldowns_cleanup
   ON soft_hold_cooldowns (until);
@@ -106,8 +120,8 @@ BEGIN
     s.branch_id,
     s.table_id,
     s.ip_hash,
-    encode(sha256(s.session_token::bytea), 'hex'),
-    now() + (COALESCE(b.claim_cooldown_minutes, 10) * INTERVAL '1 minute')
+    encode(sha256(convert_to(s.session_token, 'UTF8')), 'hex'),
+    now() + (COALESCE(b.claim_cooldown_minutes, 3) * INTERVAL '1 minute')
   FROM table_sessions s
   JOIN branches b ON b.id = s.branch_id
   WHERE (p_branch_id IS NULL OR s.branch_id = p_branch_id)
@@ -236,6 +250,7 @@ DECLARE
   v_cooldown_until     timestamptz;
   v_remaining_seconds  integer;
   v_remaining_minutes  integer;
+  v_ip_recent_expiries integer := 0;
   v_ip_hold_count      integer;
   v_soft_hold_interval interval;
   v_candidate_expiry   timestamptz;
@@ -267,8 +282,8 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'code', 'TABLE_NOT_FOUND');
   END IF;
 
-  -- 2.1 Calculate token hash
-  v_token_hash := encode(sha256(p_token::bytea), 'hex');
+  -- 2.1 Calculate token hash with convert_to(..., 'UTF8')
+  v_token_hash := encode(sha256(convert_to(p_token, 'UTF8')), 'hex');
 
   -- 2.2 Determine if caller is on trusted Wi-Fi (reads JSONB array)
   IF p_ip_hash IS NOT NULL AND v_branch.trusted_ip_hashes IS NOT NULL THEN
@@ -280,14 +295,14 @@ BEGIN
     ) INTO v_is_trusted;
   END IF;
 
-  -- 3. Expire stale active sessions for this table (and insert cooldown if soft hold)
+  -- 3. Expire stale active sessions for this table (record cooldown with ip_hash and token_hash)
   INSERT INTO soft_hold_cooldowns (branch_id, table_id, ip_hash, token_hash, until)
   SELECT
     s.branch_id,
     s.table_id,
     s.ip_hash,
-    encode(sha256(s.session_token::bytea), 'hex'),
-    now() + (COALESCE(v_branch.claim_cooldown_minutes, 10) * INTERVAL '1 minute')
+    encode(sha256(convert_to(s.session_token, 'UTF8')), 'hex'),
+    now() + (COALESCE(v_branch.claim_cooldown_minutes, 3) * INTERVAL '1 minute')
   FROM table_sessions s
   WHERE s.table_id = v_table.id
     AND s.status = 'active'
@@ -310,8 +325,8 @@ BEGIN
     s.branch_id,
     s.table_id,
     s.ip_hash,
-    encode(sha256(s.session_token::bytea), 'hex'),
-    now() + (COALESCE(v_branch.claim_cooldown_minutes, 10) * INTERVAL '1 minute')
+    encode(sha256(convert_to(s.session_token, 'UTF8')), 'hex'),
+    now() + (COALESCE(v_branch.claim_cooldown_minutes, 3) * INTERVAL '1 minute')
   FROM table_sessions s
   WHERE s.session_token = p_token
     AND s.status = 'active'
@@ -356,21 +371,37 @@ BEGIN
     END IF;
   END IF;
 
-  -- 6. Check Cooldown: if unexpired cooldown exists for the same table + same ip_hash/token, return TABLE_COOLDOWN (trusted IPs exempt)
+  -- 6. Check Cooldown (trusted Wi-Fi exempt):
+  -- Cooldown matches token_hash always; ip_hash only when that ip_hash had >= 3 unordered expiries in last 60 minutes
   IF NOT v_is_trusted THEN
+    -- Check token cooldown first
     SELECT until INTO v_cooldown_until
     FROM soft_hold_cooldowns
     WHERE table_id = v_table.id
       AND until > now()
-      AND (
-        (p_ip_hash IS NOT NULL AND ip_hash = p_ip_hash)
-        OR
-        (token_hash IS NOT NULL AND token_hash = v_token_hash)
-      )
+      AND token_hash = v_token_hash
     ORDER BY until DESC
     LIMIT 1;
 
-    IF FOUND THEN
+    -- If no token cooldown match, check IP cooldown only if >= 3 recent expiries
+    IF v_cooldown_until IS NULL AND p_ip_hash IS NOT NULL THEN
+      SELECT count(*) INTO v_ip_recent_expiries
+      FROM soft_hold_cooldowns
+      WHERE ip_hash = p_ip_hash
+        AND created_at >= now() - INTERVAL '60 minutes';
+
+      IF v_ip_recent_expiries >= 3 THEN
+        SELECT until INTO v_cooldown_until
+        FROM soft_hold_cooldowns
+        WHERE table_id = v_table.id
+          AND until > now()
+          AND ip_hash = p_ip_hash
+        ORDER BY until DESC
+        LIMIT 1;
+      END IF;
+    END IF;
+
+    IF v_cooldown_until IS NOT NULL THEN
       v_remaining_seconds := GREATEST(0, EXTRACT(EPOCH FROM (v_cooldown_until - now()))::integer);
       v_remaining_minutes := GREATEST(1, CEIL(v_remaining_seconds::numeric / 60.0)::integer);
       RETURN jsonb_build_object(
@@ -440,14 +471,14 @@ BEGIN
     END IF;
   END IF;
 
-  -- 10. Release caller's active session on any other table (record cooldown if unupgraded)
+  -- 10. Release caller's active session on any other table (move cooldown is token-only!)
   INSERT INTO soft_hold_cooldowns (branch_id, table_id, ip_hash, token_hash, until)
   SELECT
     s.branch_id,
     s.table_id,
-    s.ip_hash,
-    encode(sha256(s.session_token::bytea), 'hex'),
-    now() + (COALESCE(v_branch.claim_cooldown_minutes, 10) * INTERVAL '1 minute')
+    NULL, -- move-tables cooldown is token-only!
+    encode(sha256(convert_to(s.session_token, 'UTF8')), 'hex'),
+    now() + (COALESCE(v_branch.claim_cooldown_minutes, 3) * INTERVAL '1 minute')
   FROM table_sessions s
   WHERE s.session_token = p_token
     AND s.status = 'active'
@@ -491,3 +522,130 @@ BEGIN
   );
 END;
 $$;
+
+
+-- ── 5. RPC: extend_soft_hold_on_activity ──────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION extend_soft_hold_on_activity(
+  p_token text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_session            table_sessions%ROWTYPE;
+  v_table              tables%ROWTYPE;
+  v_branch             branches%ROWTYPE;
+  v_soft_hold_minutes  integer;
+  v_max_hold_minutes   integer;
+  v_max_expiry         timestamptz;
+  v_new_expiry         timestamptz;
+  v_buffer_interval    interval;
+  v_res_starts_at      timestamptz;
+BEGIN
+  -- 1. Find active unupgraded session by token
+  SELECT * INTO v_session
+  FROM table_sessions
+  WHERE session_token = p_token
+    AND status = 'active'
+    AND upgraded_at IS NULL;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'SESSION_NOT_FOUND');
+  END IF;
+
+  IF v_session.expires_at <= now() THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'SESSION_EXPIRED');
+  END IF;
+
+  -- 2. Lock tables row first (consistent lock ordering: tables -> table_sessions)
+  SELECT * INTO v_table
+  FROM tables
+  WHERE id = v_session.table_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'TABLE_NOT_FOUND');
+  END IF;
+
+  -- 3. Lock table_sessions row
+  SELECT * INTO v_session
+  FROM table_sessions
+  WHERE id = v_session.id
+    AND status = 'active'
+    AND upgraded_at IS NULL
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_session.expires_at <= now() THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'SESSION_EXPIRED');
+  END IF;
+
+  -- 4. Fetch branch settings
+  SELECT * INTO v_branch FROM branches WHERE id = v_session.branch_id;
+  v_soft_hold_minutes := COALESCE(v_branch.claim_soft_hold_minutes, 20);
+  v_max_hold_minutes  := COALESCE(v_branch.claim_soft_hold_max_minutes, 45);
+
+  -- Maximum allowable expiry: started_at + claim_soft_hold_max_minutes
+  v_max_expiry := v_session.started_at + (v_max_hold_minutes * INTERVAL '1 minute');
+
+  IF now() >= v_max_expiry THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'code', 'MAX_HOLD_REACHED',
+      'expires_at', v_session.expires_at
+    );
+  END IF;
+
+  -- Candidate expiry is now() + soft_hold_minutes, capped at v_max_expiry
+  v_new_expiry := LEAST(now() + (v_soft_hold_minutes * INTERVAL '1 minute'), v_max_expiry);
+
+  -- Only extend if new expiry actually pushes expires_at forward
+  IF v_new_expiry <= v_session.expires_at THEN
+    RETURN jsonb_build_object(
+      'ok', true,
+      'extended', false,
+      'expires_at', v_session.expires_at
+    );
+  END IF;
+
+  -- 5. Never extend past reservation cap: starts_at - buffer
+  v_buffer_interval := (COALESCE(v_branch.reservation_buffer_minutes, 15) * INTERVAL '1 minute');
+
+  SELECT r.starts_at
+  INTO v_res_starts_at
+  FROM reservations r
+  WHERE r.table_id = v_table.id
+    AND r.status IN ('pending_payment', 'awaiting_confirmation', 'confirmed')
+    AND (r.starts_at - v_buffer_interval) < v_new_expiry
+    AND r.ends_at > now()
+  ORDER BY r.starts_at ASC
+  LIMIT 1;
+
+  IF FOUND THEN
+    v_new_expiry := LEAST(v_new_expiry, v_res_starts_at - v_buffer_interval);
+    IF v_new_expiry <= v_session.expires_at OR v_new_expiry <= now() THEN
+      RETURN jsonb_build_object(
+        'ok', false,
+        'code', 'RESERVATION_CONFLICT',
+        'expires_at', v_session.expires_at
+      );
+    END IF;
+  END IF;
+
+  -- 6. Apply extended expiry
+  UPDATE table_sessions
+  SET expires_at = v_new_expiry
+  WHERE id = v_session.id;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'extended', true,
+    'expires_at', v_new_expiry,
+    'remaining_seconds', GREATEST(0, EXTRACT(EPOCH FROM (v_new_expiry - now()))::integer)
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION extend_soft_hold_on_activity(text) FROM PUBLIC, anon, authenticated;

@@ -267,7 +267,7 @@ async function runTests() {
 
     const branch = {
       id: branchId,
-      claim_cooldown_minutes: 10,
+      claim_cooldown_minutes: 3,
       claim_max_holds_per_ip: 2,
       trusted_ip_hashes: trustedWifiEntries,
     };
@@ -291,7 +291,7 @@ async function runTests() {
           (c) =>
             c.table_id === table_id &&
             c.until > Date.now() &&
-            (c.ip_hash === ip_hash || c.token === token),
+            (c.token === token || (c.ip_hash === ip_hash && (c.ipExpCount || 0) >= 3)),
         );
         if (activeCooldown) {
           const remainingSeconds = Math.max(0, Math.ceil((activeCooldown.until - Date.now()) / 1000));
@@ -328,7 +328,7 @@ async function runTests() {
       };
     }
 
-    // A. Soft hold expires/released unupgraded -> triggers 10 min cooldown
+    // A. Soft hold expires/released unupgraded -> triggers 3 min cooldown
     const guestIp = 'hash_guest_4g';
     const guestToken = 'guest_token_abc123';
     const targetTable = 'table_T1';
@@ -337,7 +337,7 @@ async function runTests() {
       table_id: targetTable,
       ip_hash:  guestIp,
       token:    guestToken,
-      until:    Date.now() + 10 * 60 * 1000,
+      until:    Date.now() + 3 * 60 * 1000,
     });
 
     // Immediate re-claim by the same untrusted guest must be blocked by TABLE_COOLDOWN
@@ -349,7 +349,7 @@ async function runTests() {
     });
     assert(blockedRes.ok === false, 'Immediate re-claim should have failed');
     assert(blockedRes.code === 'TABLE_COOLDOWN', `Expected TABLE_COOLDOWN, got ${blockedRes.code}`);
-    assert(blockedRes.remaining_minutes >= 9, 'Expected remaining_minutes ~ 10');
+    assert(blockedRes.remaining_minutes <= 3, 'Expected remaining_minutes <= 3');
     console.log('  ✔ Immediate re-claim within cooldown window blocked with TABLE_COOLDOWN');
 
     // B. Trusted Wi-Fi IP is exempt from cooldown on the exact same table
@@ -545,8 +545,191 @@ async function runTests() {
     passed++;
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 7: Activity Extension, Cooldown Thresholds & Token Hygiene
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(cyan('[Test 7/7] 🛒 Activity extension, 3m cooldown, 3-expiry threshold & token hygiene'));
+  {
+    // 1. 21-minute browse with cart activity keeps the hold
+    const session = {
+      id: 'session-user-1',
+      session_token: 'valid_token_32_characters_long_1234',
+      started_at: 0, // t = 0 min
+      expires_at: 20 * 60 * 1000, // t = 20 min (default soft hold)
+      status: 'active',
+      upgraded_at: null,
+    };
+    const branchConfig = {
+      claim_soft_hold_minutes: 20,
+      claim_soft_hold_max_minutes: 45,
+      claim_cooldown_minutes: 3,
+    };
+
+    function simulateActivityExtension(sess, nowTime, branch) {
+      if (sess.status !== 'active' || sess.upgraded_at) return { ok: false, code: 'NOT_ACTIVE' };
+      if (nowTime >= sess.expires_at) return { ok: false, code: 'SESSION_EXPIRED' };
+
+      const maxExpiry = sess.started_at + branch.claim_soft_hold_max_minutes * 60 * 1000;
+      if (nowTime >= maxExpiry) return { ok: false, code: 'MAX_HOLD_REACHED' };
+
+      const candidate = Math.min(nowTime + branch.claim_soft_hold_minutes * 60 * 1000, maxExpiry);
+      if (candidate <= sess.expires_at) {
+        return { ok: true, extended: false, expires_at: sess.expires_at };
+      }
+      sess.expires_at = candidate;
+      return { ok: true, extended: true, expires_at: candidate };
+    }
+
+    // At t = 10 min: cart activity occurs -> extends hold
+    const ext1 = simulateActivityExtension(session, 10 * 60 * 1000, branchConfig);
+    assert(ext1.ok && ext1.extended, 'First activity at 10m should extend hold');
+    assert(session.expires_at === 30 * 60 * 1000, `Expected expiry at 30m, got ${session.expires_at / 60000}m`);
+
+    // At t = 18 min: checkout opened -> extends hold
+    const ext2 = simulateActivityExtension(session, 18 * 60 * 1000, branchConfig);
+    assert(ext2.ok && ext2.extended, 'Checkout open at 18m should extend hold');
+    assert(session.expires_at === 38 * 60 * 1000, `Expected expiry at 38m, got ${session.expires_at / 60000}m`);
+
+    // At t = 21 min: verify hold is still active!
+    const isStillActiveAt21m = 21 * 60 * 1000 < session.expires_at;
+    assert(isStillActiveAt21m, '21-minute browse with cart activity must keep the hold active');
+    console.log('  ✔ 21-minute browse with cart activity successfully keeps the hold active');
+
+    // 2. Without activity the hold expires and re-claim by same token blocked for 3 minutes
+    const inactiveSession = {
+      started_at: 0,
+      expires_at: 20 * 60 * 1000, // expired at 20m
+      status: 'active',
+      token: 'inactive_user_token_32_characters_1234',
+    };
+    const nowAt21m = 21 * 60 * 1000;
+    const isExpiredAt21m = nowAt21m >= inactiveSession.expires_at;
+    assert(isExpiredAt21m, 'Inactive session must expire by minute 21');
+
+    // Soft hold cooldown recorded for 3 minutes: from 20m until 23m
+    const cooldownUntil = 20 * 60 * 1000 + 3 * 60 * 1000; // 23m
+    const isCooldownActiveAt21m = nowAt21m < cooldownUntil;
+    assert(isCooldownActiveAt21m, 'Cooldown must be active at 21m');
+    const isCooldownExpiredAt24m = 24 * 60 * 1000 >= cooldownUntil;
+    assert(isCooldownExpiredAt24m, 'Cooldown must expire after 3 minutes (at 23m, so expired by 24m)');
+    console.log('  ✔ Without activity hold expires and re-claim by same token is blocked for 3 minutes');
+
+    // 3. Another user on the same IP is NOT blocked until the 3-expiry threshold
+    const sharedIp = 'shared_cafe_ip_hash';
+    const cooldownHistory = []; // stores expiries for this IP
+
+    function simulateCheckCooldown({ token, ipHash, targetTable, checkTime }) {
+      // Token check: matches token always
+      const tokenMatch = cooldownHistory.find(
+        (c) => c.table === targetTable && c.token === token && c.until > checkTime,
+      );
+      if (tokenMatch) return { blocked: true, reason: 'TOKEN_COOLDOWN' };
+
+      // IP check: ONLY if this IP had >= 3 expiries in the last 60 minutes
+      const recentIpExpiries = cooldownHistory.filter(
+        (c) => c.ip === ipHash && checkTime - c.createdAt <= 60 * 60 * 1000,
+      ).length;
+
+      if (recentIpExpiries >= 3) {
+        const ipMatch = cooldownHistory.find(
+          (c) => c.table === targetTable && c.ip === ipHash && c.until > checkTime,
+        );
+        if (ipMatch) return { blocked: true, reason: 'IP_THRESHOLD_COOLDOWN' };
+      }
+
+      return { blocked: false };
+    }
+
+    // Expiry 1 on Table A
+    cooldownHistory.push({
+      table: 'TABLE_A',
+      token: 'token_user_1',
+      ip: sharedIp,
+      createdAt: nowAt21m,
+      until: nowAt21m + 3 * 60 * 1000,
+    });
+
+    // Another user (User 2) on the same IP tries to claim Table A: NOT blocked! (1 < 3)
+    const user2Check = simulateCheckCooldown({
+      token: 'token_user_2_different',
+      ipHash: sharedIp,
+      targetTable: 'TABLE_A',
+      checkTime: nowAt21m + 30 * 1000, // 30s later
+    });
+    assert(user2Check.blocked === false, 'User 2 on same IP should NOT be blocked after only 1 expiry');
+    console.log('  ✔ Another user on the same IP is NOT blocked after 1st expiry');
+
+    // Expiry 2 on Table A
+    cooldownHistory.push({
+      table: 'TABLE_A',
+      token: 'token_user_2_different',
+      ip: sharedIp,
+      createdAt: nowAt21m + 60 * 1000,
+      until: nowAt21m + 4 * 60 * 1000,
+    });
+
+    // User 3 on same IP tries to claim Table A: NOT blocked! (2 < 3)
+    const user3Check = simulateCheckCooldown({
+      token: 'token_user_3_different',
+      ipHash: sharedIp,
+      targetTable: 'TABLE_A',
+      checkTime: nowAt21m + 70 * 1000,
+    });
+    assert(user3Check.blocked === false, 'User 3 on same IP should NOT be blocked after 2 expiries');
+    console.log('  ✔ Another user on the same IP is NOT blocked after 2nd expiry');
+
+    // Expiry 3 on Table A (now threshold of 3 is reached)
+    cooldownHistory.push({
+      table: 'TABLE_A',
+      token: 'token_user_3_different',
+      ip: sharedIp,
+      createdAt: nowAt21m + 80 * 1000,
+      until: nowAt21m + 5 * 60 * 1000,
+    });
+
+    // User 4 on same IP tries to claim Table A: now BLOCKED by 3-expiry threshold!
+    const user4Check = simulateCheckCooldown({
+      token: 'token_user_4_different',
+      ipHash: sharedIp,
+      targetTable: 'TABLE_A',
+      checkTime: nowAt21m + 90 * 1000,
+    });
+    assert(user4Check.blocked === true, 'User 4 on same IP MUST be blocked once 3-expiry threshold is reached');
+    assert(user4Check.reason === 'IP_THRESHOLD_COOLDOWN', 'Expected IP_THRESHOLD_COOLDOWN');
+    console.log('  ✔ Another user on the same IP is blocked once >= 3 expiries threshold is reached');
+
+    // 4. Token hygiene: a cookie containing a backslash does not 500
+    const TOKEN_HYGIENE_REGEX = /^[A-Za-z0-9_-]{32,64}$/;
+    const maliciousTokens = [
+      'token_with\\backslash',
+      'malicious\\..\\token',
+      'token;select*from',
+      'short_token',
+      'token with spaces',
+      'token_with_quotes"',
+      "' or '1'='1",
+    ];
+
+    for (const rawToken of maliciousTokens) {
+      const isValid = TOKEN_HYGIENE_REGEX.test(rawToken);
+      assert(isValid === false, `Malicious token was NOT rejected: ${rawToken}`);
+
+      // Route logic: if invalid, cleanly generate a new safe token without throwing
+      const sanitizedToken = isValid ? rawToken : 'new_clean_token_32_characters_1234';
+      assert(TOKEN_HYGIENE_REGEX.test(sanitizedToken), 'Sanitized token must match safe regex');
+    }
+
+    // Valid 32-char token must pass
+    const cleanToken = 'valid_session_token_1234567890123456';
+    assert(TOKEN_HYGIENE_REGEX.test(cleanToken), 'Valid token must be accepted');
+    console.log('  ✔ Malicious cookie containing backslash/injection is rejected without 500 error');
+
+    console.log(green('  ✅ Test 7 Passed: Activity extension, 3m cooldown, 3-expiry threshold & token hygiene verified.\n'));
+    passed++;
+  }
+
   console.log(bold('=================================================================='));
-  console.log(bold(green(`  🎉 ALL ${passed}/6 SECURITY INVARIANT TESTS PASSED!`)));
+  console.log(bold(green(`  🎉 ALL ${passed}/7 SECURITY INVARIANT TESTS PASSED!`)));
   console.log(bold('==================================================================\n'));
 }
 

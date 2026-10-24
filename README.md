@@ -26,14 +26,15 @@ Before taking the application live, verify each item:
 
 ### 1. Database & Migrations
 - [ ] Run all migrations in `supabase/migrations/` sequentially up to `20261025010000_trusted_wifi_cooldown.sql`.
+- [ ] **Note on Migration 20261025010000**: Test this migration on a Supabase preview branch or staging database first before applying to production.
 - [ ] Verify Row Level Security (RLS) is enabled on all tables (`tables`, `table_sessions`, `soft_hold_cooldowns`, `reservations`, `rate_limits`).
-- [ ] Ensure public execution is revoked from sensitive RPCs (`sweep_reservations`, `check_rate_limit`).
+- [ ] Ensure public execution is revoked from sensitive RPCs (`sweep_reservations`, `check_rate_limit`, `extend_soft_hold_on_activity`).
 
 ### 2. Environment Variables Configuration
 - [ ] Set `NODE_ENV=production`.
 - [ ] Set `TRUSTED_IP_HEADER=vercel` (if hosting on Vercel) or `TRUSTED_IP_HEADER=netlify` (if hosting on Netlify).
 - [ ] Generate and set a high-entropy secret for `IP_HASH_SECRET` (e.g., `openssl rand -hex 32`).
-- [ ] Set `NEXT_PUBLIC_SITE_URL` to your production domain (e.g. `https://kopi-nako.com`).
+- [ ] Set `NEXT_PUBLIC_SITE_URL` to your production domain (e.g. `https://cafe.example.com`).
 - [ ] Confirm `NEXT_PUBLIC_E2E` is unset or `0`.
 - [ ] Set Supabase URL and service role / anon keys.
 

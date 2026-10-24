@@ -108,8 +108,11 @@ export async function POST(request: NextRequest) {
   try {
     // 1. Authoritative client IP & DB-backed rate limiting
     const rawIp = getClientIp(request);
-    const existingToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
-    const token = existingToken || newSessionToken();
+    const rawExistingToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
+    const token =
+      rawExistingToken && /^[A-Za-z0-9_-]{32,64}$/.test(rawExistingToken)
+        ? rawExistingToken
+        : newSessionToken();
 
     const env = resolveAdminEnv();
     const supabaseAdmin = createAdminClient({ env });

@@ -28,6 +28,7 @@ import {
   LEGACY_CART_KEY,
   LEGACY_CAFE_CART_KEY,
 } from '@/lib/storage-keys';
+import { extendHoldOnActivity } from '@/lib/table-session';
 
 export { CART_KEY, RESERVATION_CART_KEY } from '@/lib/storage-keys';
 
@@ -159,6 +160,7 @@ export function loadCart(): StoredCartItem[] {
 export function saveCart(items: StoredCartItem[], tableNumber?: string | null): void {
   const payload = serializePayload(items, tableNumber ?? null);
   safeSet(CART_KEY, payload);
+  extendHoldOnActivity(false);
 }
 
 /**
