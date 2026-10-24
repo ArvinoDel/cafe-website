@@ -7,6 +7,7 @@ import { Menu, X, Coffee, Camera, Calendar } from 'lucide-react';
 import QrScannerModal from '@/components/ui/QrScannerModal';
 import { useBrand } from '@/components/providers/BrandProvider';
 import { TABLE_KEY, BRANCH_KEY, LEGACY_TABLE_KEY, LEGACY_BRANCH_KEY } from '@/lib/storage-keys';
+import { broadcastTableChange, TABLE_CHANGE_EVENT } from '@/lib/table-session';
 import { DEFAULT_NAVBAR, DEFAULT_BRAND } from '@/lib/site-defaults';
 
 export type NavbarContent = {
@@ -49,25 +50,28 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleScanSuccess = (table: string, branchId: string | null, _claimResult?: import('@/lib/table-session').ClaimTableResult) => {
+  useEffect(() => {
+    const handleBroadcast = (e: any) => {
+      if (e.detail?.tableCode) {
+        setCurrentTable(e.detail.tableCode);
+      }
+    };
+    window.addEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+    return () => window.removeEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+  }, []);
+
+  const handleScanSuccess = (table: string, branchId: string | null, claimResult?: import('@/lib/table-session').ClaimTableResult) => {
     const clean = table.trim().toUpperCase();
-    localStorage.setItem(TABLE_KEY, clean);
-    if (branchId) {
-      localStorage.setItem(BRANCH_KEY, branchId);
-    }
+    broadcastTableChange(clean, branchId, claimResult && claimResult.ok ? claimResult.session : null);
+    setCurrentTable(clean);
     const targetUrl = branchId
       ? `/menu?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(branchId)}`
       : `/menu?table=${encodeURIComponent(clean)}`;
 
-    if (typeof window !== 'undefined') {
-      const currentQuery = branchId
-        ? `?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(branchId)}`
-        : `?table=${encodeURIComponent(clean)}`;
-      if (window.location.pathname === '/menu' && window.location.search === currentQuery) {
-        window.location.reload();
-      } else {
-        window.location.href = targetUrl;
-      }
+    if (typeof window !== 'undefined' && window.location.pathname === '/menu') {
+      router.replace(targetUrl, { scroll: false });
+    } else {
+      router.push(targetUrl);
     }
   };
 

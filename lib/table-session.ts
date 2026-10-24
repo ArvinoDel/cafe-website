@@ -43,11 +43,35 @@ export type ClaimTableResult =
       until?: string;
     };
 
+// ─── Event & Broadcast ────────────────────────────────────────────────────────
+
+export const TABLE_CHANGE_EVENT = 'cafe-table-changed';
+
+export function broadcastTableChange(
+  tableCode: string,
+  branchId?: string | null,
+  session?: TableSessionInfo | null,
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(TABLE_KEY, tableCode);
+    if (branchId) {
+      localStorage.setItem(BRANCH_KEY, branchId);
+    }
+  } catch {}
+  window.dispatchEvent(
+    new CustomEvent(TABLE_CHANGE_EVENT, {
+      detail: { tableCode, branchId, session },
+    }),
+  );
+}
+
 // ─── Claim helper ─────────────────────────────────────────────────────────────
 
 /**
  * Calls POST /api/tables/claim.
- * On success, also writes table + branch to localStorage as a display cache.
+ * On success, also writes table + branch to localStorage as a display cache
+ * and broadcasts the table change for seamless real-time UI updates.
  */
 export async function claimTable(params: {
   branchId?: string;
@@ -85,11 +109,8 @@ export async function claimTable(params: {
     }
 
     if (json.ok && json.session) {
-      // Write display cache to localStorage
-      try {
-        localStorage.setItem(TABLE_KEY,  json.session.tableCode);
-        localStorage.setItem(BRANCH_KEY, json.session.branchId);
-      } catch {}
+      // Write display cache to localStorage and notify all components
+      broadcastTableChange(json.session.tableCode, json.session.branchId, json.session);
     }
 
     return json as ClaimTableResult;
@@ -140,6 +161,19 @@ export function useTableSession(enabled = true) {
   const refresh = useCallback(() => {
     setLoading(true);
     void fetchSession();
+  }, [fetchSession]);
+
+  useEffect(() => {
+    const handleBroadcast = (e: any) => {
+      if (e.detail?.session) {
+        setSession(e.detail.session);
+        setLoading(false);
+      } else {
+        void fetchSession();
+      }
+    };
+    window.addEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+    return () => window.removeEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
   }, [fetchSession]);
 
   useEffect(() => {

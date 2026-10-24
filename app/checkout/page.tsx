@@ -30,7 +30,7 @@ import QrScannerModal from '@/components/ui/QrScannerModal';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { getItemLineKey, calculateOptionsTotal, formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
 import { loadCart, saveCart, clearCart, CART_KEY } from '@/lib/cart';
-import { extendHoldOnActivity } from '@/lib/table-session';
+import { extendHoldOnActivity, broadcastTableChange, TABLE_CHANGE_EVENT } from '@/lib/table-session';
 import { fetchBranchMenu } from '@/lib/menu-availability';
 import {
   getLocalGroupSession,
@@ -235,16 +235,31 @@ function CheckoutPageInner() {
     return () => clearTimeout(timer);
   }, [tableNotice]);
 
-  const handleScanSuccess = useCallback((scanned: string, scannedBranchId: string | null, _claimResult?: import('@/lib/table-session').ClaimTableResult) => {
-    const clean = scanned.trim().toUpperCase();
-    localStorage.setItem(TABLE_KEY, clean);
-    if (scannedBranchId) {
-      localStorage.setItem(BRANCH_KEY, scannedBranchId);
-    }
-    if (typeof window !== 'undefined') {
-      window.location.reload();
-    }
+  useEffect(() => {
+    const handleBroadcast = (e: any) => {
+      if (e.detail?.tableCode) {
+        setTableNumber(e.detail.tableCode);
+        if (e.detail.branchId) setBranchId(e.detail.branchId);
+      }
+    };
+    window.addEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+    return () => window.removeEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
   }, []);
+
+  const handleScanSuccess = useCallback((scanned: string, scannedBranchId: string | null, claimResult?: import('@/lib/table-session').ClaimTableResult) => {
+    const prev = tableNumber;
+    const clean = scanned.trim().toUpperCase();
+    broadcastTableChange(clean, scannedBranchId, claimResult && claimResult.ok ? claimResult.session : null);
+    setTableNumber(clean);
+    if (scannedBranchId) {
+      setBranchId(scannedBranchId);
+    }
+    if (prev && prev !== clean) {
+      setTableNotice(`Nomor meja berhasil diubah dari Meja ${prev} ke Meja ${clean}!`);
+    } else {
+      setTableNotice(`Terhubung ke Meja ${clean}!`);
+    }
+  }, [tableNumber]);
 
   useEffect(() => {
     // Extend table soft hold on checkout open

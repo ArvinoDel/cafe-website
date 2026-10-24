@@ -31,7 +31,7 @@ import {
 } from '@/lib/group-cart';
 import { TABLE_KEY as STORAGE_TABLE_KEY, BRANCH_KEY as STORAGE_BRANCH_KEY } from '@/lib/storage-keys';
 import { MenuGridSkeleton, CategoryTabsSkeleton } from '@/components/ui/MenuCardSkeleton';
-import { useTableSession, claimTable, type ClaimTableResult } from '@/lib/table-session';
+import { useTableSession, claimTable, broadcastTableChange, TABLE_CHANGE_EVENT, type ClaimTableResult } from '@/lib/table-session';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { saveReservationToHistory } from '@/lib/reservation-history';
 import { formatHHMM } from '@/lib/datetime';
@@ -297,29 +297,38 @@ function MenuPageInner() {
     [router, refreshTableSession],
   );
 
-  const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null) => {
-      const clean = scanned.trim().toUpperCase();
-      localStorage.setItem(TABLE_KEY, clean);
-      if (scannedBranchId) {
-        localStorage.setItem(BRANCH_KEY, scannedBranchId);
+  const lastClaimedTableRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const handleBroadcast = (e: any) => {
+      if (e.detail?.tableCode) {
+        setTableNumber(e.detail.tableCode);
+        if (e.detail.branchId) setBranchId(e.detail.branchId);
+        refreshTableSession();
       }
+    };
+    window.addEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+    return () => window.removeEventListener(TABLE_CHANGE_EVENT, handleBroadcast);
+  }, [refreshTableSession]);
+
+  const handleScanSuccess = useCallback(
+    (scanned: string, scannedBranchId: string | null, claimResult?: ClaimTableResult) => {
+      const clean = scanned.trim().toUpperCase();
+      lastClaimedTableRef.current = clean;
+      broadcastTableChange(clean, scannedBranchId, claimResult && claimResult.ok ? claimResult.session : null);
+      setTableNumber(clean);
+      if (scannedBranchId) {
+        setBranchId(scannedBranchId);
+      }
+      refreshTableSession();
+      setTableChangeNotice(`Terhubung ke Meja ${clean}!`);
+
       const targetUrl = scannedBranchId
         ? `/menu?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(scannedBranchId)}`
         : `/menu?table=${encodeURIComponent(clean)}`;
-
-      if (typeof window !== 'undefined') {
-        const currentQuery = scannedBranchId
-          ? `?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(scannedBranchId)}`
-          : `?table=${encodeURIComponent(clean)}`;
-        if (window.location.pathname === '/menu' && window.location.search === currentQuery) {
-          window.location.reload();
-        } else {
-          window.location.href = targetUrl;
-        }
-      }
+      router.replace(targetUrl, { scroll: false });
     },
-    [],
+    [refreshTableSession, router],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and
@@ -328,7 +337,11 @@ function MenuPageInner() {
     const fromQr = searchParams.get('table');
     const fromBranch = searchParams.get('branch');
     if (fromQr && fromQr.trim()) {
-      void verifyAndClaimTable(fromQr, fromBranch);
+      const cleanFromQr = fromQr.trim().toUpperCase();
+      if (lastClaimedTableRef.current !== cleanFromQr) {
+        lastClaimedTableRef.current = cleanFromQr;
+        void verifyAndClaimTable(fromQr, fromBranch);
+      }
     } else {
       const stored = localStorage.getItem(TABLE_KEY);
       if (stored) setTableNumber(stored);

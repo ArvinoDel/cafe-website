@@ -31,6 +31,7 @@ import { executeReorder } from '@/lib/menu-availability';
 import { saveOrderToHistory } from '@/lib/order-history';
 import { clearLocalGroupSession, getLocalGroupSession } from '@/lib/group-cart';
 import { formatItemOptionsSummary, type SelectedOption } from '@/lib/item-options';
+import { broadcastTableChange } from '@/lib/table-session';
 import {
   TABLE_KEY,
   ORDER_SNAPSHOT_PREFIX,
@@ -317,15 +318,11 @@ export default function OrderStatusPage() {
           }
         } catch {}
 
+        broadcastTableChange(scannedTable);
         setTableUpdateNotice({
           type: 'success',
           message: `Nomor meja pesanan berhasil dipindahkan ke Meja ${scannedTable}! Barista akan mengantar ke meja barumu.`,
         });
-        if (typeof window !== 'undefined') {
-          setTimeout(() => {
-            window.location.reload();
-          }, 400);
-        }
       } catch {
         setTableUpdateNotice({
           type: 'error',
