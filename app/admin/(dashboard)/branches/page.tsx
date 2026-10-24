@@ -40,6 +40,7 @@ type Branch = {
   pause_message?: string | null;
   walkin_lock_minutes?: number | null;
   claim_soft_hold_minutes?: number | null;
+  claim_soft_hold_max_minutes?: number | null;
   reservations_enabled?: boolean;
   reservation_open_time?: string | null;
   reservation_close_time?: string | null;
@@ -361,6 +362,11 @@ function BranchFormModal({
       ? String(initial.claim_soft_hold_minutes)
       : '20',
   );
+  const [claimSoftHoldMaxMinutes, setClaimSoftHoldMaxMinutes] = useState(
+    initial?.claim_soft_hold_max_minutes !== null && initial?.claim_soft_hold_max_minutes !== undefined
+      ? String(initial.claim_soft_hold_max_minutes)
+      : '45',
+  );
   const [claimMaxHoldsPerIp, setClaimMaxHoldsPerIp] = useState(
     initial?.claim_max_holds_per_ip !== null && initial?.claim_max_holds_per_ip !== undefined
       ? String(initial.claim_max_holds_per_ip)
@@ -477,6 +483,9 @@ function BranchFormModal({
     const parsedSoftHold = claimSoftHoldMinutes.trim() ? parseInt(claimSoftHoldMinutes.trim(), 10) : 20;
     const safeSoftHold   = isNaN(parsedSoftHold) ? 20 : Math.min(60, Math.max(5, parsedSoftHold));
 
+    const parsedSoftHoldMax = claimSoftHoldMaxMinutes.trim() ? parseInt(claimSoftHoldMaxMinutes.trim(), 10) : 45;
+    const safeSoftHoldMax   = isNaN(parsedSoftHoldMax) ? 45 : Math.min(60, Math.max(20, parsedSoftHoldMax));
+
     const parsedMaxHolds = claimMaxHoldsPerIp.trim() ? parseInt(claimMaxHoldsPerIp.trim(), 10) : 15;
     const safeMaxHolds   = isNaN(parsedMaxHolds) ? 15 : Math.max(1, parsedMaxHolds);
 
@@ -493,6 +502,7 @@ function BranchFormModal({
       pause_message: pauseMessage.trim() || null,
       walkin_lock_minutes: safeLockMin,
       claim_soft_hold_minutes: safeSoftHold,
+      claim_soft_hold_max_minutes: safeSoftHoldMax,
       claim_max_holds_per_ip: safeMaxHolds,
       reservations_enabled: reservationsEnabled,
       reservation_open_time: reservationOpenTime,
@@ -711,6 +721,23 @@ function BranchFormModal({
                   />
                   <p className="text-[11px] text-charcoal/40 mt-1">
                     Durasi meja ditahan sementara saat QR discan sebelum pesanan dibuat (5–60 mnt, default 20).
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-charcoal/70 mb-1">
+                    Durasi Tahan Maksimal / Max Soft Hold (menit)
+                  </label>
+                  <input
+                    type="number"
+                    min={20}
+                    max={60}
+                    value={claimSoftHoldMaxMinutes}
+                    onChange={(e) => setClaimSoftHoldMaxMinutes(e.target.value)}
+                    placeholder="45"
+                    className="w-full px-4 py-2.5 rounded-xl bg-coffee-50/60 border border-coffee-100 text-charcoal text-sm focus:outline-none focus:border-coffee-400 transition-colors"
+                  />
+                  <p className="text-[11px] text-charcoal/40 mt-1">
+                    Batas atas perpanjangan hold via aktivitas keranjang (20–60 mnt, default 45). Hold tidak dapat diperpanjang melewati nilai ini.
                   </p>
                 </div>
                 <div className="sm:col-span-2">

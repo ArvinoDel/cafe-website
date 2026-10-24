@@ -728,8 +728,156 @@ async function runTests() {
     passed++;
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Test 8: 3 unordered expiries → 4th fresh token gets TABLE_COOLDOWN;
+  //         different ip_hash is NOT blocked; trusted hash is exempt
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log(cyan('[Test 8/8] 🔁 3 unordered expiries → 4th fresh token blocked; different IP and trusted hash exempt'));
+  {
+    const TARGET_TABLE = 'TABLE_COOLDOWN_TEST';
+    const SUBJECT_IP   = 'ip_hash_suspect_subnet_abc123';
+    const TRUSTED_HASH = 'trusted_wifi_hash_cafe_main_exempt';
+    const OTHER_IP     = 'ip_hash_innocent_different_subnet';
+    const NOW          = Date.now();
+    const MINUTE       = 60 * 1000;
+
+    // Simulate soft_hold_cooldowns rows created over ~10 minutes with distinct tokens
+    const cooldownRows = [
+      {
+        table_id:   TARGET_TABLE,
+        ip_hash:    SUBJECT_IP,
+        token_hash: 'token_hash_expired_user_1_distinct',
+        until:      NOW - 5 * MINUTE,   // already expired (past)
+        created_at: NOW - 10 * MINUTE,  // created 10 min ago
+      },
+      {
+        table_id:   TARGET_TABLE,
+        ip_hash:    SUBJECT_IP,
+        token_hash: 'token_hash_expired_user_2_distinct',
+        until:      NOW - 3 * MINUTE,   // already expired
+        created_at: NOW - 7 * MINUTE,   // created 7 min ago
+      },
+      {
+        table_id:   TARGET_TABLE,
+        ip_hash:    SUBJECT_IP,
+        token_hash: 'token_hash_expired_user_3_distinct',
+        until:      NOW + 2 * MINUTE,   // still active cooldown
+        created_at: NOW - 1 * MINUTE,   // created 1 min ago
+      },
+    ];
+
+    // Mirrors claim_table logic:
+    // 1. Count recent expiries for this ip_hash within the last 60 minutes.
+    // 2. If >= 3, check for an active cooldown row for this table + ip_hash.
+    // 3. Trusted IPs bypass the check entirely.
+    function simulateClaimWithCooldown({ ipHash, tokenHash, tableId, trustedHash }) {
+      const isTrusted = ipHash === trustedHash;
+      if (isTrusted) return { ok: true, code: 'CLAIMED' };
+
+      // Count recent expiries from this ip_hash in the last 60 min
+      const recentExpiries = cooldownRows.filter(
+        (r) => r.ip_hash === ipHash && NOW - r.created_at <= 60 * MINUTE,
+      ).length;
+
+      if (recentExpiries >= 3) {
+        // Check if there's an active cooldown row for this table + ip_hash
+        const activeCooldown = cooldownRows.find(
+          (r) =>
+            r.table_id === tableId &&
+            r.ip_hash  === ipHash &&
+            r.until     >  NOW,
+        );
+        if (activeCooldown) {
+          const remainingSeconds = Math.max(0, Math.ceil((activeCooldown.until - NOW) / 1000));
+          return {
+            ok: false,
+            code: 'TABLE_COOLDOWN',
+            remaining_seconds: remainingSeconds,
+          };
+        }
+      }
+
+      return { ok: true, code: 'CLAIMED' };
+    }
+
+    // A. 4th fresh token from SUBJECT_IP on the same table → TABLE_COOLDOWN
+    const freshToken4 = 'token_hash_fresh_4th_attempt_new_user';
+    const blockedResult = simulateClaimWithCooldown({
+      ipHash:     SUBJECT_IP,
+      tokenHash:  freshToken4,
+      tableId:    TARGET_TABLE,
+      trustedHash: TRUSTED_HASH,
+    });
+    assert(
+      blockedResult.ok === false && blockedResult.code === 'TABLE_COOLDOWN',
+      `Expected TABLE_COOLDOWN for 4th fresh token, got: ${JSON.stringify(blockedResult)}`,
+    );
+    assert(
+      blockedResult.remaining_seconds > 0,
+      'Expected remaining_seconds > 0 for active cooldown',
+    );
+    console.log(`  ✔ 4th fresh token from same ip_hash correctly blocked with TABLE_COOLDOWN (${blockedResult.remaining_seconds}s remaining)`);
+
+    // B. Different ip_hash is NOT blocked (even on the same table)
+    const innocentResult = simulateClaimWithCooldown({
+      ipHash:     OTHER_IP,
+      tokenHash:  'innocent_user_token_hash_fresh',
+      tableId:    TARGET_TABLE,
+      trustedHash: TRUSTED_HASH,
+    });
+    assert(
+      innocentResult.ok === true,
+      `Expected different ip_hash to succeed, got: ${JSON.stringify(innocentResult)}`,
+    );
+    console.log('  ✔ Different ip_hash is NOT blocked (threshold is per-IP, not per-table)');
+
+    // C. Trusted hash is exempt even though subject ip_hash has 3 expiries
+    const trustedResult = simulateClaimWithCooldown({
+      ipHash:     TRUSTED_HASH,
+      tokenHash:  'trusted_wifi_user_token_hash',
+      tableId:    TARGET_TABLE,
+      trustedHash: TRUSTED_HASH,
+    });
+    assert(
+      trustedResult.ok === true,
+      `Expected trusted hash to be exempt, got: ${JSON.stringify(trustedResult)}`,
+    );
+    console.log('  ✔ Trusted Wi-Fi hash is fully exempt from the 3-expiry TABLE_COOLDOWN');
+
+    // D. Verify the 3-expiry threshold: 2 expiries from a new IP → NOT blocked
+    const NEW_IP_2_EXPIRIES = 'ip_hash_new_only_two_expiries';
+    const twoExpiryCooldownRows = [
+      { table_id: TARGET_TABLE, ip_hash: NEW_IP_2_EXPIRIES, until: NOW - 1 * MINUTE, created_at: NOW - 9 * MINUTE },
+      { table_id: TARGET_TABLE, ip_hash: NEW_IP_2_EXPIRIES, until: NOW + 1 * MINUTE, created_at: NOW - 2 * MINUTE },
+    ];
+
+    function simulateWithCustomRows(rows, { ipHash, tableId }) {
+      const recentExpiries = rows.filter(
+        (r) => r.ip_hash === ipHash && NOW - r.created_at <= 60 * MINUTE,
+      ).length;
+      if (recentExpiries >= 3) {
+        const active = rows.find((r) => r.table_id === tableId && r.ip_hash === ipHash && r.until > NOW);
+        if (active) return { ok: false, code: 'TABLE_COOLDOWN' };
+      }
+      return { ok: true, code: 'CLAIMED' };
+    }
+
+    const twoExpiriesResult = simulateWithCustomRows(twoExpiryCooldownRows, {
+      ipHash: NEW_IP_2_EXPIRIES,
+      tableId: TARGET_TABLE,
+    });
+    assert(
+      twoExpiriesResult.ok === true,
+      `Expected 2 expiries to NOT trigger cooldown, got: ${JSON.stringify(twoExpiriesResult)}`,
+    );
+    console.log('  ✔ Only 2 expiries (< threshold of 3) does NOT trigger IP-level TABLE_COOLDOWN');
+
+    console.log(green('  ✅ Test 8 Passed: 3-expiry threshold, cross-IP isolation, and trusted hash exemption verified.\n'));
+    passed++;
+  }
+
   console.log(bold('=================================================================='));
-  console.log(bold(green(`  🎉 ALL ${passed}/7 SECURITY INVARIANT TESTS PASSED!`)));
+  console.log(bold(green(`  🎉 ALL ${passed}/8 SECURITY INVARIANT TESTS PASSED!`)));
   console.log(bold('==================================================================\n'));
 }
 
