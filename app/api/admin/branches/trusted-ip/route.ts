@@ -73,10 +73,19 @@ function toPublicEntry(entry: TrustedWifiEntry): TrustedWifiPublicEntry {
   };
 }
 
-async function verifyStaffCaller() {
+type StaffAuthResult =
+  | { ok: false; error: NextResponse<{ error: string }> }
+  | {
+      ok: true;
+      ctx: NonNullable<Awaited<ReturnType<typeof createSupabaseContext>>['data']>;
+      callerProfile: any;
+      isSuperadmin: boolean;
+    };
+
+async function verifyStaffCaller(): Promise<StaffAuthResult> {
   const { data: ctx, error: authError } = await createSupabaseContext({ auth: 'user' });
   if (authError || !ctx || !ctx.userClaims) {
-    return { error: NextResponse.json({ error: 'Tidak terautentikasi.' }, { status: 401 }) };
+    return { ok: false, error: NextResponse.json({ error: 'Tidak terautentikasi.' }, { status: 401 }) };
   }
 
   const { data: callerProfile } = await ctx.supabase
@@ -89,17 +98,17 @@ async function verifyStaffCaller() {
   const isAdmin       = callerProfile?.role === 'admin';
 
   if (!isSuperadmin && !isAdmin) {
-    return { error: NextResponse.json({ error: 'Akses ditolak.' }, { status: 403 }) };
+    return { ok: false, error: NextResponse.json({ error: 'Akses ditolak.' }, { status: 403 }) };
   }
 
-  return { ctx, callerProfile, isSuperadmin };
+  return { ok: true, ctx, callerProfile, isSuperadmin };
 }
 
 // ─── GET: List trusted Wi-Fi entries for branch ───────────────────────────────
 
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const authRes = await verifyStaffCaller();
-  if ('error' in authRes) return authRes.error;
+  if (!authRes.ok) return authRes.error;
   const { callerProfile, isSuperadmin } = authRes;
 
   const branchId = request.nextUrl.searchParams.get('branch_id');
@@ -132,9 +141,9 @@ export async function GET(request: NextRequest) {
 
 // ─── POST: Add current IP hash as trusted Wi-Fi (max 5) ───────────────────────
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const authRes = await verifyStaffCaller();
-  if ('error' in authRes) return authRes.error;
+  if (!authRes.ok) return authRes.error;
   const { callerProfile, isSuperadmin } = authRes;
 
   let body: unknown;
@@ -226,9 +235,9 @@ export async function POST(request: NextRequest) {
 
 // ─── DELETE: Delete a trusted Wi-Fi entry by id ───────────────────────────────
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const authRes = await verifyStaffCaller();
-  if ('error' in authRes) return authRes.error;
+  if (!authRes.ok) return authRes.error;
   const { callerProfile, isSuperadmin } = authRes;
 
   let id = request.nextUrl.searchParams.get('id');
