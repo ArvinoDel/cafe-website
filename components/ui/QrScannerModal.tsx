@@ -359,12 +359,12 @@ export default function QrScannerModal({
         // Stop scanner tracks immediately on successful claim
         void stopScanner();
 
-        // Close automatically only on success after ~800ms
+        // Close automatically only on success after ~400ms
         if (successTimerRef.current) clearTimeout(successTimerRef.current);
         successTimerRef.current = setTimeout(() => {
           onCloseRef.current();
           onScanSuccessRef.current(table, branchId, claimResult);
-        }, 800);
+        }, 400);
       } else {
         void stopScanner();
         const code = claimResult.code;
@@ -866,7 +866,7 @@ export default function QrScannerModal({
           },
           isExisting: false,
         });
-      }, 800);
+      }, 400);
     } catch {
       setCheckinError('Gagal terhubung ke server. Periksa koneksi internetmu.');
     } finally {

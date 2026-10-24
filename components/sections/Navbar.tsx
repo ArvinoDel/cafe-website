@@ -55,8 +55,20 @@ export default function Navbar({ content }: { content?: NavbarContent }) {
     if (branchId) {
       localStorage.setItem(BRANCH_KEY, branchId);
     }
-    const url = branchId ? `/menu?table=${clean}&branch=${branchId}` : `/menu?table=${clean}`;
-    router.push(url);
+    const targetUrl = branchId
+      ? `/menu?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(branchId)}`
+      : `/menu?table=${encodeURIComponent(clean)}`;
+
+    if (typeof window !== 'undefined') {
+      const currentQuery = branchId
+        ? `?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(branchId)}`
+        : `?table=${encodeURIComponent(clean)}`;
+      if (window.location.pathname === '/menu' && window.location.search === currentQuery) {
+        window.location.reload();
+      } else {
+        window.location.href = targetUrl;
+      }
+    }
   };
 
   return (

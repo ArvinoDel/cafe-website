@@ -298,25 +298,28 @@ function MenuPageInner() {
   );
 
   const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null, claimResult?: import('@/lib/table-session').ClaimTableResult) => {
+    (scanned: string, scannedBranchId: string | null) => {
       const clean = scanned.trim().toUpperCase();
-      if (claimResult && claimResult.ok) {
-        setTableNumber(clean);
-        localStorage.setItem(TABLE_KEY, clean);
-        if (scannedBranchId) {
-          setBranchId(scannedBranchId);
-          localStorage.setItem(BRANCH_KEY, scannedBranchId);
-        }
-        refreshTableSession();
-      } else {
-        void verifyAndClaimTable(clean, scannedBranchId);
+      localStorage.setItem(TABLE_KEY, clean);
+      if (scannedBranchId) {
+        localStorage.setItem(BRANCH_KEY, scannedBranchId);
       }
-      const url = scannedBranchId
-        ? `/menu?table=${clean}&branch=${scannedBranchId}`
-        : `/menu?table=${clean}`;
-      router.replace(url);
+      const targetUrl = scannedBranchId
+        ? `/menu?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(scannedBranchId)}`
+        : `/menu?table=${encodeURIComponent(clean)}`;
+
+      if (typeof window !== 'undefined') {
+        const currentQuery = scannedBranchId
+          ? `?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(scannedBranchId)}`
+          : `?table=${encodeURIComponent(clean)}`;
+        if (window.location.pathname === '/menu' && window.location.search === currentQuery) {
+          window.location.reload();
+        } else {
+          window.location.href = targetUrl;
+        }
+      }
     },
-    [verifyAndClaimTable, router, refreshTableSession],
+    [],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and

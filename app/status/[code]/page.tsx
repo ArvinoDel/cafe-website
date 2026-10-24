@@ -321,6 +321,11 @@ export default function OrderStatusPage() {
           type: 'success',
           message: `Nomor meja pesanan berhasil dipindahkan ke Meja ${scannedTable}! Barista akan mengantar ke meja barumu.`,
         });
+        if (typeof window !== 'undefined') {
+          setTimeout(() => {
+            window.location.reload();
+          }, 400);
+        }
       } catch {
         setTableUpdateNotice({
           type: 'error',

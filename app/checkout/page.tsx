@@ -236,18 +236,13 @@ function CheckoutPageInner() {
   }, [tableNotice]);
 
   const handleScanSuccess = useCallback((scanned: string, scannedBranchId: string | null, _claimResult?: import('@/lib/table-session').ClaimTableResult) => {
-    const prev = localStorage.getItem(TABLE_KEY);
     const clean = scanned.trim().toUpperCase();
-    setTableNumber(clean);
     localStorage.setItem(TABLE_KEY, clean);
     if (scannedBranchId) {
-      setBranchId(scannedBranchId);
       localStorage.setItem(BRANCH_KEY, scannedBranchId);
     }
-    if (prev && prev !== clean) {
-      setTableNotice(`Nomor meja berhasil diubah dari Meja ${prev} ke Meja ${clean}!`);
-    } else {
-      setTableNotice(`Terhubung ke Meja ${clean}!`);
+    if (typeof window !== 'undefined') {
+      window.location.reload();
     }
   }, []);
 
