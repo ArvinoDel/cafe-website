@@ -304,12 +304,32 @@ function CheckoutPageInner() {
       const storedTable = localStorage.getItem(TABLE_KEY);
       if (storedTable) setTableNumber(storedTable);
     }
-    if (fromBranch && fromBranch.trim()) {
-      setBranchId(fromBranch.trim());
-      localStorage.setItem(BRANCH_KEY, fromBranch.trim());
+    const effectiveTable = (fromQr && fromQr.trim().toUpperCase()) || (typeof window !== 'undefined' ? localStorage.getItem(TABLE_KEY) : null);
+    const effectiveBranch = fromBranch?.trim() || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+
+    if (effectiveBranch) {
+      setBranchId(effectiveBranch);
+      localStorage.setItem(BRANCH_KEY, effectiveBranch);
     } else {
-      const storedBranch = localStorage.getItem(BRANCH_KEY);
-      if (storedBranch) setBranchId(storedBranch);
+      // Auto-resolve branch from active table session or table lookup
+      fetch('/api/tables/session')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.session?.branchId) {
+            setBranchId(data.session.branchId);
+            localStorage.setItem(BRANCH_KEY, data.session.branchId);
+          } else if (effectiveTable) {
+            return fetch(`/api/tables/check?code=${encodeURIComponent(effectiveTable)}`)
+              .then((r) => r.json())
+              .then((checkData) => {
+                if (checkData?.ok && checkData.table?.branch_id) {
+                  setBranchId(checkData.table.branch_id);
+                  localStorage.setItem(BRANCH_KEY, checkData.table.branch_id);
+                }
+              });
+          }
+        })
+        .catch(() => {});
     }
 
     // Pre-fill name from group session
@@ -446,7 +466,19 @@ function CheckoutPageInner() {
       setSubmitting(true);
       setSubmitError(null);
       try {
-        const resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+        let resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+        if (!resolvedBranch && tableNumber) {
+          try {
+            const checkRes = await fetch(`/api/tables/check?code=${encodeURIComponent(tableNumber.trim())}`);
+            const checkData = await checkRes.json();
+            const bId = checkData?.table?.branch_id;
+            if (checkData?.ok && typeof bId === 'string' && bId) {
+              resolvedBranch = bId;
+              setBranchId(bId);
+              localStorage.setItem(BRANCH_KEY, bId);
+            }
+          } catch {}
+        }
         const payload = {
           customer_name: name.trim() || groupSession.name,
           payment_method: payment,
@@ -515,7 +547,19 @@ function CheckoutPageInner() {
     setSubmitError(null);
 
     try {
-      const resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+      let resolvedBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+      if (!resolvedBranch && tableNumber) {
+        try {
+          const checkRes = await fetch(`/api/tables/check?code=${encodeURIComponent(tableNumber.trim())}`);
+          const checkData = await checkRes.json();
+          const bId = checkData?.table?.branch_id;
+          if (checkData?.ok && typeof bId === 'string' && bId) {
+            resolvedBranch = bId;
+            setBranchId(bId);
+            localStorage.setItem(BRANCH_KEY, bId);
+          }
+        } catch {}
+      }
       const payload = {
         customer_name:  name.trim(),
         table_number:   tableNumber.trim(),

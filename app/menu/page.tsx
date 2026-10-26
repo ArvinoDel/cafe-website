@@ -245,6 +245,11 @@ function MenuPageInner() {
         );
         const data = await checkRes.json();
 
+        if (data.ok && data.table?.branch_id) {
+          setBranchId(data.table.branch_id);
+          localStorage.setItem(BRANCH_KEY, data.table.branch_id);
+        }
+
         if (data.ok && data.hasReservation && data.reservation) {
           const res = data.reservation;
 
@@ -288,6 +293,10 @@ function MenuPageInner() {
             setShowCheckinForm(true);
           }
         } else {
+          if (claimRes.session?.branchId) {
+            setBranchId(claimRes.session.branchId);
+            localStorage.setItem(BRANCH_KEY, claimRes.session.branchId);
+          }
           refreshTableSession();
         }
       } catch (err) {
@@ -331,17 +340,24 @@ function MenuPageInner() {
   useEffect(() => {
     const fromQr = searchParams.get('table');
     const fromBranch = searchParams.get('branch');
+    const storedBranch = localStorage.getItem(BRANCH_KEY);
+
+    if (fromBranch && fromBranch.trim()) {
+      setBranchId(fromBranch.trim());
+      localStorage.setItem(BRANCH_KEY, fromBranch.trim());
+    } else if (storedBranch) {
+      setBranchId(storedBranch);
+    }
+
     if (fromQr && fromQr.trim()) {
       const cleanFromQr = fromQr.trim().toUpperCase();
       if (lastClaimedTableRef.current !== cleanFromQr) {
         lastClaimedTableRef.current = cleanFromQr;
-        void verifyAndClaimTable(fromQr, fromBranch);
+        void verifyAndClaimTable(fromQr, fromBranch || storedBranch);
       }
     } else {
       const stored = localStorage.getItem(TABLE_KEY);
       if (stored) setTableNumber(stored);
-      const storedBranch = localStorage.getItem(BRANCH_KEY);
-      if (storedBranch) setBranchId(storedBranch);
     }
   }, [searchParams, verifyAndClaimTable]);
 
@@ -941,11 +957,12 @@ function MenuPageInner() {
     }
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
     localStorage.setItem(TABLE_KEY, tableNumber);
-    if (branchId) localStorage.setItem(BRANCH_KEY, branchId);
+    const effectiveBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+    if (effectiveBranch) localStorage.setItem(BRANCH_KEY, effectiveBranch);
 
     const params = new URLSearchParams();
     if (tableNumber) params.set('table', tableNumber);
-    if (branchId) params.set('branch', branchId);
+    if (effectiveBranch) params.set('branch', effectiveBranch);
     if (groupSession) params.set('group', groupSession.code);
     const qs = params.toString();
     router.push(qs ? `/checkout?${qs}` : '/checkout');
@@ -1152,7 +1169,8 @@ function MenuPageInner() {
                       const params = new URLSearchParams();
                       params.set('group', groupSession!.code);
                       if (tableNumber) params.set('table', tableNumber);
-                      if (branchId) params.set('branch', branchId!);
+                      const effectiveBranch = branchId || (typeof window !== 'undefined' ? localStorage.getItem(BRANCH_KEY) : null);
+                      if (effectiveBranch) params.set('branch', effectiveBranch);
                       router.push(`/checkout?${params.toString()}`);
                     }}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cream text-coffee-800 font-bold text-[11px] hover:bg-cream/90 transition-colors active:scale-95"

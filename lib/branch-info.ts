@@ -146,8 +146,8 @@ export function useBranchInfo(branchId?: string | null): UseBranchInfoResult {
   const load = useCallback(
     async (forceRefresh = false) => {
       const effectiveId = getEffectiveBranchId();
-      if (effectiveId === null && branchIdRef.current !== undefined) {
-        // branchId explicitly passed (possibly null during loading); wait
+      if (effectiveId === null && branchIdRef.current === undefined) {
+        // Only skip if branchId is strictly undefined (not yet mounted/provided)
         return;
       }
       setLoading(true);
