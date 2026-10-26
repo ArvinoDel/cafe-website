@@ -41,6 +41,7 @@ import {
   ShieldCheck,
   PartyPopper,
   FileText,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -540,40 +541,78 @@ export default function ReservasiPage() {
 
       {/* Stepper Progress Bar */}
       {currentStep < 5 && (
-        <div className="bg-white border-b border-coffee-100/50 py-3 px-4">
-          <div className="max-w-2xl mx-auto flex items-center justify-between relative">
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-coffee-100 -translate-y-1/2 z-0" />
-            {[
-              { num: 1, label: 'Waktu' },
-              { num: 2, label: 'Meja' },
-              { num: 3, label: 'Pre-order' },
-              { num: 4, label: 'Data Diri' },
-            ].map((st) => {
-              const active = currentStep >= st.num;
-              const isCurrent = currentStep === st.num;
-              return (
-                <div key={st.num} className="flex flex-col items-center relative z-10">
-                  <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                      isCurrent
-                        ? 'bg-coffee-800 text-cream ring-4 ring-coffee-100 shadow'
-                        : active
-                        ? 'bg-coffee-600 text-white'
-                        : 'bg-coffee-100 text-charcoal/40'
+        <div className="bg-white/90 backdrop-blur-md border-b border-coffee-100/80 py-4 px-3 sm:px-6 shadow-[0_2px_12px_-4px_rgba(42,31,23,0.04)]">
+          <div className="max-w-2xl mx-auto relative">
+            {/* Connecting Base Track (mathematically centered between node 1 and node 4) */}
+            <div className="absolute top-[18px] sm:top-[20px] left-[12.5%] right-[12.5%] h-1 bg-coffee-100/90 rounded-full -translate-y-1/2 z-0 overflow-hidden">
+              {/* Dynamic progress bar connecting completed/active steps */}
+              <div
+                className="h-full bg-gradient-to-r from-coffee-700 via-coffee-800 to-coffee-900 rounded-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${Math.min(100, Math.max(0, ((currentStep - 1) / 3) * 100))}%`,
+                }}
+              />
+            </div>
+
+            {/* Step Nodes (Symmetrical 4-Column Grid) */}
+            <div className="grid grid-cols-4 relative z-10">
+              {[
+                { num: 1, label: 'Waktu' },
+                { num: 2, label: 'Meja' },
+                { num: 3, label: 'Pre-order' },
+                { num: 4, label: 'Data Diri' },
+              ].map((st) => {
+                const isCompleted = currentStep > st.num;
+                const isCurrent = currentStep === st.num;
+                const isClickable = isCompleted;
+
+                return (
+                  <button
+                    key={st.num}
+                    type="button"
+                    disabled={!isClickable}
+                    onClick={() => {
+                      if (isClickable) {
+                        setCurrentStep(st.num as any);
+                      }
+                    }}
+                    className={`flex flex-col items-center group focus:outline-none transition-all ${
+                      isClickable ? 'cursor-pointer' : 'cursor-default'
                     }`}
                   >
-                    {active && currentStep > st.num ? <Check className="w-3.5 h-3.5" /> : st.num}
-                  </div>
-                  <span
-                    className={`text-[11px] mt-1 font-semibold ${
-                      isCurrent ? 'text-coffee-900' : 'text-charcoal/50'
-                    }`}
-                  >
-                    {st.label}
-                  </span>
-                </div>
-              );
-            })}
+                    {/* Node Circle */}
+                    <div
+                      className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all duration-200 select-none ${
+                        isCurrent
+                          ? 'bg-gradient-to-br from-coffee-800 to-coffee-950 text-amber-200 ring-4 ring-coffee-100 shadow-md scale-105'
+                          : isCompleted
+                          ? 'bg-coffee-800 text-cream shadow-xs group-hover:bg-coffee-900 group-hover:scale-105'
+                          : 'bg-white border-2 border-coffee-200/80 text-coffee-400/80 group-hover:border-coffee-300'
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                      ) : (
+                        <span>{st.num}</span>
+                      )}
+                    </div>
+
+                    {/* Step Label */}
+                    <span
+                      className={`text-xs sm:text-[13px] mt-2 font-medium tracking-tight text-center transition-colors ${
+                        isCurrent
+                          ? 'font-bold text-coffee-950'
+                          : isCompleted
+                          ? 'font-semibold text-coffee-800 group-hover:text-coffee-900'
+                          : 'text-charcoal/45'
+                      }`}
+                    >
+                      {st.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -601,32 +640,37 @@ export default function ReservasiPage() {
           <div>
             {/* Branch Switcher (if multiple) */}
             {branches.length > 1 && currentStep < 5 && (
-              <div className="mb-6 bg-white p-3 rounded-2xl border border-coffee-100 shadow-sm flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <Building2 className="w-5 h-5 text-coffee-700" />
-                  <div>
-                    <p className="text-[11px] font-semibold text-charcoal/50 uppercase">Cabang Terpilih</p>
-                    <p className="font-bold text-coffee-900 text-sm">{selectedBranch?.name}</p>
+              <div className="mb-6 bg-white p-3.5 sm:p-4 rounded-2xl border border-coffee-100 shadow-soft flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-coffee-100 to-sand-100 border border-coffee-200/60 flex items-center justify-center text-coffee-800 shadow-xs shrink-0">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-coffee-500 uppercase tracking-wider">Cabang Terpilih</p>
+                    <p className="font-bold text-coffee-950 text-sm leading-tight truncate mt-0.5">{selectedBranch?.name}</p>
                   </div>
                 </div>
-                <select
-                  className="text-xs font-semibold bg-coffee-50 border border-coffee-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
-                  value={selectedBranch?.id}
-                  onChange={(e) => {
-                    const b = branches.find((x) => x.id === e.target.value);
-                    if (b) {
-                      setSelectedBranch(b);
-                      setSelectedTable(null);
-                      setTables([]);
-                    }
-                  }}
-                >
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative shrink-0">
+                  <select
+                    className="appearance-none text-xs font-semibold bg-coffee-50/80 hover:bg-coffee-100/70 border border-coffee-200/80 text-coffee-900 rounded-xl pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-coffee-500/20 cursor-pointer transition-colors"
+                    value={selectedBranch?.id}
+                    onChange={(e) => {
+                      const b = branches.find((x) => x.id === e.target.value);
+                      if (b) {
+                        setSelectedBranch(b);
+                        setSelectedTable(null);
+                        setTables([]);
+                      }
+                    }}
+                  >
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-coffee-600 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
             )}
 
