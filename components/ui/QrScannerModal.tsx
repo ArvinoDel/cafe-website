@@ -389,12 +389,7 @@ export default function QrScannerModal({
           setModalState('TABLE_COOLDOWN');
           setCooldownMinutes((claimResult as any).remaining_minutes ?? 10);
         } else if (code === 'TABLE_RESERVED' || code === 'TABLE_RESERVED_SOON') {
-          setModalState('TABLE_RESERVED');
-          setReservedInfo({
-            table,
-            branchId,
-            startsAt: (claimResult as any).starts_at || (claimResult as any).startsAt,
-          });
+          handleTriggerSuccess(table, branchId, claimResult);
         } else if (code === 'TOO_MANY_HOLDS') {
           setModalState('TOO_MANY_HOLDS');
         } else if (code === 'TABLE_NOT_FOUND') {

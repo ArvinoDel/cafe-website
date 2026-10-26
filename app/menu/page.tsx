@@ -312,23 +312,18 @@ function MenuPageInner() {
   }, [refreshTableSession]);
 
   const handleScanSuccess = useCallback(
-    (scanned: string, scannedBranchId: string | null, claimResult?: ClaimTableResult) => {
+    (scanned: string, scannedBranchId: string | null) => {
       const clean = scanned.trim().toUpperCase();
       lastClaimedTableRef.current = clean;
-      broadcastTableChange(clean, scannedBranchId, claimResult && claimResult.ok ? claimResult.session : null);
-      setTableNumber(clean);
-      if (scannedBranchId) {
-        setBranchId(scannedBranchId);
-      }
-      refreshTableSession();
-      setTableChangeNotice(`Terhubung ke Meja ${clean}!`);
 
       const targetUrl = scannedBranchId
         ? `/menu?table=${encodeURIComponent(clean)}&branch=${encodeURIComponent(scannedBranchId)}`
         : `/menu?table=${encodeURIComponent(clean)}`;
       router.replace(targetUrl, { scroll: false });
+
+      void verifyAndClaimTable(clean, scannedBranchId);
     },
-    [refreshTableSession, router],
+    [router, verifyAndClaimTable],
   );
 
   // Table-aware QR: `/menu?table=A-12&branch=<uuid>` from a scanned table QR code wins and
