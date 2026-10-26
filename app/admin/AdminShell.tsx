@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, ReactNode } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Coffee, LogOut, LayoutDashboard, QrCode, Building2, UtensilsCrossed, Palette, FileText, CalendarDays } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase-client';
@@ -69,27 +70,45 @@ export function AdminHeader() {
       : []),
   ];
 
-  return (
-    <header className="sticky top-0 z-40 bg-cream/80 backdrop-blur-xl border-b border-coffee-100/60">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between h-16 gap-4">
-          {/* Brand */}
-          <div className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-coffee-700 flex items-center justify-center">
-              <Coffee className="w-4 h-4 text-cream" />
-            </div>
-            <div className="leading-none">
-              <span className="text-sm font-extrabold text-coffee-900 tracking-tight">
-                {brandName} Admin
-              </span>
-              <span className="block text-[10px] text-coffee-500 font-medium uppercase tracking-widest">
-                Dashboard
-              </span>
-            </div>
-          </div>
+  const initials = profile?.full_name
+    ? profile.full_name
+        .split(' ')
+        .filter(Boolean)
+        .map((n) => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    : (profile?.role === 'superadmin' ? 'SA' : 'AD');
 
-          {/* Nav tabs */}
-          <nav className="hidden sm:flex items-center gap-1">
+  return (
+    <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-xl border-b border-coffee-200/40 shadow-[0_1px_3px_0_rgba(42,31,23,0.03)]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center justify-between h-16 gap-3">
+          {/* Brand */}
+          <Link
+            href="/admin"
+            className="flex items-center gap-2.5 flex-shrink-0 group focus:outline-none"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-coffee-800 to-coffee-950 text-amber-200 flex items-center justify-center shadow-xs ring-1 ring-coffee-900/10 group-hover:scale-105 transition-transform duration-200">
+              <Coffee className="w-4 h-4 text-amber-200/90" />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-bold text-coffee-950 tracking-tight leading-none group-hover:text-coffee-800 transition-colors">
+                  {brandName || 'Kafeitiam'}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase bg-coffee-100 text-coffee-800 border border-coffee-200/60 leading-none">
+                  Admin
+                </span>
+              </div>
+              <span className="text-[10px] text-coffee-500/80 font-medium tracking-normal mt-0.5 leading-none">
+                Management Portal
+              </span>
+            </div>
+          </Link>
+
+          {/* Nav tabs (Desktop segmented pill control) */}
+          <nav className="hidden lg:flex items-center p-1 bg-coffee-100/50 border border-coffee-200/50 rounded-2xl backdrop-blur-xs gap-0.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active =
@@ -97,71 +116,89 @@ export function AdminHeader() {
                   ? pathname === '/admin'
                   : pathname.startsWith(item.href);
               return (
-                <button
+                <Link
                   key={item.href}
-                  onClick={() => router.push(item.href)}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
+                  href={item.href}
+                  className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-[13px] font-medium whitespace-nowrap transition-all duration-150 ${
                     active
-                      ? 'bg-coffee-700 text-cream'
-                      : 'text-charcoal/60 hover:bg-coffee-50 hover:text-coffee-900'
+                      ? 'bg-coffee-900 text-cream shadow-xs font-semibold'
+                      : 'text-coffee-700/70 hover:text-coffee-950 hover:bg-white/70'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                </button>
+                  <Icon
+                    className={`w-3.5 h-3.5 transition-colors ${
+                      active ? 'text-amber-300' : 'text-coffee-400 group-hover:text-coffee-700'
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                </Link>
               );
             })}
           </nav>
 
-          {/* Right side: role badge + logout */}
-          <div className="flex items-center gap-2.5 flex-shrink-0">
+          {/* Right side: profile chip + logout */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             {profile && (
-              <div className="hidden sm:flex flex-col items-end leading-none">
-                <span className="text-xs font-bold text-coffee-900">
-                  {profile.full_name || 'Admin'}
-                </span>
-                <span className="text-[10px] text-charcoal/50 mt-0.5">
-                  {profile.role === 'superadmin'
-                    ? 'Superadmin'
-                    : `Admin · ${profile.branch_name ?? '–'}`}
-                </span>
+              <div className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-coffee-50/60 transition-colors">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-coffee-200 to-sand-200 text-coffee-900 font-bold text-xs flex items-center justify-center border border-coffee-300/60 shadow-xs ring-2 ring-white select-none">
+                  {initials}
+                </div>
+                <div className="hidden sm:flex flex-col text-left leading-tight">
+                  <span className="text-xs font-semibold text-coffee-950 max-w-[120px] truncate">
+                    {profile.full_name || 'Admin'}
+                  </span>
+                  <span className="text-[10px] font-medium text-coffee-600/70">
+                    {profile.role === 'superadmin'
+                      ? 'Superadmin'
+                      : (profile.branch_name ?? 'Branch Admin')}
+                  </span>
+                </div>
               </div>
             )}
+
+            <div className="h-4 w-px bg-coffee-200/60 hidden sm:block mx-0.5" />
+
             <button
               id="admin-logout"
               onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-charcoal/60 hover:bg-red-50 hover:text-red-600 transition-colors text-sm font-semibold"
+              className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-coffee-600 hover:text-red-600 hover:bg-red-50/80 border border-transparent hover:border-red-100 transition-all duration-150"
               title="Logout"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
               <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile nav */}
-        <div className="sm:hidden flex items-center gap-1 pb-2 overflow-x-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active =
-              item.href === '/admin'
-                ? pathname === '/admin'
-                : pathname.startsWith(item.href);
-            return (
-              <button
-                key={item.href}
-                onClick={() => router.push(item.href)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 ${
-                  active
-                    ? 'bg-coffee-700 text-cream'
-                    : 'text-charcoal/60 hover:bg-coffee-50 hover:text-coffee-900'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {item.label}
-              </button>
-            );
-          })}
+        {/* Tablet & Mobile nav strip */}
+        <div className="lg:hidden py-2 border-t border-coffee-100/60 overflow-x-auto scrollbar-hide">
+          <nav className="flex items-center gap-1 px-0.5">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active =
+                item.href === '/admin'
+                  ? pathname === '/admin'
+                  : pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap flex-shrink-0 transition-all duration-150 ${
+                    active
+                      ? 'bg-coffee-900 text-cream shadow-xs font-semibold'
+                      : 'text-coffee-700/70 hover:text-coffee-900 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon
+                    className={`w-3.5 h-3.5 ${
+                      active ? 'text-amber-300' : 'text-coffee-400'
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
         </div>
       </div>
     </header>
