@@ -95,10 +95,18 @@ export type ClaimResult =
 
 /**
  * Computes deterministic HMAC-SHA256 of owner token using server secret.
+ * In production mode, throws an error if SUPABASE_SECRET_KEY is not configured
+ * to prevent falling back to a static hardcoded secret.
  */
 export function computeTokenHash(token: string): string {
-  const secret = process.env.SUPABASE_SECRET_KEY || 'cafe-soft-hold-hmac-secret';
-  return crypto.createHmac('sha256', secret).update(token.trim()).digest('hex');
+  const secret = process.env.SUPABASE_SECRET_KEY;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('computeTokenHash: SUPABASE_SECRET_KEY is required in production');
+    }
+  }
+  const effectiveSecret = secret || 'dev-token-hash-secret';
+  return crypto.createHmac('sha256', effectiveSecret).update(token.trim()).digest('hex');
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────

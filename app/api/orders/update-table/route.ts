@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Call claim_table to atomically move the table session lock to the new table.
     //    The token lives in a httpOnly cookie and cannot be forged by JS.
-    const { TABLE_SESSION_COOKIE } = await import('@/lib/table-session-server');
+    const { TABLE_SESSION_COOKIE, getActiveSession } = await import('@/lib/table-session-server');
     const sessionToken = request.cookies.get(TABLE_SESSION_COOKIE)?.value ?? null;
 
     if (!sessionToken) {
@@ -90,44 +90,80 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Security Authorization Check:
+    // Verify caller has an active table session, and that the session is bound to this order
+    // (i.e. either the order's existing table or the newly scanned table).
+    // An attacker holding a session for another table cannot move someone else's order.
+    const activeSession = await getActiveSession(sessionToken);
+    if (!activeSession) {
+      return NextResponse.json(
+        {
+          ok:    false,
+          error: 'Sesi meja Anda telah berakhir. Silakan scan ulang QR meja baru terlebih dahulu.',
+          code:  'SESSION_EXPIRED',
+        },
+        { status: 409 },
+      );
+    }
+
+    const currentOrderTable = String((order as any).table_number || '').trim().toUpperCase();
+    const activeSessionTable = activeSession.tableCode.trim().toUpperCase();
+
+    if (
+      activeSession.branchId !== (order as any).branch_id ||
+      (activeSessionTable !== currentOrderTable && activeSessionTable !== newTableCode)
+    ) {
+      return NextResponse.json(
+        {
+          ok:    false,
+          error: 'Akses ditolak. Sesi meja tidak sesuai dengan pesanan ini.',
+          code:  'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+
     const { getClientIp, computeClientIpHash } = await import('@/lib/client-ip');
     const rawIp = getClientIp(request);
     const ipHash = computeClientIpHash(rawIp);
 
-    const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {
-      p_branch_id: (order as any).branch_id,
-      p_code:      newTableCode,
-      p_token:     sessionToken,
-      p_ip_hash:   ipHash,
-    });
+    // If caller has not yet claimed the new table (e.g. initiating move from old table), claim it now
+    if (activeSessionTable !== newTableCode) {
+      const { data: rpcData, error: rpcError } = await (supabaseAdmin as any).rpc('claim_table', {
+        p_branch_id: (order as any).branch_id,
+        p_code:      newTableCode,
+        p_token:     sessionToken,
+        p_ip_hash:   ipHash,
+      });
 
-    if (rpcError) {
-      console.error('[orders/update-table] claim_table error:', rpcError.message);
-      return NextResponse.json(
-        { error: 'Gagal memvalidasi meja baru. Silakan coba lagi.' },
-        { status: 500 },
-      );
-    }
+      if (rpcError) {
+        console.error('[orders/update-table] claim_table error:', rpcError.message);
+        return NextResponse.json(
+          { error: 'Gagal memvalidasi meja baru. Silakan coba lagi.' },
+          { status: 500 },
+        );
+      }
 
-    const claimResult = typeof rpcData === 'string' ? JSON.parse(rpcData) : rpcData;
+      const claimResult = typeof rpcData === 'string' ? JSON.parse(rpcData) : rpcData;
 
-    if (!claimResult?.ok) {
-      const errCode = claimResult?.code as string;
-      const messages: Record<string, string> = {
-        TABLE_NOT_FOUND:     'Meja baru tidak ditemukan.',
-        TABLE_TAKEN:         'Meja baru sedang dipakai pelanggan lain.',
-        TABLE_RESERVED:      'Meja baru sudah dipesan (reservasi).',
-        TABLE_RESERVED_SOON: 'Meja baru akan segera dipakai untuk reservasi.',
-        TOO_MANY_HOLDS:      'Terlalu banyak meja yang ditahan. Selesaikan pesanan Anda terlebih dahulu.',
-      };
-      return NextResponse.json(
-        {
-          ok:    false,
-          code:  errCode,
-          error: messages[errCode] ?? 'Meja baru tidak dapat diklaim.',
-        },
-        { status: errCode === 'TOO_MANY_HOLDS' ? 429 : 409 },
-      );
+      if (!claimResult?.ok) {
+        const errCode = claimResult?.code as string;
+        const messages: Record<string, string> = {
+          TABLE_NOT_FOUND:     'Meja baru tidak ditemukan.',
+          TABLE_TAKEN:         'Meja baru sedang dipakai pelanggan lain.',
+          TABLE_RESERVED:      'Meja baru sudah dipesan (reservasi).',
+          TABLE_RESERVED_SOON: 'Meja baru akan segera dipakai untuk reservasi.',
+          TOO_MANY_HOLDS:      'Terlalu banyak meja yang ditahan. Selesaikan pesanan Anda terlebih dahulu.',
+        };
+        return NextResponse.json(
+          {
+            ok:    false,
+            code:  errCode,
+            error: messages[errCode] ?? 'Meja baru tidak dapat diklaim.',
+          },
+          { status: errCode === 'TOO_MANY_HOLDS' ? 429 : 409 },
+        );
+      }
     }
 
     // Since this order is already placed, upgrade the new table session immediately

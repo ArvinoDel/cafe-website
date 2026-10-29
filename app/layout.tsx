@@ -71,10 +71,29 @@ export async function generateMetadata(): Promise<Metadata> {
   return metaObj;
 }
 
-/** Build an inline <style> string that overrides CSS custom properties. */
+function sanitizeCssIdent(ident: string): string | null {
+  return /^[a-zA-Z0-9_-]+$/.test(ident) ? ident : null;
+}
+
+function sanitizeCssValue(val: string): string | null {
+  if (typeof val !== 'string') return null;
+  const clean = val.trim();
+  // Strictly disallow any HTML tags, comment markers, or breakout characters
+  if (/[<>{};\\\/]/.test(clean)) return null;
+  // Allow hex colors, rgb/rgba/hsl, named colors, percentages, pixels
+  if (!/^[a-zA-Z0-9_., ()%#-]+$/.test(clean)) return null;
+  return clean;
+}
+
+/** Build an inline <style> string that overrides CSS custom properties safely. */
 function buildThemeStyle(theme: Record<string, string>): string {
   const vars = Object.entries(theme)
-    .map(([k, v]) => `  --color-${k}: ${v};`)
+    .map(([k, v]) => {
+      const safeKey = sanitizeCssIdent(k);
+      const safeVal = sanitizeCssValue(v);
+      return safeKey && safeVal ? `  --color-${safeKey}: ${safeVal};` : null;
+    })
+    .filter(Boolean)
     .join('\n');
   return `:root {\n${vars}\n}`;
 }

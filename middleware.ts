@@ -58,6 +58,13 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // --- /api/admin/*: require authenticated user session (defense-in-depth)
+  if (pathname.startsWith('/api/admin')) {
+    if (!user) {
+      return NextResponse.json({ error: 'Tidak terautentikasi.' }, { status: 401 });
+    }
+  }
+
   // --- /admin/* (all other admin routes): require authentication
   if (pathname.startsWith('/admin')) {
     if (!user) {
