@@ -8,6 +8,7 @@ import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useBranchInfo } from '@/lib/branch-info';
 import { FALLBACK_BRANCHES } from '@/lib/site-data';
 import { getSupabaseBrowserClient } from '@/lib/supabase-client';
+import { getBranchCoordinates, getGoogleMapsDirectionsUrl } from '@/lib/branch-coords';
 
 // Dynamic import for Leaflet map component (client-only to prevent SSR errors)
 const BranchMap = dynamic(() => import('./BranchMap'), {
@@ -187,6 +188,7 @@ function SingleLocationCard({ branch }: { branch: Branch }) {
 function MultiLocationGrid({ branches }: { branches: Branch[] }) {
   const [closestInfo, setClosestInfo] = useState<{ branchId: string; distanceKm: number } | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   return (
     <section id="stores" className="py-20 sm:py-28 bg-cream">
@@ -225,6 +227,7 @@ function MultiLocationGrid({ branches }: { branches: Branch[] }) {
           selectedBranchId={selectedBranchId}
           onSelectBranch={(id) => setSelectedBranchId(id)}
           onClosestFound={(closest) => setClosestInfo(closest)}
+          onUserLocationChange={(loc) => setUserLocation(loc)}
         />
 
         {/* Store Cards Grid */}
@@ -238,6 +241,11 @@ function MultiLocationGrid({ branches }: { branches: Branch[] }) {
           {branches.map((branch) => {
             const isClosest = closestInfo?.branchId === branch.id;
             const isSelected = selectedBranchId === branch.id;
+            const coords = getBranchCoordinates(branch);
+            const directionsUrl = getGoogleMapsDirectionsUrl(
+              { ...branch, lat: coords.lat, lng: coords.lng },
+              userLocation
+            );
 
             return (
               <motion.div
@@ -273,20 +281,17 @@ function MultiLocationGrid({ branches }: { branches: Branch[] }) {
                         </span>
                       )}
 
-                      {branch.maps_url ? (
-                        <a
-                          href={branch.maps_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label={`Petunjuk arah ke ${branch.name}`}
-                          className="p-1 text-coffee-400 hover:text-coffee-700 transition-colors"
-                        >
-                          <Navigation className="w-5 h-5" />
-                        </a>
-                      ) : (
-                        <Navigation className="w-5 h-5 text-coffee-200" />
-                      )}
+                      <a
+                        href={directionsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title="Buka petunjuk arah di Google Maps"
+                        aria-label={`Petunjuk arah ke ${branch.name}`}
+                        className="p-1 text-coffee-400 hover:text-coffee-700 transition-colors"
+                      >
+                        <Navigation className="w-5 h-5" />
+                      </a>
                     </div>
                   </div>
 

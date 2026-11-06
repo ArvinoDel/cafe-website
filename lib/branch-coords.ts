@@ -54,3 +54,22 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
   return Math.round((R * c) * 10) / 10;
 }
 
+export function getGoogleMapsDirectionsUrl(
+  branch: BranchLocation & { lat?: number; lng?: number },
+  userLocation?: { lat: number; lng: number } | null
+): string {
+  const coords =
+    branch.lat != null && branch.lng != null
+      ? { lat: branch.lat, lng: branch.lng }
+      : getBranchCoordinates(branch);
+
+  if (userLocation) {
+    return `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${coords.lat},${coords.lng}`;
+  }
+  if (branch.maps_url) {
+    return branch.maps_url;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`;
+}
+
+
