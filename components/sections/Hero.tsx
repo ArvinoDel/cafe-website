@@ -50,7 +50,7 @@ export default function Hero({ content }: { content?: HeroContent }) {
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sand-200/40 rounded-full blur-3xl -z-10" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-12 xl:gap-16 items-center">
           {/* Left: Copy */}
           <motion.div
             variants={staggerContainer}
@@ -84,28 +84,28 @@ export default function Hero({ content }: { content?: HeroContent }) {
 
             <motion.div
               variants={fadeInUp}
-              className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto"
+              className="mt-8 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-3.5 w-full"
             >
               <a
                 href={primaryCta.href || '/menu'}
-                className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-coffee-700 text-cream font-semibold text-base hover:bg-coffee-800 transition-all hover:shadow-soft-lg active:scale-95"
+                className="group inline-flex items-center justify-center gap-2.5 px-5 py-3 sm:px-6 sm:py-3.5 rounded-xl sm:rounded-2xl bg-coffee-700 text-cream font-semibold text-sm sm:text-base hover:bg-coffee-800 transition-all hover:shadow-soft-lg active:scale-[0.98] whitespace-nowrap shrink-0"
               >
-                <QrCode className="w-5 h-5" />
-                {primaryCta.label}
+                <QrCode className="w-5 h-5 shrink-0" />
+                <span>{primaryCta.label}</span>
               </a>
               <a
                 href="/reservasi"
-                className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-sand-200/80 border border-coffee-200 text-coffee-900 font-semibold text-base hover:bg-sand-300/80 transition-all hover:shadow-soft active:scale-95"
+                className="group inline-flex items-center justify-center gap-2.5 px-5 py-3 sm:px-6 sm:py-3.5 rounded-xl sm:rounded-2xl bg-sand-200/80 border border-coffee-200 text-coffee-900 font-semibold text-sm sm:text-base hover:bg-sand-300/80 transition-all hover:shadow-soft active:scale-[0.98] whitespace-nowrap shrink-0"
               >
-                <Calendar className="w-5 h-5 text-coffee-700" />
-                Reservasi Meja
+                <Calendar className="w-5 h-5 text-coffee-700 shrink-0" />
+                <span>Reservasi Meja</span>
               </a>
               <a
                 href={secondaryCta.href || '#how-it-works'}
-                className="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-white border-2 border-coffee-200 text-coffee-700 font-semibold text-base hover:border-coffee-400 hover:bg-coffee-50 transition-all active:scale-95"
+                className="group inline-flex items-center justify-center gap-2.5 px-5 py-3 sm:px-6 sm:py-3.5 rounded-xl sm:rounded-2xl bg-white border border-coffee-200 text-coffee-700 font-semibold text-sm sm:text-base hover:border-coffee-400 hover:bg-coffee-50 transition-all active:scale-[0.98] whitespace-nowrap shrink-0"
               >
-                {secondaryCta.label}
-                <ArrowRight className="w-5 h-5" />
+                <span>{secondaryCta.label}</span>
+                <ArrowRight className="w-5 h-5 shrink-0 group-hover:translate-x-0.5 transition-transform" />
               </a>
             </motion.div>
 
