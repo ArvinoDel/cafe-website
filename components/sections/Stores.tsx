@@ -6,6 +6,8 @@ import { motion } from 'framer-motion';
 import { MapPin, Navigation, Clock, ExternalLink, Sparkles } from 'lucide-react';
 import { fadeInUp, staggerContainer } from '@/lib/animations';
 import { useBranchInfo } from '@/lib/branch-info';
+import { FALLBACK_BRANCHES } from '@/lib/site-data';
+import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 
 // Dynamic import for Leaflet map component (client-only to prevent SSR errors)
 const BranchMap = dynamic(() => import('./BranchMap'), {
@@ -329,7 +331,31 @@ function NoLocationsPlaceholder() {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export default function Stores({ branches }: { branches: Branch[] }) {
-  if (branches.length === 0) return <NoLocationsPlaceholder />;
-  if (branches.length === 1) return <SingleLocationCard branch={branches[0]} />;
-  return <MultiLocationGrid branches={branches} />;
+  const [activeBranches, setActiveBranches] = useState<Branch[]>(
+    branches && branches.length > 0 ? branches : FALLBACK_BRANCHES
+  );
+
+  useEffect(() => {
+    if (branches && branches.length > 0) {
+      setActiveBranches(branches);
+      return;
+    }
+
+    // Client-side fallback: fetch branches directly if SSR cache was empty
+    const supabase = getSupabaseBrowserClient();
+    supabase
+      .from('branches')
+      .select('id, name, address, opening_hours, maps_url')
+      .order('created_at')
+      .then((res: { data: any }) => {
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          setActiveBranches(res.data as Branch[]);
+        }
+      })
+      .catch(() => {});
+  }, [branches]);
+
+  if (!activeBranches || activeBranches.length === 0) return <NoLocationsPlaceholder />;
+  if (activeBranches.length === 1) return <SingleLocationCard branch={activeBranches[0]} />;
+  return <MultiLocationGrid branches={activeBranches} />;
 }

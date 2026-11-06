@@ -12,11 +12,39 @@ export type Branch = {
 
 export type SiteContentMap = Record<string, any>;
 
+export const FALLBACK_BRANCHES: Branch[] = [
+  {
+    id: 'a0000000-0000-0000-0000-000000000001',
+    name: 'El Kafeitiam Pusat',
+    address: 'Jakarta Pusat',
+    opening_hours: 'Senin - Minggu 24 Jam',
+    maps_url: null,
+  },
+  {
+    id: '89ab9179-bf91-42de-a5ae-fc1913c290f2',
+    name: 'El Kafeitiam Cirebon',
+    address: 'Merdeka Street 23',
+    opening_hours: 'Senin - Minggu 24 Jam',
+    maps_url: 'https://maps.app.goo.gl/HkgzGBGz8kfBjdez9',
+  },
+  {
+    id: '2fa23724-99f3-4d61-a26e-902954527bd8',
+    name: 'Cabang Jakarta',
+    address: 'Jakarta Selatan',
+    opening_hours: 'Senin - Sabtu 24 Jam',
+    maps_url: null,
+  },
+];
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY;
+  const key =
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!key) {
-    console.error('[site-data] SUPABASE_SECRET_KEY is missing. Server client cannot be initialized.');
+    console.error('[site-data] Supabase key is missing. Server client cannot be initialized.');
     return null;
   }
   if (!url) {
@@ -52,16 +80,16 @@ async function loadSiteContent(): Promise<SiteContentMap> {
 
 async function loadBranches(): Promise<Branch[]> {
   const supabase = getServerClient();
-  if (!supabase) return [];
+  if (!supabase) return FALLBACK_BRANCHES;
   try {
     const { data, error } = await supabase
       .from('branches')
       .select('id, name, address, opening_hours, maps_url')
       .order('created_at');
-    if (error) return [];
-    return (data as Branch[]) ?? [];
+    if (error || !data || data.length === 0) return FALLBACK_BRANCHES;
+    return (data as Branch[]);
   } catch {
-    return [];
+    return FALLBACK_BRANCHES;
   }
 }
 
