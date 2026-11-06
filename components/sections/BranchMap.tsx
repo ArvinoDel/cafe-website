@@ -122,12 +122,11 @@ export default function BranchMap({
       zoomControl: false,
     });
 
-    // Custom modern tile layer (CartoDB Positron / OSM clean)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // 100% Free OpenStreetMap tile layer (no API key, no trial, no account needed)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
       maxZoom: 19,
-      subdomains: 'abcd',
     }).addTo(map);
 
     // Add zoom control in top-right
