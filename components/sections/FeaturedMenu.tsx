@@ -41,7 +41,7 @@ export default function FeaturedMenu({ items, content }: Props) {
   const linkLabel = content?.linkLabel || DEFAULT_FEATURED_MENU.linkLabel;
 
   return (
-    <section id="menu-preview" className="py-20 sm:py-28 bg-white">
+    <section id="menu-preview" className="py-12 sm:py-20 lg:py-28 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section header */}
         <motion.div
@@ -49,18 +49,18 @@ export default function FeaturedMenu({ items, content }: Props) {
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: '-100px' }}
-          className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12"
+          className="flex items-end justify-between gap-4 mb-6 sm:mb-12"
         >
           <div>
             <motion.span
               variants={fadeInUp}
-              className="text-sm font-semibold text-coffee-600 uppercase tracking-wider"
+              className="text-xs sm:text-sm font-semibold text-coffee-600 uppercase tracking-wider"
             >
               {eyebrow}
             </motion.span>
             <motion.h2
               variants={fadeInUp}
-              className="mt-3 text-3xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight"
+              className="mt-1 sm:mt-3 text-2xl sm:text-4xl lg:text-5xl font-extrabold text-coffee-900 tracking-tight"
             >
               {title}
             </motion.h2>
@@ -68,7 +68,7 @@ export default function FeaturedMenu({ items, content }: Props) {
           <motion.a
             variants={fadeInUp}
             href="/menu"
-            className="text-coffee-700 font-semibold text-sm hover:text-coffee-800 transition-colors inline-flex items-center gap-1 group"
+            className="text-coffee-700 font-semibold text-xs sm:text-sm hover:text-coffee-800 transition-colors inline-flex items-center gap-1 group whitespace-nowrap pb-1"
           >
             {linkLabel}
             <span className="transition-transform group-hover:translate-x-1">→</span>
@@ -81,17 +81,17 @@ export default function FeaturedMenu({ items, content }: Props) {
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: '-50px' }}
-          className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6"
+          className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6"
         >
           {items.map((item) => (
             <motion.div
               key={item.id}
               variants={fadeInUp}
               whileHover={{ y: -8 }}
-              className="group bg-white rounded-2xl overflow-hidden border border-coffee-100/80 hover:shadow-soft-lg transition-shadow duration-300 cursor-pointer"
+              className="group bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-coffee-100/80 hover:shadow-soft-lg transition-shadow duration-300 cursor-pointer flex flex-col"
             >
               {/* Image or placeholder */}
-              <div className="relative aspect-[4/5] overflow-hidden bg-coffee-50">
+              <div className="relative aspect-square sm:aspect-[4/5] overflow-hidden bg-coffee-50">
                 {item.image_url ? (
                   <img
                     src={item.image_url}
@@ -103,16 +103,16 @@ export default function FeaturedMenu({ items, content }: Props) {
                   /* Neutral placeholder when no image is configured */
                   <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-coffee-50 to-sand-100">
                     {item.badge === 'makanan' ? (
-                      <UtensilsCrossed className="w-10 h-10 text-coffee-300" />
+                      <UtensilsCrossed className="w-8 h-8 sm:w-10 sm:h-10 text-coffee-300" />
                     ) : (
-                      <Coffee className="w-10 h-10 text-coffee-300" />
+                      <Coffee className="w-8 h-8 sm:w-10 sm:h-10 text-coffee-300" />
                     )}
                   </div>
                 )}
 
                 {item.badge && (
                   <span
-                    className={`absolute top-3 left-3 px-3 py-1 rounded-full text-xs font-bold ${
+                    className={`absolute top-2 left-2 sm:top-3 sm:left-3 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold ${
                       item.badge === 'Bestseller'
                         ? 'bg-coffee-700 text-cream'
                         : 'bg-sand-300 text-coffee-900'
@@ -124,25 +124,25 @@ export default function FeaturedMenu({ items, content }: Props) {
               </div>
 
               {/* Content */}
-              <div className="p-5">
-                <h3 className="font-bold text-coffee-900 text-base leading-snug mb-1">
+              <div className="p-3 sm:p-5 flex flex-col flex-1">
+                <h3 className="font-bold text-coffee-900 text-xs sm:text-base leading-snug mb-1 line-clamp-1 sm:line-clamp-none">
                   {item.name}
                 </h3>
                 {item.description && (
-                  <p className="text-sm text-charcoal/50 leading-relaxed mb-4 line-clamp-2">
+                  <p className="text-[11px] sm:text-sm text-charcoal/50 leading-relaxed mb-2 sm:mb-4 line-clamp-1 sm:line-clamp-2">
                     {item.description}
                   </p>
                 )}
-                <div className="flex items-center justify-between mt-auto pt-3">
-                  <span className="text-lg font-extrabold text-coffee-700">
+                <div className="flex items-center justify-between mt-auto pt-2 sm:pt-3">
+                  <span className="text-xs sm:text-base lg:text-lg font-bold sm:font-extrabold text-coffee-700">
                     {formatRupiah(item.price)}
                   </span>
                   <a
                     href="/menu"
                     aria-label={`Pesan ${item.name}`}
-                    className="flex items-center justify-center w-9 h-9 rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90 group-hover:bg-coffee-700 group-hover:text-cream"
+                    className="flex items-center justify-center w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-coffee-50 text-coffee-700 hover:bg-coffee-700 hover:text-cream transition-all active:scale-90 group-hover:bg-coffee-700 group-hover:text-cream shrink-0"
                   >
-                    <Plus className="w-5 h-5" />
+                    <Plus className="w-3.5 h-3.5 sm:w-5 sm:h-5" />
                   </a>
                 </div>
               </div>
